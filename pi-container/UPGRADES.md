@@ -1,8 +1,32 @@
 # Upgrade notes
 
-Status: **not implemented**. This file records the audit findings, review notes,
-and the changes worth making next. The code in this branch is the bootstrap
-snapshot that was tested first.
+Status: **partially implemented**. This file records the audit findings, review
+notes, and the changes worth making next. The bootstrap snapshot is the starting
+point; the current branch also includes the first round of hardening.
+
+Implemented in this branch:
+
+- fail-closed check for an explicitly non-internal `pi-locked` network;
+- filtered `pi.env` (only `GITHUB_TOKEN` and commit identity) and the real key
+  kept in `proxy.env`;
+- config/env path guards and refusal of `$HOME`, ancestors of `$HOME`, and
+  common secrets directories as project mounts;
+- end-to-end `PI_PROXY_PORT` wiring and hash-based proxy staleness checks;
+- locked-network bind validation in `proxy.py`;
+- startup validation and rotation of the proxy's CA and leaf certificate;
+- `SSL_CERT_FILE`, `CURL_CA_BUNDLE`, `REQUESTS_CA_BUNDLE`, and loopback
+  `NO_PROXY` for Pi;
+- bounded body reads, cached TLS contexts, log sanitization, and an EOF fix in
+  the proxy;
+- `--clone` volume naming, interrupted-clone detection, and stricter repository
+  validation;
+- `--help`, unknown-option rejection, symlink-aware env permissions, and extra
+  egress probes in `check`;
+- `setup.zig` now exports `CONTAINER_CLI`, handles larger env files, and
+  re-checks both keys after editing.
+
+Still open: the rest of Priority 1 (#8 proxy env, #9 client auth), `--scratch`,
+non-root execution, the remaining check/proxy work, tests, and packaging.
 
 Baseline verification (run from inside the Pi container):
 

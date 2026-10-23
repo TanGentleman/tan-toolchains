@@ -9,6 +9,8 @@ The Mac needs `container` and nothing else. No Python, and no extra DNS setup.
 ```text
 Mac
 ├── ~/.config/pi-container/env          both keys, mode 600
+├── ~/.config/pi-container/proxy.env    copy of the OpenRouter key, mode 600
+├── ~/.config/pi-container/pi.env       filtered GitHub token and commit identity, mode 600
 ├── ~/.config/pi-container/certs/       the proxy CA, mounted into Pi
 ├── ~/.config/pi-container/private/     the proxy's keys, mounted only into pi-proxy
 ├── pi-proxy                            stays up between Pi sessions
@@ -55,6 +57,8 @@ It confirms Pi has the OpenRouter placeholder rather than your key, prints the k
 limit, checks GitHub, and checks that `example.com` is refused and that a direct connection
 to an IP address fails.
 It spends no OpenRouter credits. The first run is the slow one, because it builds `pi-proxy`.
+`run.sh` is the only setup entry point you need; `build.zig` and `setup.zig` are an optional
+convenience and do not have to be built to run Pi.
 
 If an earlier try created the `host.container.internal` domain, delete it so iCloud Private Relay
 can stay on:
@@ -79,14 +83,21 @@ pic --clone you/your-repo
 VM. `pi-proxy` keeps running. Do not run `/login`. That would save a real key into the Pi
 settings volume.
 
+The default mode mounts the current folder. Treat that as a convenience for repos you
+already trust; use `--clone` for anything else. `run.sh --help` lists the flags.
+
 `run.sh proxy` follows `pi-proxy`'s log. `run.sh proxy-stop` stops it. A normal `pic` starts
-it again when it is not already up. The log lines are `listening`, `allow`, and `deny`.
+it again when it is not already up. Log lines start with a timestamp and then `listening`,
+`allow`, `deny`, or `openrouter`.
 `run.sh` waits until that listener answers a health check run inside `pi-proxy`, and Pi
 uses that address.
 
 ## Keys
 
-The env file stays on the Mac. `run.sh` refuses to start unless it is mode 600.
+The env file stays on the Mac. `run.sh` refuses to start unless it is mode 600 or 400.
+`run.sh` writes two mode-600 copies: `proxy.env` contains only the OpenRouter key, and
+`pi.env` contains only the GitHub token and commit identity. Pi gets the filtered file,
+not the original env file.
 
 - **OpenRouter** is handed to `pi-proxy` as an environment variable, and to Pi as
   `sk-or-v1-placeholder`. The proxy puts the real key on the request. Set a credit limit
@@ -115,9 +126,13 @@ Pi's install ping and `gh` telemetry are turned off. `pi.dev` is not reachable a
 - If the Mac is forwarding IP (`sysctl net.inet.ip.forwarding` prints `1`), a host-only
   network can still open TCP to the internet. `run.sh check` reports that as a direct
   connection. Forwarding is off unless a VPN or Internet Sharing turned it on.
-- `run.sh` will not mount `~` or `/`. `--clone` keeps the repo in a volume until you `git push`.
+- `run.sh` will not mount `~`, `/`, an ancestor of `~`, a secrets directory such as
+  `~/.ssh`, or anything overlapping `~/.config/pi-container`. `--clone` keeps the repo in a
+  volume until you `git push`; it does not include uncommitted changes.
+- `PI_PROXY_PORT` (default 8888) sets the proxy port. The proxy container is recreated when
+  the port or its config changes.
   `container volume list` shows `pi-agent-home` and any clone volumes.
 - `PI_CPUS` (default 4) and `PI_MEMORY` (default 4G) size the Pi VM. The proxy VM is 1 CPU and 1G.
 - Rebuild the Pi image with `--build-arg PI_VERSION=…` or `--build-arg ZIG_VERSION=…` to
-  upgrade tools. Changing the lock does not require that rebuild: `run.sh` rebuilds
+  upgrade tools. Changing the proxy does not require that rebuild: `run.sh` rebuilds
   `pi-proxy` when `proxy.py` or `Dockerfile.proxy` changes.

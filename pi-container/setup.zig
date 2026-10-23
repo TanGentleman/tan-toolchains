@@ -52,6 +52,11 @@ pub fn main(init: std.process.Init) !u8 {
     }
 
     const args = try init.minimal.args.toSlice(arena);
+    if (args.len == 2 and (std.mem.eql(u8, args[1], "-h") or std.mem.eql(u8, args[1], "--help"))) {
+        try w.writeAll(usage);
+        try w.flush();
+        return 0;
+    }
     if (args.len > 2) {
         try w.writeAll(usage);
         try w.flush();
@@ -60,7 +65,7 @@ pub fn main(init: std.process.Init) !u8 {
     const repo: ?[]const u8 = if (args.len == 2) args[1] else null;
 
     // README: "Then, from this folder" — the build and check steps need Dockerfile/run.sh.
-    for ([_][]const u8{ "Dockerfile", "run.sh" }) |file| {
+    for ([_][]const u8{ "Dockerfile", "Dockerfile.proxy", "proxy.py", "run.sh" }) |file| {
         Io.Dir.cwd().access(io, file, .{ .read = true }) catch {
             try say(w, "pi-container-setup: no {s} in the current folder; run me from the pi-container folder\n", .{file});
             return 2;
@@ -77,12 +82,16 @@ pub fn main(init: std.process.Init) !u8 {
         },
         else => return err,
     };
-    const rc1 = try run(w, io, &.{ container, "--version" });
+    const rc1 = try run(w, io, &.{ container, "--version" }, null);
     if (rc1 != 0) return rc1;
+
+    // Make sure the child run.sh uses the CLI we found, even if it is not on PATH.
+    var child_env = try init.environ_map.clone(arena);
+    try child_env.put("CONTAINER_CLI", container);
 
     // 2. container system start
     try say(w, "== 2/7: container system start (answer Y to install the default kernel)\n", .{});
-    const rc2 = try run(w, io, &.{ container, "system", "start" });
+    const rc2 = try run(w, io, &.{ container, "system", "start" }, null);
     if (rc2 != 0) return rc2;
 
     // 3. mkdir -p ~/.config/pi-container; write the env skeleton if missing; chmod 600
@@ -110,10 +119,12 @@ pub fn main(init: std.process.Init) !u8 {
     try cfg_dir.setFilePermissions(io, "env", Io.Dir.Permissions.fromMode(0o600), .{});
 
     // 4. open -e the env file only if either key is missing or still empty
-    var env_buffer: [4096]u8 = undefined;
-    const env_data = cfg_dir.readFile(io, "env", &env_buffer) catch |err| switch (err) {
+    const env_data = cfg_dir.readFileAlloc(io, "env", arena, .limited(1024 * 1024)) catch |err| switch (err) {
         error.FileNotFound => env_template, // just created; nothing pasted yet
-        else => return err,
+        else => {
+            try say(w, "pi-container-setup: cannot read the env file: {t}\n", .{err});
+            return 1;
+        },
     };
     const keys_ready = hasKey(env_data, "OPENROUTER_API_KEY=") and hasKey(env_data, "GITHUB_TOKEN=");
     const env_path = try std.fmt.allocPrint(arena, "{s}/.config/pi-container/env", .{home});
@@ -121,7 +132,7 @@ pub fn main(init: std.process.Init) !u8 {
         try say(w, "== 4/7: both keys already set in {s}; skipping the editor\n", .{env_path});
     } else {
         try say(w, "== 4/7: open {s} for editing\n", .{env_path});
-        const rc4 = try run(w, io, &.{ "open", "-e", env_path });
+        const rc4 = try run(w, io, &.{ "open", "-e", env_path }, null);
         if (rc4 != 0) return rc4;
         try say(w,
             \\   Paste OPENROUTER_API_KEY and GITHUB_TOKEN after the = signs (no quotes) and save.
@@ -135,27 +146,38 @@ pub fn main(init: std.process.Init) !u8 {
             const byte = try stdin_reader.interface.takeByte();
             if (byte == 0 or byte == '\n') break; // 0 = end of stream
         }
+        const updated = cfg_dir.readFileAlloc(io, "env", arena, .limited(1024 * 1024)) catch |err| switch (err) {
+            error.FileNotFound => env_template,
+            else => {
+                try say(w, "pi-container-setup: cannot read the env file: {t}\n", .{err});
+                return 1;
+            },
+        };
+        if (!(hasKey(updated, "OPENROUTER_API_KEY=") and hasKey(updated, "GITHUB_TOKEN="))) {
+            try say(w, "pi-container-setup: both keys are still empty; edit {s} and rerun\n", .{env_path});
+            return 1;
+        }
     }
 
     // 5. container build -t pi-agent:local .
     try say(w, "== 5/7: container build -t pi-agent:local .\n", .{});
-    const rc5 = try run(w, io, &.{ container, "build", "-t", "pi-agent:local", "." });
+    const rc5 = try run(w, io, &.{ container, "build", "-t", "pi-agent:local", "." }, null);
     if (rc5 != 0) return rc5;
 
     // 6. ./run.sh check [OWNER/REPO] — validates both keys, costs nothing
     if (repo) |r| {
         try say(w, "== 6/7: ./run.sh check {s}\n", .{r});
-        const rc6 = try run(w, io, &.{ "./run.sh", "check", r });
+        const rc6 = try run(w, io, &.{ "./run.sh", "check", r }, &child_env);
         if (rc6 != 0) return rc6;
     } else {
         try say(w, "== 6/7: ./run.sh check (pass OWNER/REPO to also fetch the repo's HEAD)\n", .{});
-        const rc6 = try run(w, io, &.{ "./run.sh", "check" });
+        const rc6 = try run(w, io, &.{ "./run.sh", "check" }, &child_env);
         if (rc6 != 0) return rc6;
     }
 
     // 7. README, Use: Pi on this folder. An interactive chat — /quit exits, /model picks.
     try say(w, "== 7/7: ./run.sh — starting Pi on this folder (/quit to exit, /model to pick a model)\n", .{});
-    const rc7 = try run(w, io, &.{"./run.sh"});
+    const rc7 = try run(w, io, &.{"./run.sh"}, &child_env);
     if (rc7 != 0) return rc7;
 
     return 0;
@@ -167,8 +189,8 @@ fn say(w: *Io.Writer, comptime fmt: []const u8, args: anytype) !void {
 }
 
 /// Runs a command with inherited stdio; returns its exit code (127 if not found).
-fn run(w: *Io.Writer, io: Io, argv: []const []const u8) !u8 {
-    var child = std.process.spawn(io, .{ .argv = argv }) catch |err| switch (err) {
+fn run(w: *Io.Writer, io: Io, argv: []const []const u8, env: ?*const std.process.Environ.Map) !u8 {
+    var child = std.process.spawn(io, .{ .argv = argv, .environ_map = env }) catch |err| switch (err) {
         error.FileNotFound => {
             try say(w, "pi-container-setup: '{s}' not found in PATH\n", .{argv[0]});
             return 127;
@@ -193,7 +215,7 @@ fn hasKey(data: []const u8, comptime key: []const u8) bool {
         const trimmed = std.mem.trim(u8, line, " \t\r");
         if (std.mem.startsWith(u8, trimmed, key)) {
             const value = std.mem.trim(u8, trimmed[key.len..], " \t\r");
-            return value.len > 0;
+            if (value.len > 0) return true;
         }
     }
     return false;

@@ -7,6 +7,7 @@ which never enters the Pi container. Refuses every other destination.
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import os
 import socket
 import ssl
@@ -29,14 +30,30 @@ CERT = os.environ.get("PI_PROXY_CERT", "/private/openrouter.pem")
 KEY = os.environ.get("PI_PROXY_KEY", "/private/openrouter.key")
 CA = os.environ.get("PI_PROXY_CA", "/certs/ca.pem")
 ADDR = os.environ.get("PI_PROXY_ADDR_FILE", "/private/proxy.addr")
-PORT = int(os.environ.get("PI_PROXY_PORT", "8888"))
+
+
+def env_int(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)))
+    except ValueError:
+        return 0
+
+
+PORT = env_int("PI_PROXY_PORT", 8888)
 UPSTREAM_HOST = os.environ.get("PI_PROXY_OPENROUTER_HOST", "")
-UPSTREAM_PORT = int(os.environ.get("PI_PROXY_OPENROUTER_PORT", "443"))
+UPSTREAM_PORT = env_int("PI_PROXY_OPENROUTER_PORT", 443)
 UPSTREAM_TLS = os.environ.get("PI_PROXY_OPENROUTER_TLS", "1") != "0"
+LOCKED_CIDR = os.environ.get("PI_PROXY_LOCKED_CIDR", "172.30.240.0/24")
+
+
+def safe(value: str, limit: int = 200) -> str:
+    """Keep client-controlled log fields printable and short."""
+    text = "".join(c if 32 <= ord(c) < 127 else "?" for c in value)
+    return text[:limit]
 
 
 def log(msg: str) -> None:
-    print(msg, file=sys.stderr, flush=True)
+    print(time.strftime("%H:%M:%S"), msg, file=sys.stderr, flush=True)
 
 
 def file_mode(path: str) -> int:
@@ -149,8 +166,8 @@ async def tunnel(client_r: asyncio.StreamReader, client_w: asyncio.StreamWriter,
     try:
         remote_r, remote_w = await asyncio.wait_for(asyncio.open_connection(host, 443), 20)
     except Exception as exc:
-        log(f"github connect failed {host}: {exc}")
-        client_w.write(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n")
+        log(f"github connect failed {safe(host)}: {safe(str(exc))}")
+        client_w.write(b"HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
         await client_w.drain()
         return
     client_w.write(b"HTTP/1.1 200 Connection Established\r\n\r\n")
@@ -158,12 +175,28 @@ async def tunnel(client_r: asyncio.StreamReader, client_w: asyncio.StreamWriter,
     await asyncio.gather(pipe(client_r, remote_w), pipe(remote_r, client_w))
 
 
+_server_ctx: ssl.SSLContext | None = None
+_upstream_ctx: ssl.SSLContext | None = None
+
+
 def server_context() -> ssl.SSLContext:
-    ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
-    ctx.minimum_version = ssl.TLSVersion.TLSv1_2
-    ctx.load_cert_chain(CERT, KEY)
-    ctx.set_alpn_protocols(["http/1.1"])
-    return ctx
+    global _server_ctx
+    if _server_ctx is None:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.minimum_version = ssl.TLSVersion.TLSv1_2
+        ctx.load_cert_chain(CERT, KEY)
+        ctx.set_alpn_protocols(["http/1.1"])
+        _server_ctx = ctx
+    return _server_ctx
+
+
+def upstream_context() -> ssl.SSLContext | None:
+    global _upstream_ctx
+    if not UPSTREAM_TLS:
+        return None
+    if _upstream_ctx is None:
+        _upstream_ctx = ssl.create_default_context()
+    return _upstream_ctx
 
 
 async def forward_openrouter(host: str, method: str, target: str, headers: list[bytes], body: bytes, writer: asyncio.StreamWriter) -> None:
@@ -173,15 +206,15 @@ async def forward_openrouter(host: str, method: str, target: str, headers: list[
         "authorization", "proxy-authorization", "proxy-connection", "connection",
         "transfer-encoding", "content-length", "host",
     }]
-    pairs.append(("Host", upstream))
+    host_header = upstream if UPSTREAM_PORT == 443 else f"{upstream}:{UPSTREAM_PORT}"
+    pairs.append(("Host", host_header))
     pairs.append(("Authorization", "Bearer " + key))
     pairs.append(("Content-Length", str(len(body))))
     pairs.append(("Connection", "close"))
     request = (method + " " + target + " HTTP/1.1\r\n").encode()
     request += "".join(f"{n}: {v}\r\n" for n, v in pairs).encode() + b"\r\n" + body
-    ssl_ctx = ssl.create_default_context() if UPSTREAM_TLS else None
     remote_r, remote_w = await asyncio.wait_for(
-        asyncio.open_connection(upstream, UPSTREAM_PORT if UPSTREAM_HOST else 443, ssl=ssl_ctx), 20)
+        asyncio.open_connection(upstream, UPSTREAM_PORT, ssl=upstream_context()), 20)
     try:
         remote_w.write(request)
         await remote_w.drain()
@@ -210,8 +243,8 @@ async def mitm(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, host:
             writer.write(b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
             await writer.drain()
             return
-        body = await read_body(reader, head[1:])
-        log(f"openrouter {method} {path}")
+        body = await asyncio.wait_for(read_body(reader, head[1:]), 120)
+        log(f"openrouter {safe(method, 20)} {safe(path)}")
         try:
             await forward_openrouter(host, method, target, head[1:], body, writer)
         except Exception as exc:
@@ -233,7 +266,7 @@ async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> 
             if port != "443" or not host or any(c in host for c in " /\\"):
                 raise PermissionError(target)
             if allowed_github(host):
-                log(f"allow {host}")
+                log(f"allow {safe(host)}")
                 await tunnel(reader, writer, host)
                 return
             if allowed_openrouter(host):
@@ -247,9 +280,11 @@ async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> 
             return
         raise PermissionError(target)
     except PermissionError as exc:
-        log(f"deny {exc}")
+        log(f"deny {safe(str(exc))}")
         writer.write(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
         await writer.drain()
+    except EOFError:
+        pass
     except Exception as exc:
         log(f"error {type(exc).__name__}")
         try:
@@ -270,9 +305,36 @@ def openssl(args: list[str]) -> None:
     subprocess.run(args, check=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+def openssl_ok(args: list[str]) -> bool:
+    try:
+        return subprocess.run(args, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                              stderr=subprocess.DEVNULL).returncode == 0
+    except OSError:
+        return False
+
+
+def certs_ok() -> bool:
+    if not (os.path.isfile(CERT) and os.path.isfile(KEY) and os.path.isfile(CA)):
+        return False
+    # Give the operator warning before the proxy stops working.
+    for path in (CA, CERT):
+        if not openssl_ok(["openssl", "x509", "-checkend", "2592000", "-noout", "-in", path]):
+            return False
+    if not openssl_ok(["openssl", "verify", "-CAfile", CA, CERT]):
+        return False
+    try:
+        server_context()
+    except Exception:
+        return False
+    return True
+
+
 def ensure_certs() -> None:
-    if os.path.isfile(CERT) and os.path.isfile(KEY) and os.path.isfile(CA):
+    global _server_ctx
+    if certs_ok():
         return
+    log("regenerating TLS certificates")
+    _server_ctx = None
     os.makedirs(os.path.dirname(CERT), exist_ok=True)
     os.makedirs(os.path.dirname(CA), exist_ok=True)
     openssl(
@@ -283,7 +345,8 @@ def ensure_certs() -> None:
     openssl(
         ["openssl", "req", "-newkey", "rsa:2048", "-nodes", "-keyout", KEY, "-out", csr, "-subj", "/CN=openrouter.ai"])
     with open(ext, "w", encoding="utf-8") as fh:
-        fh.write("subjectAltName=DNS:openrouter.ai,DNS:*.openrouter.ai\nbasicConstraints=CA:FALSE\nextendedKeyUsage=serverAuth\n")
+        fh.write("subjectAltName=DNS:openrouter.ai,DNS:*.openrouter.ai,DNS:*.api.openrouter.ai\n"
+                 "basicConstraints=CA:FALSE\nextendedKeyUsage=serverAuth\n")
     openssl(
         ["openssl", "x509", "-req", "-in", csr, "-CA", CA,
          "-CAkey", os.path.join(os.path.dirname(CERT), "ca.key"),
@@ -294,6 +357,8 @@ def ensure_certs() -> None:
         os.chmod(path, 0o600)
     os.remove(csr)
     os.remove(ext)
+    if not certs_ok():
+        raise RuntimeError("generated TLS certificates do not verify")
 
 
 def iface_ipv4(name: str) -> str | None:
@@ -324,6 +389,25 @@ def default_iface() -> str | None:
     return None
 
 
+def locked_network() -> ipaddress.IPv4Network | None:
+    try:
+        return ipaddress.ip_network(LOCKED_CIDR, strict=False)
+    except ValueError:
+        return None
+
+
+def usable_locked_ip(ip: str | None, default_ip: str | None) -> bool:
+    if not ip or ip in {"0.0.0.0", "255.255.255.255"} or ip == default_ip:
+        return False
+    network = locked_network()
+    if network is not None:
+        try:
+            return ipaddress.ip_address(ip) in network
+        except ValueError:
+            return False
+    return True
+
+
 def locked_ip() -> str | None:
     """Address on the interface that is not the default route.
 
@@ -331,10 +415,11 @@ def locked_ip() -> str | None:
     the one with internet. Pi shares only the other network, and that is the
     only address this proxy listens on.
     """
+    default = default_iface()
+    default_ip = iface_ipv4(default) if default else None
     forced = os.environ.get("PI_PROXY_BIND", "")
     if forced:
-        return forced
-    default = default_iface()
+        return forced if usable_locked_ip(forced, default_ip) else None
     if not default:
         return None
     try:
@@ -346,7 +431,7 @@ def locked_ip() -> str | None:
         if name == "lo" or name == default:
             continue
         ip = iface_ipv4(name)
-        if ip and ip != "0.0.0.0":
+        if usable_locked_ip(ip, default_ip):
             chosen = ip
     return chosen
 
@@ -373,10 +458,13 @@ def publish_addr(bind: str) -> None:
 
 
 def main() -> None:
+    if not 1 <= PORT <= 65535:
+        raise SystemExit("proxy: PI_PROXY_PORT must be between 1 and 65535")
     clear_addr()
     try:
         openrouter_key()
         ensure_certs()
+        server_context()
     except Exception as exc:
         raise SystemExit(f"proxy: {exc}") from exc
     bind = None
@@ -386,7 +474,7 @@ def main() -> None:
             break
         time.sleep(0.1)
     if not bind:
-        raise SystemExit("proxy: no address on the locked network")
+        raise SystemExit(f"proxy: no address on the locked network (expected {LOCKED_CIDR})")
 
     async def serve() -> None:
         server = await asyncio.start_server(handle, bind, PORT)
