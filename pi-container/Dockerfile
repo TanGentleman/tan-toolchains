@@ -33,9 +33,8 @@ RUN name="zig-$(uname -m)-linux-${ZIG_VERSION}" && cd /tmp \
     && tar -xJf "${name}.tar.xz" -C /opt && rm "${name}".tar.xz* \
     && ln -s "/opt/${name}/zig" /usr/local/bin/zig
 
-# A cold `zig init` spends ~50s populating ~60MB in Zig's global cache (it
-# compiles compiler_rt and the build runner). Warm that cache at image-build
-# time so the first Zig command in a fresh Pi container takes seconds instead.
+# Cold `zig init` spends ~50s building compiler_rt and the build runner.
+# Warm the cache so the first Zig command in a fresh container is fast.
 RUN tmp="$(mktemp -d)" \
     && cd "$tmp" \
     && zig init --minimal >/dev/null \
@@ -52,7 +51,7 @@ RUN mkdir -p /root/.agents/skills/zigpeek && printf '%s\n' \
     'Run `zigpeek info` before writing or reviewing Zig. It explains search, get and builtins.' \
     > /root/.agents/skills/zigpeek/SKILL.md
 
-# gh hands GITHUB_TOKEN to git for github.com only; SSH remotes are rewritten to HTTPS so it applies.
+# gh supplies GITHUB_TOKEN to git; rewrite SSH remotes to HTTPS so it applies.
 RUN git config --system credential.https://github.com.helper '!gh auth git-credential' \
     && git config --system url.https://github.com/.insteadOf git@github.com: \
     && git config --system --add url.https://github.com/.insteadOf ssh://git@github.com/ \

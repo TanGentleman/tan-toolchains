@@ -32,7 +32,7 @@ if [ "${1:-}" = --help ] || [ "${1:-}" = -h ] || [ "${1:-}" = help ]; then
 fi
 
 file_mode() {
-  # Follow symlinks so a 600 target is not rejected because the link is 777.
+  # Check the target, not a 777 symlink.
   if stat -Lc %a "$1" >/dev/null 2>&1; then stat -Lc %a "$1"; else stat -Lf %Lp "$1"; fi
 }
 
@@ -40,7 +40,7 @@ physical_dir() {
   (CDPATH= cd -- "$1" 2>/dev/null && pwd -P)
 }
 
-# Resolve symlinks when realpath is available, otherwise resolve the parent.
+# realpath when available; otherwise resolve the parent.
 physical_path() {
   local p=$1 d t
   [ -e "$p" ] || [ -L "$p" ] || { printf '%s\n' "$p"; return 0; }
@@ -79,8 +79,7 @@ require_env() {
   fi
 }
 
-# Refuse to create secrets inside the project tree when the project will be
-# mounted, so `private/proxy.env` and `pi.env` cannot end up inside Pi's view.
+# Keep secrets outside a mounted project.
 guard_config() {
   local pwd_phys cfg_phys env_phys
   pwd_phys=$(physical_dir "$PWD") || return 0
@@ -109,8 +108,7 @@ ensure_network() {
   "$cli" network create --internal pi-locked --subnet 172.30.240.0/24
 }
 
-# The proxy gets a mode-600 file, not an environment variable, so the real key
-# does not show up in `container inspect pi-proxy`.
+# A file keeps the key out of `container inspect pi-proxy`.
 write_proxy_env() {
   mkdir -p "$cfg/private"
   chmod 700 "$cfg/private"
@@ -135,11 +133,10 @@ write_proxy_env() {
     mv "$tmp" "$proxy_env"
     chmod 600 "$proxy_env"
   fi
-  rm -f "$cfg/proxy.env" # pre-#8 location
+  rm -f "$cfg/proxy.env" # old location
 }
 
-# Pi gets only the GitHub token and commit identity. Other env-file entries stay
-# on the Mac, and the real OpenRouter key is never passed to Pi.
+# Pi gets only the GitHub token and commit identity.
 write_pi_env() {
   mkdir -p "$cfg"
   old_umask=$(umask)
@@ -165,8 +162,7 @@ write_pi_env() {
   fi
 }
 
-# The default mode mounts the current directory. Refuse paths that would expose
-# the config directory, the env file, or a known secrets directory to Pi.
+# Refuse project mounts that expose secrets.
 guard_mount() {
   local pwd_phys cfg_phys env_phys home_phys
   pwd_phys=$(physical_dir "$PWD") || { echo "run.sh: cannot resolve $PWD" >&2; exit 1; }
@@ -192,9 +188,7 @@ guard_mount() {
 
 addr_file() { printf '%s\n' "$cfg/private/proxy.addr"; }
 
-# `container inspect` prints pretty JSON. Current releases nest the value in
-# status.state. Older releases use a top-level status string. Split on "}"
-# so either shape is one record.
+# Accept both nested and top-level state shapes from `container inspect`.
 proxy_state() {
   json=$("$cli" inspect "$proxy_name" 2>/dev/null) || { printf '\n'; return; }
   printf '%s\n' "$json" | awk '
@@ -256,15 +250,13 @@ ensure_proxy() {
       "$cli" start "$proxy_name"
       return ;;
     '')
-      # No container yet.
       ;;
     *)
-      # An unrecognised state: recreate rather than collide with the name.
+      # Unknown state: recreate to avoid a name collision.
       "$cli" delete --force "$proxy_name" >/dev/null 2>&1 || true
       ;;
   esac
-  # The address file is published only after the socket is bound. Drop a
-  # stale one so a previous run cannot look ready during this boot.
+  # Drop a stale address; proxy.py publishes only after binding.
   rm -f "$(addr_file)"
   "$cli" run -d --name "$proxy_name" --init \
     --cpus 1 --memory 1G \
@@ -275,8 +267,7 @@ ensure_proxy() {
     "$proxy_image" >/dev/null
 }
 
-# Pi reaches the proxy on the locked network. Ask from inside that container,
-# which is the path Pi uses.
+# Ask from inside pi-proxy, the same path Pi uses.
 proxy_answers() {
   "$cli" exec "$proxy_name" /usr/local/bin/python3 -c \
     'import sys,urllib.request
@@ -311,7 +302,7 @@ proxy_ip() {
   exit 1
 }
 
-# Tests source this file to call the functions above. They do not start a container.
+# Tests source this file without starting containers.
 if [ "${PI_SOURCE_ONLY:-}" = 1 ]; then
   return 0 2>/dev/null || exit 0
 fi
@@ -382,8 +373,7 @@ esac
 read -r -d '' prep <<'EOF' || true
 git config --global http.proxy "$HTTPS_PROXY"
 git config --global https.proxy "$HTTPS_PROXY"
-# GIT_AUTHOR_* is enough for commits; use it for user.name/email so the
-# committer identity is filled in too. Explicit GIT_COMMITTER_* still wins.
+# Make GIT_AUTHOR_* enough for both identities.
 name="${GIT_AUTHOR_NAME:-${GIT_COMMITTER_NAME:-}}"
 email="${GIT_AUTHOR_EMAIL:-${GIT_COMMITTER_EMAIL:-}}"
 [ -z "$name" ] || git config --global user.name "$name"
@@ -417,8 +407,7 @@ if curl -fsS -m 15 -o /dev/null https://example.com; then
   echo "FAIL: example.com was reachable"; s=1
 else echo "example.com blocked"; fi
 echo "== no route around the proxy"
-# An IP, not a name. Host-only networks have no DNS, so a name failing
-# only proves that, and still leaves TCP egress open when the Mac forwards.
+# Check an IP, not a name: a name only proves DNS is absent.
 code=$(env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
     -u ALL_PROXY -u all_proxy \
     curl -sS --noproxy '*' -m 5 -o /dev/null -w '%{http_code}' http://1.1.1.1/ || true)

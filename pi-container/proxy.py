@@ -1,9 +1,5 @@
 #!/usr/bin/env python3
-"""Allowlist proxy for the Pi container. It runs in its own container, not on the Mac.
-
-Tunnels GitHub. Terminates TLS for openrouter.ai and adds the real API key,
-which never enters the Pi container. Refuses every other destination.
-"""
+"""Allowlist proxy: tunnels GitHub, MITMs openrouter.ai to add the key, refuses the rest."""
 from __future__ import annotations
 
 import asyncio
@@ -297,8 +293,7 @@ async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> 
 
 
 def openssl(args: list[str]) -> None:
-    # Key generation writes a progress meter to stderr. That is the wall of
-    # symbols in `container logs`, and it is not a failure.
+    # Key generation writes progress to stderr; hide it.
     subprocess.run(args, check=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
@@ -313,7 +308,7 @@ def openssl_ok(args: list[str]) -> bool:
 def certs_ok() -> bool:
     if not (os.path.isfile(CERT) and os.path.isfile(KEY) and os.path.isfile(CA)):
         return False
-    # Give the operator warning before the proxy stops working.
+    # Warn before expiry.
     for path in (CA, CERT):
         if not openssl_ok(["openssl", "x509", "-checkend", "2592000", "-noout", "-in", path]):
             return False
@@ -406,12 +401,7 @@ def usable_locked_ip(ip: str | None, default_ip: str | None) -> bool:
 
 
 def locked_ip() -> str | None:
-    """Address on the interface that is not the default route.
-
-    The proxy container is on two networks. The first, the default route, is
-    the one with internet. Pi shares only the other network, and that is the
-    only address this proxy listens on.
-    """
+    """Pick the non-default interface; that is the only one Pi can reach."""
     default = default_iface()
     default_ip = iface_ipv4(default) if default else None
     forced = os.environ.get("PI_PROXY_BIND", "")
@@ -441,7 +431,7 @@ def clear_addr() -> None:
 
 
 def publish_addr(bind: str) -> None:
-    """Tell the Mac which address this process bound, so Pi can use it as its proxy."""
+    """Publish the bound address for run.sh."""
     directory = os.path.dirname(ADDR)
     if directory:
         os.makedirs(directory, exist_ok=True)

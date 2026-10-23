@@ -1,4 +1,4 @@
-# The allowlist proxy. Python stays in this image; the Mac does not need it.
+# Python stays in this image; the Mac does not need it.
 FROM python:3.12-slim-bookworm
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates openssl \
