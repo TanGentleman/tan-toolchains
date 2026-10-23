@@ -9,10 +9,9 @@ The Mac needs `container` and nothing else. No Python, and no extra DNS setup.
 ```text
 Mac
 ├── ~/.config/pi-container/env          both keys, mode 600
-├── ~/.config/pi-container/proxy.env    copy of the OpenRouter key, mode 600
 ├── ~/.config/pi-container/pi.env       filtered GitHub token and commit identity, mode 600
 ├── ~/.config/pi-container/certs/       the proxy CA, mounted into Pi
-├── ~/.config/pi-container/private/     the proxy's keys, mounted only into pi-proxy
+├── ~/.config/pi-container/private/     the proxy's key, proxy.env, and TLS private keys; mounted only into pi-proxy
 ├── pi-proxy                            stays up between Pi sessions
 │     default network                   internet, so it can reach GitHub and OpenRouter
 │     pi-locked network                 host-only. This is the only address it listens on
@@ -99,14 +98,15 @@ uses that address.
 ## Keys
 
 The env file stays on the Mac. `run.sh` refuses to start unless it is mode 600 or 400.
-`run.sh` writes two mode-600 copies: `proxy.env` contains only the OpenRouter key, and
-`pi.env` contains only the GitHub token and commit identity. Pi gets the filtered file,
+`run.sh` writes two mode-600 copies: `private/proxy.env` contains only the OpenRouter key,
+and `pi.env` contains only the GitHub token and commit identity. Pi gets the filtered file,
 not the original env file.
 
-- **OpenRouter** is handed to `pi-proxy` as an environment variable, and to Pi as
-  `sk-or-v1-placeholder`. The proxy puts the real key on the request. Set a credit limit
-  on the key. Pi can still spend it, by asking the proxy to call OpenRouter, and Pi
-  cannot read the key. `container inspect pi-proxy` shows it; a Pi container does not.
+- **OpenRouter** is read by `pi-proxy` from `private/proxy.env`, which is mounted into the
+  proxy only. Pi gets `sk-or-v1-placeholder` instead. The proxy puts the real key on the
+  request. Set a credit limit on the key. Pi can still spend it, by asking the proxy to
+  call OpenRouter, and Pi cannot read the key. The key is not in the proxy's environment,
+  so `container inspect pi-proxy` does not show it.
 - **GitHub** is passed into Pi only. git and `gh` send it inside TLS to github.com, and a
   tunnel proxy cannot see or add that header. Make it a fine-grained token for **one repo**,
   with Contents and Pull requests set to Read and write, Workflows left off, and a short

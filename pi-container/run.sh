@@ -11,6 +11,7 @@ set -euo pipefail
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 env_file="${PI_ENV_FILE:-$HOME/.config/pi-container/env}"
 cfg="${PI_CONFIG_DIR:-$HOME/.config/pi-container}"
+proxy_env="$cfg/private/proxy.env"
 port="${PI_PROXY_PORT:-8888}"
 placeholder="sk-or-v1-placeholder"
 cli="${CONTAINER_CLI:-container}"
@@ -79,7 +80,7 @@ require_env() {
 }
 
 # Refuse to create secrets inside the project tree when the project will be
-# mounted, so `proxy.env` and `pi.env` cannot end up inside Pi's view.
+# mounted, so `private/proxy.env` and `pi.env` cannot end up inside Pi's view.
 guard_config() {
   local pwd_phys cfg_phys env_phys
   pwd_phys=$(physical_dir "$PWD") || return 0
@@ -108,12 +109,14 @@ ensure_network() {
   "$cli" network create --internal pi-locked --subnet 172.30.240.0/24
 }
 
-# The proxy container gets the OpenRouter key and nothing else from the env file.
+# The proxy gets a mode-600 file, not an environment variable, so the real key
+# does not show up in `container inspect pi-proxy`.
 write_proxy_env() {
-  mkdir -p "$cfg"
+  mkdir -p "$cfg/private"
+  chmod 700 "$cfg/private"
   old_umask=$(umask)
   umask 077
-  tmp=$(mktemp "${cfg}/proxy.env.XXXXXX")
+  tmp=$(mktemp "${proxy_env}.XXXXXX")
   umask "$old_umask"
   grep '^OPENROUTER_API_KEY=' "$env_file" | tail -n 1 | tr -d '\r' > "$tmp" || true
   if ! grep -q '^OPENROUTER_API_KEY=.' "$tmp"; then
@@ -126,12 +129,13 @@ write_proxy_env() {
     echo "run.sh: OPENROUTER_API_KEY is still the placeholder" >&2
     exit 1
   fi
-  if [ -f "$cfg/proxy.env" ] && cmp -s "$tmp" "$cfg/proxy.env"; then
+  if [ -f "$proxy_env" ] && cmp -s "$tmp" "$proxy_env"; then
     rm -f "$tmp"
   else
-    mv "$tmp" "$cfg/proxy.env"
-    chmod 600 "$cfg/proxy.env"
+    mv "$tmp" "$proxy_env"
+    chmod 600 "$proxy_env"
   fi
+  rm -f "$cfg/proxy.env" # pre-#8 location
 }
 
 # Pi gets only the GitHub token and commit identity. Other env-file entries stay
@@ -225,7 +229,7 @@ ensure_proxy() {
   write_proxy_env
   stamp="$cfg/proxy.stamp"
   image_hash=$(hash_files "$here/proxy.py" "$here/Dockerfile.proxy")
-  config_hash=$( { cat "$cfg/proxy.env" 2>/dev/null || true; printf '%s\n' "$port"; } | shasum -a 256 | awk '{print $1}' )
+  config_hash=$( { cat "$proxy_env" 2>/dev/null || true; printf '%s\n' "$port"; } | shasum -a 256 | awk '{print $1}' )
   old_image=""
   old_config=""
   if [ -f "$stamp" ]; then read -r old_image old_config < "$stamp" || true; fi
@@ -265,8 +269,8 @@ ensure_proxy() {
   "$cli" run -d --name "$proxy_name" --init \
     --cpus 1 --memory 1G \
     --network default --network pi-locked \
-    --env-file "$cfg/proxy.env" \
     -e "PI_PROXY_PORT=$port" \
+    -e PI_ENV_FILE=/private/proxy.env \
     -v "$cfg/private:/private" -v "$cfg/certs:/certs" \
     "$proxy_image" >/dev/null
 }

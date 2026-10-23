@@ -8,7 +8,7 @@ Implemented in this branch:
 
 - fail-closed check for an explicitly non-internal `pi-locked` network;
 - filtered `pi.env` (only `GITHUB_TOKEN` and commit identity) and the real key
-  kept in `proxy.env`;
+  kept in `private/proxy.env`;
 - config/env path guards and refusal of `$HOME`, ancestors of `$HOME`, and
   common secrets directories as project mounts;
 - end-to-end `PI_PROXY_PORT` wiring and hash-based proxy staleness checks;
@@ -30,10 +30,12 @@ Implemented in this branch:
   seconds instead of roughly a minute;
 - `GIT_AUTHOR_*` alone is enough for commits, and `GIT_TERMINAL_PROMPT=0` makes
   a bad token fail instead of prompting. HTTPS push auth already comes from the
-  system `gh auth git-credential` helper.
+  system `gh auth git-credential` helper;
+- the OpenRouter key is passed to the proxy as a mounted mode-600 file, not an
+  environment variable, so `container inspect pi-proxy` no longer exposes it.
 
-Still open: the rest of Priority 1 (#8 proxy env, #9 client auth), `--scratch`,
-non-root execution, the remaining check/proxy work, tests, and packaging.
+Still open: Priority 1 #9 (proxy client auth), `--scratch`, non-root execution,
+the remaining check/proxy work, tests, and packaging.
 
 Baseline verification (run from inside the Pi container):
 
@@ -127,7 +129,7 @@ args+=(-v "$PWD:$PWD" -w "$PWD")
 ```
 
 The config directory contains `private/ca.key`, `private/openrouter.key`,
-`proxy.env` (the real OpenRouter key), and possibly `env` (both keys). Running
+`private/proxy.env` (the real OpenRouter key), and possibly `env` (both keys). Running
 from `~/.config`, or setting `PI_CONFIG_DIR=$PWD/pi-cfg`, mounts those secrets
 into Pi. Pi runs as root, so `700`/`600` modes do not help.
 
@@ -195,17 +197,12 @@ Consider `REQUESTS_CA_BUNDLE` and `PIP_CERT` if Python tooling is added later.
 
 ### 8. Keep the OpenRouter key out of the proxy's environment
 
-`proxy.py` already supports `PI_ENV_FILE` and checks that the file is mode 600.
-Use that instead of `--env-file "$cfg/proxy.env"`:
-
-```bash
--v "$cfg/proxy.env:/private/proxy.env:ro" \
--e PI_ENV_FILE=/private/proxy.env
-```
-
-This keeps the key out of `container inspect pi-proxy`. If the proxy runs as
-non-root, make the mounted file readable by that uid. The copy in `proxy.env`
-remains an on-disk secret; document it and include it in cleanup instructions.
+Implemented. `run.sh` writes the key to `private/proxy.env` (mode 600) and mounts
+`$cfg/private` into the proxy at `/private`. It passes
+`-e PI_ENV_FILE=/private/proxy.env` and no longer uses `--env-file`. `proxy.py`
+requires `PI_ENV_FILE` and refuses a file that is group/other-readable. The key
+therefore does not appear in `container inspect pi-proxy`. The file remains an
+on-disk secret; include it in cleanup instructions.
 
 ### 9. Authenticate proxy clients
 
@@ -232,7 +229,7 @@ was manually changed. Assert the expected image, both networks (`default` and
 `pi-locked`), and the intended port; recreate when they differ.
 
 Prefer content hashes over mtimes for staleness. A single stamp made from
-`proxy.py`, `Dockerfile.proxy`, `proxy.env`, and the port is sufficient; separate
+`proxy.py`, `Dockerfile.proxy`, `private/proxy.env`, and the port is sufficient; separate
 the image hash from the runtime-config hash so a key change does not rebuild the
 image. Accept `exited`/`created` states, and delete-and-recreate when the state
 is unknown rather than falling through to `container run` with a name collision.

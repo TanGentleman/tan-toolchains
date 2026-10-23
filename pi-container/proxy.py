@@ -67,11 +67,8 @@ def check_key(value: str) -> str:
 
 
 def openrouter_key() -> str:
-    env = os.environ.get("OPENROUTER_API_KEY", "").strip()
-    if env:
-        return check_key(env)
     if not ENV_FILE:
-        raise RuntimeError("OPENROUTER_API_KEY is not set")
+        raise RuntimeError("PI_ENV_FILE is not set")
     if file_mode(ENV_FILE) & 0o077:
         raise RuntimeError("env file is readable by group or other")
     value = ""
