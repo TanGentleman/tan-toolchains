@@ -1,0 +1,14 @@
+.zig-cache/
+zig-out/
+
+# Local secrets and generated proxy material (the config normally lives outside
+# the repo, but these catch accidental copies).
+*.pem
+*.key
+*.csr
+*.srl
+proxy.env
+pi.env
+env
+
+.DS_Store

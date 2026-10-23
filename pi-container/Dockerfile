@@ -33,6 +33,16 @@ RUN name="zig-$(uname -m)-linux-${ZIG_VERSION}" && cd /tmp \
     && tar -xJf "${name}.tar.xz" -C /opt && rm "${name}".tar.xz* \
     && ln -s "/opt/${name}/zig" /usr/local/bin/zig
 
+# A cold `zig init` spends ~50s populating ~60MB in Zig's global cache (it
+# compiles compiler_rt and the build runner). Warm that cache at image-build
+# time so the first Zig command in a fresh Pi container takes seconds instead.
+RUN tmp="$(mktemp -d)" \
+    && cd "$tmp" \
+    && zig init --minimal >/dev/null \
+    && zig build >/dev/null \
+    && cd / \
+    && rm -rf "$tmp"
+
 COPY --from=zigpeek /out/zigpeek /usr/local/bin/zigpeek
 RUN mkdir -p /root/.agents/skills/zigpeek && printf '%s\n' \
     '---' \
@@ -48,6 +58,6 @@ RUN git config --system credential.https://github.com.helper '!gh auth git-crede
     && git config --system --add url.https://github.com/.insteadOf ssh://git@github.com/ \
     && git config --system safe.directory '*'
 
-ENV PI_SKIP_VERSION_CHECK=1 GH_NO_UPDATE_NOTIFIER=1
+ENV PI_SKIP_VERSION_CHECK=1 GH_NO_UPDATE_NOTIFIER=1 GIT_TERMINAL_PROMPT=0
 WORKDIR /workspace
 CMD ["pi"]

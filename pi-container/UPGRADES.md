@@ -23,7 +23,14 @@ Implemented in this branch:
 - `--help`, unknown-option rejection, symlink-aware env permissions, and extra
   egress probes in `check`;
 - `setup.zig` now exports `CONTAINER_CLI`, handles larger env files, and
-  re-checks both keys after editing.
+  re-checks both keys after editing;
+- `.gitignore` for `.zig-cache/`, `zig-out/`, and local secrets, plus a
+  `.dockerignore` that keeps the build context small;
+- the image warms Zig's global cache at build time, so the first `zig init` is
+  seconds instead of roughly a minute;
+- `GIT_AUTHOR_*` alone is enough for commits, and `GIT_TERMINAL_PROMPT=0` makes
+  a bad token fail instead of prompting. HTTPS push auth already comes from the
+  system `gh auth git-credential` helper.
 
 Still open: the rest of Priority 1 (#8 proxy env, #9 client auth), `--scratch`,
 non-root execution, the remaining check/proxy work, tests, and packaging.

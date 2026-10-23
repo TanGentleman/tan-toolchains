@@ -36,7 +36,15 @@ const usage =
     \\
 ;
 
-const env_template = "OPENROUTER_API_KEY=\nGITHUB_TOKEN=\n";
+const env_template =
+    \\OPENROUTER_API_KEY=
+    \\GITHUB_TOKEN=
+    \\
+    \\# Optional: commit identity for git in the Pi container.
+    \\# GIT_AUTHOR_NAME=
+    \\# GIT_AUTHOR_EMAIL=
+    \\
+;
 
 pub fn main(init: std.process.Init) !u8 {
     const arena = init.arena.allocator();
@@ -136,6 +144,7 @@ pub fn main(init: std.process.Init) !u8 {
         if (rc4 != 0) return rc4;
         try say(w,
             \\   Paste OPENROUTER_API_KEY and GITHUB_TOKEN after the = signs (no quotes) and save.
+            \\   Optionally uncomment/fill GIT_AUTHOR_NAME and GIT_AUTHOR_EMAIL for git commits.
             \\   (An existing env file was kept as-is; only empty values need filling in.)
             \\   Press Enter to continue...
         , .{});

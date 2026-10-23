@@ -1,0 +1,14 @@
+.git
+.gitignore
+.dockerignore
+.zig-cache
+zig-out
+*.md
+*.pem
+*.key
+*.csr
+*.srl
+proxy.env
+pi.env
+env
+.DS_Store

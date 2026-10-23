@@ -31,6 +31,10 @@ that Dockerfile enforces the network. Pi runs as root in the VM, so a firewall r
 proxy variable inside the image can be removed. The host-only network cannot. `pi-proxy`
 is a separate VM, and it is the only container on `pi-locked` that also has a route out.
 
+The image also warms Zig's global cache at build time. A cold `zig init` spends about a
+minute compiling compiler_rt and the build runner; in a fresh Pi container it now takes
+seconds, and the first `zig build` only has the per-project work left.
+
 ## Setup
 
 macOS 26 and Apple silicon:
@@ -44,7 +48,7 @@ From this folder:
 
 ```bash
 mkdir -p ~/.config/pi-container
-printf 'OPENROUTER_API_KEY=\nGITHUB_TOKEN=\n' > ~/.config/pi-container/env
+printf 'OPENROUTER_API_KEY=\nGITHUB_TOKEN=\n\n# Optional: commit identity for git in the Pi container.\n# GIT_AUTHOR_NAME=\n# GIT_AUTHOR_EMAIL=\n' > ~/.config/pi-container/env
 chmod 600 ~/.config/pi-container/env
 open -e ~/.config/pi-container/env       # paste the keys after =, with no quotes
 
@@ -109,8 +113,13 @@ not the original env file.
   expiry. The proxy will not open a connection to any host except GitHub, so the token
   cannot be sent anywhere else. It can still be written into a prompt, which OpenRouter
   then sees.
-- **Commits:** add `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME`, and
-  `GIT_COMMITTER_EMAIL` to the env file.
+- **Push:** no extra `git config` or `gh auth login` is needed. The image installs a
+  system-level credential helper (`gh auth git-credential`), so HTTPS pushes use
+  `GITHUB_TOKEN`, and `git@github.com:` remotes are rewritten to HTTPS.
+- **Commits:** add `GIT_AUTHOR_NAME` and `GIT_AUTHOR_EMAIL` to the env file. `run.sh` uses
+  them for both the author and committer (set `GIT_COMMITTER_NAME`/`GIT_COMMITTER_EMAIL`
+  only when the committer should differ). With neither set, `git commit` fails; `git push`
+  still works.
 
 Pi's install ping and `gh` telemetry are turned off. `pi.dev` is not reachable anyway.
 

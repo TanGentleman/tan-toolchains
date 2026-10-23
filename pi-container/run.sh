@@ -144,7 +144,9 @@ write_pi_env() {
   umask "$old_umask"
   : > "$tmp"
   for name in GITHUB_TOKEN GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL; do
-    grep "^${name}=" "$env_file" | tail -n 1 | tr -d '\r' >> "$tmp" || true
+    line=$(grep "^${name}=" "$env_file" | tail -n 1 | tr -d '\r' || true)
+    value=${line#*=}
+    [ -n "$value" ] && printf '%s\n' "$line" >> "$tmp"
   done
   if ! grep -q '^GITHUB_TOKEN=.' "$tmp"; then
     rm -f "$tmp"
@@ -376,6 +378,12 @@ esac
 read -r -d '' prep <<'EOF' || true
 git config --global http.proxy "$HTTPS_PROXY"
 git config --global https.proxy "$HTTPS_PROXY"
+# GIT_AUTHOR_* is enough for commits; use it for user.name/email so the
+# committer identity is filled in too. Explicit GIT_COMMITTER_* still wins.
+name="${GIT_AUTHOR_NAME:-${GIT_COMMITTER_NAME:-}}"
+email="${GIT_AUTHOR_EMAIL:-${GIT_COMMITTER_EMAIL:-}}"
+[ -z "$name" ] || git config --global user.name "$name"
+[ -z "$email" ] || git config --global user.email "$email"
 exec "$@"
 EOF
 
