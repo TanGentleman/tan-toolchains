@@ -1,70 +1,38 @@
 # Pi in an Apple container
 
-Run [Pi](https://pi.dev) on OpenRouter inside an Apple [`container`](https://github.com/apple/container)
-VM. Pi's VM has no route to the internet. A second container, `pi-proxy`, is the only way out,
-and it allows GitHub plus OpenRouter and nothing else.
+Run [Pi](https://pi.dev) on OpenRouter in an Apple [`container`](https://github.com/apple/container) VM. Pi has no internet route; `pi-proxy` is the only way out.
 
-The Mac needs `container` and nothing else. No Python, and no extra DNS setup.
+`pi-proxy` tunnels GitHub, adds your OpenRouter key, and refuses everything else. Pi shares only the host-only `pi-locked` network with it.
 
-```text
-Mac
-├── ~/.config/pi-container/env          both keys, mode 600
-├── ~/.config/pi-container/pi.env       filtered GitHub token and commit identity, mode 600
-├── ~/.config/pi-container/certs/       the proxy CA, mounted into Pi
-├── ~/.config/pi-container/private/     the proxy's key, proxy.env, and TLS private keys; mounted only into pi-proxy
-├── pi-proxy                            stays up between Pi sessions
-│     default network                   internet, so it can reach GitHub and OpenRouter
-│     pi-locked network                 host-only. This is the only address it listens on
-│     GitHub .............. tunnel
-│     openrouter.ai ....... the proxy adds the real key
-│     anything else ....... refused
-└── Pi container, deleted when Pi exits. Attached only to pi-locked
-      OPENROUTER_API_KEY    the placeholder sk-or-v1-placeholder, not your key
-      GITHUB_TOKEN          your token. git sends it inside TLS, so the proxy cannot add it for you
-      your project          mounted at the same path, or a private clone with --clone
-      pi-agent-home         Pi's settings and sessions
-```
-
-The Pi image is tools only: Pi, git, gh, ripgrep, fd, Zig 0.17.0, and zigpeek. Nothing in
-that Dockerfile enforces the network. Pi runs as root in the VM, so a firewall rule or a
-proxy variable inside the image can be removed. The host-only network cannot. `pi-proxy`
-is a separate VM, and it is the only container on `pi-locked` that also has a route out.
-
-The image also warms Zig's global cache at build time. A cold `zig init` spends about a
-minute compiling compiler_rt and the build runner; in a fresh Pi container it now takes
-seconds, and the first `zig build` only has the per-project work left.
+The image has Pi, git, gh, ripgrep, fd, Zig 0.17.0, and zigpeek. Zig's global cache is prewarmed at build time.
 
 ## Setup
 
-macOS 26 and Apple silicon:
+Requires macOS 26, Apple silicon, and `container`.
 
 ```bash
 brew install container
-container system start          # answer Y to install the default kernel
-```
+container system start
 
-From this folder:
-
-```bash
 mkdir -p ~/.config/pi-container
-printf 'OPENROUTER_API_KEY=\nGITHUB_TOKEN=\n\n# Optional: commit identity for git in the Pi container.\n# GIT_AUTHOR_NAME=\n# GIT_AUTHOR_EMAIL=\n' > ~/.config/pi-container/env
-chmod 600 ~/.config/pi-container/env
-open -e ~/.config/pi-container/env       # paste the keys after =, with no quotes
+cat > ~/.config/pi-container/env <<'EOF'
+OPENROUTER_API_KEY=
+GITHUB_TOKEN=
 
-container build -t pi-agent:local .   # skip when that image is already built
+# Optional: commits in the Pi container.
+# GIT_AUTHOR_NAME=
+# GIT_AUTHOR_EMAIL=
+EOF
+chmod 600 ~/.config/pi-container/env
+open -e ~/.config/pi-container/env
+
+container build -t pi-agent:local .
 ./run.sh check you/your-repo
 ```
 
-`check` creates the `pi-locked` network, builds the small proxy image, and starts `pi-proxy`.
-It confirms Pi has the OpenRouter placeholder rather than your key, prints the key's credit
-limit, checks GitHub, and checks that `example.com` is refused and that a direct connection
-to an IP address fails.
-It spends no OpenRouter credits. The first run is the slow one, because it builds `pi-proxy`.
-`run.sh` is the only setup entry point you need; `build.zig` and `setup.zig` are an optional
-convenience and do not have to be built to run Pi.
+The first `check` builds `pi-proxy`. It spends no OpenRouter credits.
 
-If an earlier try created the `host.container.internal` domain, delete it so iCloud Private Relay
-can stay on:
+If an earlier try created `host.container.internal`, delete it so iCloud Private Relay keeps working:
 
 ```bash
 sudo container system dns delete host.container.internal
@@ -73,75 +41,41 @@ sudo container system dns delete host.container.internal
 ## Use
 
 ```bash
-alias pic=/path/to/pi-container/run.sh    # full path, in ~/.zshrc
-
+alias pic=/path/to/pi-container/run.sh
 cd ~/code/your-repo
-pic                      # Pi. Edits land on your Mac
+
+pic                      # edits land on your Mac
 pic pi --continue
 pic bash
 pic --clone you/your-repo
 ```
 
-`/model` picks an OpenRouter model (`:free` costs nothing). `/quit` exits and deletes the Pi
-VM. `pi-proxy` keeps running. Do not run `/login`. That would save a real key into the Pi
-settings volume.
+`/model` picks a model; `:free` costs nothing. `/quit` exits and deletes the Pi VM. Do not run `/login`; it saves a real key into the agent volume.
 
-The default mode mounts the current folder. Treat that as a convenience for repos you
-already trust; use `--clone` for anything else. `run.sh --help` lists the flags.
+The default mode mounts the current folder. Use it only for repos you trust; use `--clone` otherwise. `run.sh --help` lists the flags.
 
-`run.sh proxy` follows `pi-proxy`'s log. `run.sh proxy-stop` stops it. A normal `pic` starts
-it again when it is not already up. Log lines start with a timestamp and then `listening`,
-`allow`, `deny`, or `openrouter`.
-`run.sh` waits until that listener answers a health check run inside `pi-proxy`, and Pi
-uses that address.
+`run.sh proxy` follows the proxy log. `run.sh proxy-stop` stops it. A normal `pic` starts it again.
 
 ## Keys
 
-The env file stays on the Mac. `run.sh` refuses to start unless it is mode 600 or 400.
-`run.sh` writes two mode-600 copies: `private/proxy.env` contains only the OpenRouter key,
-and `pi.env` contains only the GitHub token and commit identity. Pi gets the filtered file,
-not the original env file.
+The env file stays on the Mac, mode 600 or 400. `run.sh` writes two filtered copies:
 
-- **OpenRouter** is read by `pi-proxy` from `private/proxy.env`, which is mounted into the
-  proxy only. Pi gets `sk-or-v1-placeholder` instead. The proxy puts the real key on the
-  request. Set a credit limit on the key. Pi can still spend it, by asking the proxy to
-  call OpenRouter, and Pi cannot read the key. The key is not in the proxy's environment,
-  so `container inspect pi-proxy` does not show it.
-- **GitHub** is passed into Pi only. git and `gh` send it inside TLS to github.com, and a
-  tunnel proxy cannot see or add that header. Make it a fine-grained token for **one repo**,
-  with Contents and Pull requests set to Read and write, Workflows left off, and a short
-  expiry. The proxy will not open a connection to any host except GitHub, so the token
-  cannot be sent anywhere else. It can still be written into a prompt, which OpenRouter
-  then sees.
-- **Push:** no extra `git config` or `gh auth login` is needed. The image installs a
-  system-level credential helper (`gh auth git-credential`), so HTTPS pushes use
-  `GITHUB_TOKEN`, and `git@github.com:` remotes are rewritten to HTTPS.
-- **Commits:** add `GIT_AUTHOR_NAME` and `GIT_AUTHOR_EMAIL` to the env file. `run.sh` uses
-  them for both the author and committer (set `GIT_COMMITTER_NAME`/`GIT_COMMITTER_EMAIL`
-  only when the committer should differ). With neither set, `git commit` fails; `git push`
-  still works.
+- `private/proxy.env`: OpenRouter key, mounted only into `pi-proxy`.
+- `pi.env`: GitHub token and commit identity, passed only to Pi.
 
-Pi's install ping and `gh` telemetry are turned off. `pi.dev` is not reachable anyway.
+- **OpenRouter:** Pi gets `sk-or-v1-placeholder`. The proxy adds the real key. Set a credit limit.
+- **GitHub:** use a fine-grained, one-repo token with Contents and Pull requests: Read and write. Keep Workflows off.
+- **Push:** no `git config` or `gh auth login` needed. `gh` supplies the token, and SSH remotes are rewritten to HTTPS.
+- **Commits:** set `GIT_AUTHOR_NAME` and `GIT_AUTHOR_EMAIL`. Add `GIT_COMMITTER_*` only if the committer differs.
+
+Pi's install ping and `gh` telemetry are off. `pi.dev` is unreachable anyway.
 
 ## Limits
 
-- The proxy allows `github.com`, `api.github.com`, `codeload.github.com`,
-  `objects.githubusercontent.com`, `raw.githubusercontent.com`, `uploads.github.com`,
-  and `openrouter.ai` (and its subdomains). Package registries, `ziglang.org`, and
-  everything else are refused.
-- `pi-locked` is host-only. `run.sh` creates it as `172.30.240.0/24` when the name is not already there; an existing `pi-locked` network is left as it is.
-  Pi can reach your Mac and other containers on that network. `pi-proxy` listens only on
-  its `pi-locked` address, so a container on `default` cannot use the key.
-- If the Mac is forwarding IP (`sysctl net.inet.ip.forwarding` prints `1`), a host-only
-  network can still open TCP to the internet. `run.sh check` reports that as a direct
-  connection. Forwarding is off unless a VPN or Internet Sharing turned it on.
-- `run.sh` will not mount `~`, `/`, an ancestor of `~`, a secrets directory such as
-  `~/.ssh`, or anything overlapping `~/.config/pi-container`. `--clone` keeps the repo in a
-  volume until you `git push`; it does not include uncommitted changes.
-- `PI_PROXY_PORT` (default 8888) sets the proxy port. The proxy container is recreated when
-  the port or its config changes.
-  `container volume list` shows `pi-agent-home` and any clone volumes.
-- `PI_CPUS` (default 4) and `PI_MEMORY` (default 4G) size the Pi VM. The proxy VM is 1 CPU and 1G.
-- Rebuild the Pi image with `--build-arg PI_VERSION=…` or `--build-arg ZIG_VERSION=…` to
-  upgrade tools. Changing the proxy does not require that rebuild: `run.sh` rebuilds
-  `pi-proxy` when `proxy.py` or `Dockerfile.proxy` changes.
+- Allowed: GitHub hosts, `openrouter.ai`, and its subdomains. Everything else is refused.
+- `pi-locked` is host-only. Pi can reach your Mac and other containers on it.
+- If the Mac forwards IP, the host-only network can reach the internet. `run.sh check` reports this.
+- `run.sh` refuses to mount `~`, `/`, ancestors of `~`, secrets directories, or anything overlapping the config directory.
+- `--clone` keeps the repo in a volume until you `git push`; uncommitted changes stay outside.
+- `PI_PROXY_PORT` defaults to 8888. `PI_CPUS` defaults to 4. `PI_MEMORY` defaults to 4G.
+- Rebuild with `--build-arg PI_VERSION=…` or `--build-arg ZIG_VERSION=…` to upgrade tools.
