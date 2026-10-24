@@ -421,6 +421,17 @@ gh auth status || s=1
 if ! git var GIT_AUTHOR_IDENT >/dev/null 2>&1; then
   echo "WARN: git author identity is unset; add GIT_AUTHOR_NAME and GIT_AUTHOR_EMAIL to the env file"
 fi
+echo "== Zig toolchain"
+echo "zig $(zig version); $(zigpeek --version 2>/dev/null || echo 'zigpeek missing')"
+info=$(zigpeek info 2>&1 || true)
+case $info in
+  *'(missing)'*) echo "FAIL: zigpeek cannot find the Zig docs it needs"; s=1 ;;
+  *) if zigpeek builtins get @intCast >/dev/null 2>&1; then
+       echo "zigpeek reads the local langref and stdlib"
+     else
+       echo "FAIL: zigpeek could not read the langref"; s=1
+     fi ;;
+esac
 echo "== other sites"
 if curl -fsS -m 15 -o /dev/null https://example.com; then
   echo "FAIL: example.com was reachable"; s=1
