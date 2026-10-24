@@ -55,7 +55,4 @@ zig build run                   # runs `zigpeek info`
 zig build --release=small       # shippable binary
 ```
 
-See [MILESTONES.md](MILESTONES.md) for what is implemented and what is
-deliberately out of scope.
-
 MIT.
