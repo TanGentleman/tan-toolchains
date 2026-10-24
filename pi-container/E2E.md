@@ -16,7 +16,8 @@ Use a disposable repo and a separate fine-grained token so the test never
 touches your main repo.
 
 ```sh
-gh repo create tan-toolchains-e2e --private --add-readme
+owner=$(gh api user -q .login)
+gh repo create "$owner/tan-toolchains-e2e" --private --add-readme
 ```
 
 Create a fine-grained token for only that repo: Contents: Read and write;
@@ -32,10 +33,12 @@ cp ~/.config/pi-container/env "$PI_ENV_FILE"
 chmod 600 "$PI_ENV_FILE"
 ```
 
-Record: `git rev-parse HEAD`, `date`, and
+From the repo root, record: `git rev-parse HEAD`, `date`, and
 `container image inspect pi-agent:local | jq -r '.[0].configuration.descriptor.digest'`.
 
 ## Checklist
+
+Run these from `pi-container/` unless noted.
 
 ### Build and keys
 - [ ] `cd pi-container && container build -t pi-agent:local -f Dockerfile ..`
@@ -43,7 +46,7 @@ Record: `git rev-parse HEAD`, `date`, and
       filtered; no secret in logs.
 
 ### First check
-- [ ] `./run.sh check tan-toolchains-e2e` builds `pi-proxy` and reports no failure.
+- [ ] `./run.sh check "$owner/tan-toolchains-e2e"` builds `pi-proxy` and reports no failure.
 - [ ] It reports the Zig toolchain and zigpeek's docs source.
 - [ ] Direct internet is blocked; GitHub and OpenRouter reachable; `example.com` refused.
 
@@ -55,7 +58,7 @@ Record: `git rev-parse HEAD`, `date`, and
 ### Mounts and clone
 - [ ] Default mount edits land on the Mac.
 - [ ] `run.sh` refuses `~`, `/`, ancestors, secrets dirs, and config overlaps.
-- [ ] `./run.sh --clone tan-toolchains-e2e` creates a clone volume.
+- [ ] `./run.sh --clone "$owner/tan-toolchains-e2e"` creates a clone volume.
 - [ ] Uncommitted changes stay in the volume until pushed.
 - [ ] `git push` works through `gh`.
 
@@ -74,8 +77,9 @@ Record: `git rev-parse HEAD`, `date`, and
 ### Zig build and cross-compile
 - [ ] `zig init --minimal` in a scratch dir; `zig build` succeeds and reuses the warm cache.
 - [ ] Build a sample pure-Zig binary for `aarch64-macos` in the container; the
-      output lands in the mounted folder; run it on the Mac. This is the product
-      use case: build in the container, run on macOS.
+      output lands in the mounted folder; run it on the Mac. Example:
+      `cd zigpeek && zig build --release=small -Dtarget=aarch64-macos --prefix ../zigpeek-macos`.
+      This is the product use case: build in the container, run on macOS.
 
 ### Cleanup
 - [ ] `./clear.sh save` writes a session backup.
