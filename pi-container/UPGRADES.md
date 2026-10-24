@@ -14,4 +14,5 @@ binaries run on macOS and do not use its network.
   macOS. CI checks syntax only.
 - Run the [E2E checklist](E2E.md) on macOS before calling a branch stable. This
   stays manual because Apple `container` is not available on GitHub Actions.
-- Pin base-image digests and keep tool versions pinned via `ARG`.
+- Base images are pinned to multi-arch digests; keep tool versions pinned via
+  `ARG`. Add a CI check for digest drift if it becomes a problem.

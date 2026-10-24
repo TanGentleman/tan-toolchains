@@ -1,88 +1,98 @@
 # Manual end-to-end test
 
-Run this on macOS before calling a branch stable. It is deliberately manual:
-Apple `container` is not available on GitHub Actions. Treat a failure as a
-blocker; fix it on the branch, not on `main`.
+Run on macOS before calling a branch stable. A failure is a blocker; fix it on
+the branch, not `main`.
 
-Record the branch, image ID, and date at the top of your test notes.
+**This test deletes** the agent volume, proxy, network, images, builder cache,
+and all `pi-clone-*` volumes. Quit Pi first. Save sessions (`./clear.sh save`)
+and push or copy uncommitted work from any clone volume. Host config and project
+files stay. The agent volume also holds Pi's `auth.json`, models store, and any
+user-installed skills/extensions; save custom skills too. Everything else
+rebuilds.
 
-## 1. Build and keys
+## Setup
 
+Use a disposable repo and a separate fine-grained token so the test never
+touches your main repo.
+
+```sh
+gh repo create tan-toolchains-e2e --private --add-readme
+```
+
+Create a fine-grained token for only that repo: Contents: Read and write;
+Metadata: Read. Keep Workflows off. Then isolate the test:
+
+```sh
+export PI_CONFIG_DIR="$(mktemp -d)"
+export PI_ENV_FILE="$PI_CONFIG_DIR/env"
+export PI_BACKUP_DIR="$(mktemp -d)"
+export PI_AGENT_VOLUME="pi-agent-e2e"
+cp ~/.config/pi-container/env "$PI_ENV_FILE"
+# edit "$PI_ENV_FILE": set GITHUB_TOKEN to the test token
+chmod 600 "$PI_ENV_FILE"
+```
+
+Record: `git rev-parse HEAD`, `date`, and
+`container image inspect pi-agent:local | jq -r '.[0].configuration.descriptor.digest'`.
+
+## Checklist
+
+### Build and keys
 - [ ] `cd pi-container && container build -t pi-agent:local -f Dockerfile ..`
-- [ ] `~/.config/pi-container/env` exists and is mode 600 or 400.
-- [ ] `private/proxy.env` and `pi.env` are filtered: no OpenRouter key in
-      `pi.env`; no GitHub token in `proxy.env`.
-- [ ] No secret appears in the build or proxy logs.
+- [ ] `$PI_ENV_FILE` is mode 600/400; `private/proxy.env` and `pi.env` are
+      filtered; no secret in logs.
 
-## 2. First check
+### First check
+- [ ] `./run.sh check tan-toolchains-e2e` builds `pi-proxy` and reports no failure.
+- [ ] It reports the Zig toolchain and zigpeek's docs source.
+- [ ] Direct internet is blocked; GitHub and OpenRouter reachable; `example.com` refused.
 
-- [ ] `./run.sh check you/your-repo` builds `pi-proxy` and reports no failure.
-- [ ] The check reports the Zig toolchain and zigpeek's docs source.
-- [ ] Direct internet is blocked; GitHub and OpenRouter are reachable.
-- [ ] `example.com` is refused.
-
-## 3. Pi
-
+### Pi
 - [ ] `./run.sh` starts Pi; `/model` works; `/quit` exits.
-- [ ] `/login` is not needed; the OpenRouter placeholder is in place.
-- [ ] Pi can read and write a file in the mounted repo.
+- [ ] `/login` is not needed; OpenRouter placeholder is in place.
+- [ ] Pi reads and writes a file in the mounted repo.
 
-## 4. Mounts and clone
-
+### Mounts and clone
 - [ ] Default mount edits land on the Mac.
-- [ ] `run.sh` refuses `~`, `/`, ancestors of `~`, secrets directories, and
-      anything overlapping the config directory.
-- [ ] `./run.sh --clone you/your-repo` creates a clone volume.
+- [ ] `run.sh` refuses `~`, `/`, ancestors, secrets dirs, and config overlaps.
+- [ ] `./run.sh --clone tan-toolchains-e2e` creates a clone volume.
 - [ ] Uncommitted changes stay in the volume until pushed.
-- [ ] `git push` works through `gh` without `git config` or `gh auth login`.
+- [ ] `git push` works through `gh`.
 
-## 5. Proxy lifecycle
-
-- [ ] `./run.sh proxy` follows the proxy log.
-- [ ] `./run.sh proxy-stop` stops the proxy.
-- [ ] A normal `./run.sh` starts it again.
+### Proxy
+- [ ] `./run.sh proxy` follows logs; `proxy-stop` stops; a normal run restarts.
 - [ ] The proxy survives a Pi restart without leaking keys.
 
-## 6. zigpeek offline
-
-Run inside the Pi container:
-
-- [ ] `zigpeek info` shows the local Zig version and `doc/langref.html`.
+### zigpeek offline
+- [ ] `zigpeek info` shows local Zig and `doc/langref.html`.
 - [ ] `zigpeek search ArrayList`
 - [ ] `zigpeek get std.Io.File.close`
 - [ ] `zigpeek builtins get atomicLoad`
 - [ ] `zigpeek batch` with two lookups.
-- [ ] Run one of the above with `HTTP_PROXY=http://127.0.0.1:9` and the same
-      `HTTPS_PROXY`; it still works (no network).
+- [ ] Run one with `HTTP_PROXY=http://127.0.0.1:9`; it still works.
 
-## 7. Zig build
+### Zig build and cross-compile
+- [ ] `zig init --minimal` in a scratch dir; `zig build` succeeds and reuses the warm cache.
+- [ ] Build a sample pure-Zig binary for `aarch64-macos` in the container; the
+      output lands in the mounted folder; run it on the Mac. This is the product
+      use case: build in the container, run on macOS.
 
-- [ ] `zig init --minimal` in a scratch dir.
-- [ ] `zig build` succeeds and reuses the warm cache.
-- [ ] Build one sample binary; it runs in the container.
-
-## 8. Cleanup
-
+### Cleanup
 - [ ] `./clear.sh save` writes a session backup.
-- [ ] `./clear.sh nuke agent` deletes the agent volume after saving.
+- [ ] `./clear.sh nuke agent` deletes the E2E agent volume after saving.
 - [ ] `./clear.sh nuke all` deletes proxy, network, images, and builder cache.
-- [ ] `./clear.sh nuke all --clones` also deletes `pi-clone-*` volumes.
+- [ ] Skip `nuke all --clones` if you have real clone volumes with uncommitted
+      work. Otherwise run it and verify `pi-clone-*` volumes are gone.
+- [ ] After `nuke all`, rebuild or run `./run.sh check` again.
 - [ ] Host config and project files survive every cleanup.
 
-## 9. Config and edge cases
-
-- [ ] `settings.json` is created and mounted; a one-off
-      `pic pi --model openrouter/<model>:high` works.
-- [ ] Missing `container` CLI fails with a clear message.
-- [ ] Missing env file fails with a clear message.
-- [ ] Invalid repo name fails with a clear message.
-- [ ] Proxy already running is handled without a port conflict.
-- [ ] Network already exists is handled without a subnet conflict.
-- [ ] Volume already exists is handled without data loss.
+### Config and edge cases
+- [ ] `settings.json` is created and mounted; one-off `pic pi --model …` works.
+- [ ] Missing `container` CLI, missing env file, invalid repo name fail clearly.
+- [ ] Proxy already running and network already exists are handled without conflicts.
 - [ ] `--build-arg PI_VERSION=…` and `--build-arg ZIG_VERSION=…` change the image.
 
-## 10. Sign-off
-
+### Sign-off
 - [ ] All checks pass.
-- [ ] Note anything you skipped and why.
+- [ ] Note anything skipped and why.
 - [ ] Merge to `main` and tag only after this checklist is complete.

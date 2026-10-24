@@ -18,6 +18,7 @@ placeholder="sk-or-v1-placeholder"
 cli="${CONTAINER_CLI:-container}"
 proxy_name="pi-proxy"
 proxy_image="${PI_PROXY_IMAGE:-pi-proxy:local}"
+agent_volume="${PI_AGENT_VOLUME:-pi-agent-home}"
 
 case $port in
   ''|*[!0-9]*) echo "run.sh: PI_PROXY_PORT must be a number" >&2; exit 2 ;;
@@ -365,7 +366,7 @@ args=(run --rm -i --init --network pi-locked
   -e CURL_CA_BUNDLE=/etc/pi-proxy-ca/ca.pem
   -e REQUESTS_CA_BUNDLE=/etc/pi-proxy-ca/ca.pem
   -v "$cfg/certs:/etc/pi-proxy-ca:ro"
-  -v pi-agent-home:/root/.pi/agent
+  -v "$agent_volume:/root/.pi/agent"
   -v "$settings_file:/root/.pi/agent/settings.json")
 if [ -n "${TZ:-}" ]; then args+=(-e "TZ=$TZ"); fi
 if [ -n "${COLORTERM:-}" ]; then args+=(-e "COLORTERM=$COLORTERM"); fi
