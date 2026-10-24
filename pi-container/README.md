@@ -82,6 +82,23 @@ For a one-off override:
 pic pi --model openrouter/<model>:high
 ```
 
+## Manage
+
+`clear.sh` handles backups and cleanup. Backups default to `~/pi-backups`.
+
+```bash
+./clear.sh save                  # sessions, as a directory for analysis
+./clear.sh save agent --tar      # full agent directory plus a tar
+./clear.sh nuke agent            # save sessions, delete pi-agent-home
+./clear.sh nuke all              # save sessions, delete proxy/network/images/builder cache
+./clear.sh nuke all --clones     # also delete pi-clone-* volumes
+./clear.sh status
+./clear.sh shell                 # helper shell in the agent volume
+./clear.sh logs
+```
+
+Nuke keeps `~/.config/pi-container` and host project files. It prompts unless you add `--yes`.
+
 ## Limits
 
 - Allowed: GitHub hosts, `openrouter.ai`, and its subdomains. Everything else is refused.
