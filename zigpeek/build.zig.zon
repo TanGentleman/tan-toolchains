@@ -9,6 +9,9 @@
         "build.zig",
         "build.zig.zon",
         "src",
+        "tests",
+        "skills",
+        "README.md",
         "MILESTONES.md",
     },
 }

@@ -7,6 +7,7 @@
 
 const std = @import("std");
 const info_cmd = @import("info.zig");
+const builtins_cmd = @import("builtins.zig");
 const get_cmd = @import("get.zig");
 const stdlib = @import("stdlib.zig");
 const zig_env = @import("zig_env.zig");
@@ -22,6 +23,8 @@ pub const main_usage =
     \\  info      Show how to use zigpeek, resolved binaries, and the active Zig
     \\  search    Search the standard library for a declaration name
     \\  get       Show docs, signature, and source for a fully-qualified name
+    \\  builtins  List or look up @-builtin functions from the local langref
+    \\  batch     Run many lookups in one process, one command per line
     \\
     \\Options:
     \\  -h, --help       Show this help
@@ -81,13 +84,17 @@ const SourceOptions = struct {
 };
 
 pub fn run(init: std.process.Init) u8 {
-    const io = init.io;
     const arena = init.arena.allocator();
-
     const argv = init.minimal.args.toSlice(arena) catch {
-        return fail(io, 1, "could not read command line arguments", .{});
+        return fail(init.io, 1, "could not read command line arguments", .{});
     };
-    const args = if (argv.len > 1) argv[1..] else argv[0..0];
+    var ctx: Ctx = .{};
+    defer ctx.deinit();
+    return dispatch(init, if (argv.len > 1) argv[1..] else argv[0..0], &ctx);
+}
+
+fn dispatch(init: std.process.Init, args: []const [:0]const u8, ctx: *Ctx) u8 {
+    const io = init.io;
 
     if (args.len == 0) {
         writeErr(io, main_usage);
@@ -106,8 +113,10 @@ pub fn run(init: std.process.Init) u8 {
         return 0;
     }
     if (is(command, "info")) return runInfo(init, args[1..]);
-    if (is(command, "search")) return runSearch(init, args[1..]);
-    if (is(command, "get")) return runGet(init, args[1..]);
+    if (is(command, "search")) return runSearch(init, args[1..], ctx);
+    if (is(command, "get")) return runGet(init, args[1..], ctx);
+    if (is(command, "builtins")) return runBuiltins(init, args[1..]);
+    if (is(command, "batch")) return runBatch(init, args[1..]);
 
     return fail(io, 1, "unknown command '{s}'\n\nRun `zigpeek --help`.", .{command});
 }
@@ -164,7 +173,7 @@ fn runInfo(init: std.process.Init, args: []const [:0]const u8) u8 {
     return 0;
 }
 
-fn runSearch(init: std.process.Init, args: []const [:0]const u8) u8 {
+fn runSearch(init: std.process.Init, args: []const [:0]const u8, ctx: *Ctx) u8 {
     const io = init.io;
     const arena = init.arena.allocator();
 
@@ -235,11 +244,10 @@ fn runSearch(init: std.process.Init, args: []const [:0]const u8) u8 {
         },
     };
 
-    var index = stdlib.build(init.gpa, io, std_dir) catch |err| switch (err) {
+    const index = ctx.indexFor(init, arena, std_dir) catch |err| switch (err) {
         error.StdLibNotFound => return fail(io, 2, bad_std_dir_message, .{std_dir}),
         error.OutOfMemory => return fail(io, 1, "out of memory", .{}),
     };
-    defer index.deinit();
 
     if (index.skipped_files != 0) {
         var buf: [160]u8 = undefined;
@@ -251,7 +259,7 @@ fn runSearch(init: std.process.Init, args: []const [:0]const u8) u8 {
         writeErr(io, warning);
     }
 
-    const results = stdlib.search(arena, &index, query.?, limit) catch
+    const results = stdlib.search(arena, index, query.?, limit) catch
         return fail(io, 1, "out of memory", .{});
 
     var aw: std.Io.Writer.Allocating = .init(init.gpa);
@@ -263,7 +271,7 @@ fn runSearch(init: std.process.Init, args: []const [:0]const u8) u8 {
     return 0;
 }
 
-fn runGet(init: std.process.Init, args: []const [:0]const u8) u8 {
+fn runGet(init: std.process.Init, args: []const [:0]const u8, ctx: *Ctx) u8 {
     const io = init.io;
     const arena = init.arena.allocator();
 
@@ -328,18 +336,17 @@ fn runGet(init: std.process.Init, args: []const [:0]const u8) u8 {
         },
     };
 
-    var index = stdlib.build(init.gpa, io, std_dir) catch |err| switch (err) {
+    const index = ctx.indexFor(init, arena, std_dir) catch |err| switch (err) {
         error.StdLibNotFound => return fail(io, 2, bad_std_dir_message, .{std_dir}),
         error.OutOfMemory => return fail(io, 1, "out of memory", .{}),
     };
-    defer index.deinit();
 
     var aw: std.Io.Writer.Allocating = .init(init.gpa);
     defer aw.deinit();
-    get_cmd.render(&aw.writer, arena, init.gpa, io, &index, fqn.?, .{
+    get_cmd.render(&aw.writer, arena, init.gpa, io, index, fqn.?, .{
         .source_file = source_file,
     }) catch |err| switch (err) {
-        error.NotFound => return reportNotFound(init, arena, &index, fqn.?),
+        error.NotFound => return reportNotFound(init, arena, index, fqn.?),
         error.Unreadable => return fail(io, 2, "could not read the stdlib file for '{s}'", .{fqn.?}),
         error.Unparseable => return fail(io, 2, "could not parse the stdlib file for '{s}'", .{fqn.?}),
         error.OutOfMemory => return fail(io, 1, "out of memory", .{}),
@@ -374,6 +381,351 @@ fn reportNotFound(
 
     writeErr(init.io, aw.written());
     return 1;
+}
+
+pub const builtins_usage =
+    \\Usage: zigpeek builtins <list|get> [query] [options]
+    \\
+    \\Browse the `@`-builtin functions from the langref that ships inside the
+    \\Zig installation (no network).
+    \\
+    \\Commands:
+    \\  list             List every builtin with its signature
+    \\  get <query>      Look up builtins by name or by words in their docs
+    \\
+    \\Options:
+    \\  --zig PATH       Zig executable to read the langref from
+    \\  --lib-dir PATH   Stdlib root (Zig lib/ or std/)
+    \\  -h, --help       Show this help
+    \\
+;
+
+fn runBuiltins(init: std.process.Init, args: []const [:0]const u8) u8 {
+    const io = init.io;
+    const arena = init.arena.allocator();
+
+    if (args.len == 0) {
+        writeErr(io, builtins_usage);
+        return 1;
+    }
+
+    var source: SourceOptions = .{};
+    var subcommand: ?[]const u8 = null;
+    var query: ?[]const u8 = null;
+
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
+        if (is(arg, "-h") or is(arg, "--help")) {
+            writeOut(io, builtins_usage);
+            return 0;
+        }
+
+        var matched = false;
+        switch (optionValue(arg, "--zig", args, &i)) {
+            .no => {},
+            .missing_value => return fail(io, 1, "option '--zig' requires a value", .{}),
+            .value => |value| {
+                source.zig = value;
+                matched = true;
+            },
+        }
+        switch (optionValue(arg, "--lib-dir", args, &i)) {
+            .no => {},
+            .missing_value => return fail(io, 1, "option '--lib-dir' requires a value", .{}),
+            .value => |value| {
+                source.lib_dir = value;
+                matched = true;
+            },
+        }
+        if (matched) continue;
+
+        if (isOption(arg)) {
+            return fail(io, 1, "unknown option '{s}' for `zigpeek builtins`\n\n{s}", .{ arg, builtins_usage });
+        }
+        if (subcommand == null) {
+            subcommand = arg;
+        } else if (query == null) {
+            query = arg;
+        } else {
+            return fail(io, 1, "unexpected argument '{s}'; quote multi-word queries", .{arg});
+        }
+    }
+
+    const sub = subcommand orelse return fail(io, 1, "missing builtins subcommand\n\n{s}", .{builtins_usage});
+    var want_get = false;
+    if (is(sub, "list")) {
+        if (query != null) return fail(io, 1, "`builtins list` takes no query", .{});
+    } else if (is(sub, "get")) {
+        want_get = true;
+        if (query == null or query.?.len == 0) {
+            return fail(io, 1, "query cannot be empty\n\n{s}", .{builtins_usage});
+        }
+    } else {
+        return fail(io, 1, "unknown builtins subcommand '{s}'\n\n{s}", .{ sub, builtins_usage });
+    }
+
+    const std_dir = switch (openStd(init, arena, source)) {
+        .ok => |ok| ok.std_dir,
+        .out_of_memory => return fail(io, 1, "out of memory", .{}),
+        .no_zig => return fail(io, 2, no_zig_message, .{}),
+        .bad_lib_dir => |raw| return fail(io, 2, bad_lib_dir_message, .{raw}),
+        .probe_failed => |failure| {
+            if (failure.stderr.len != 0) {
+                return fail(io, 2, "{s}\n{s}", .{ failure.message, failure.stderr });
+            }
+            return fail(io, 2, "{s}", .{failure.message});
+        },
+    };
+
+    const langref = builtins_cmd.findLangref(arena, io, std_dir) orelse
+        return fail(io, 2, no_langref_message, .{std_dir});
+
+    const html = readLangref(init.gpa, io, langref) catch |err| switch (err) {
+        error.OutOfMemory => return fail(io, 1, "out of memory", .{}),
+        else => return fail(io, 2, "could not read '{s}'", .{langref}),
+    };
+    defer init.gpa.free(html);
+
+    const entries = builtins_cmd.parse(arena, html) catch |err| switch (err) {
+        error.MissingSection => return fail(io, 2, "no Builtin Functions section in '{s}'", .{langref}),
+        error.OutOfMemory => return fail(io, 1, "out of memory", .{}),
+    };
+
+    var aw: std.Io.Writer.Allocating = .init(init.gpa);
+    defer aw.deinit();
+
+    if (!want_get) {
+        builtins_cmd.renderList(&aw.writer, entries, langref) catch
+            return fail(io, 1, "out of memory", .{});
+        writeOut(io, aw.written());
+        writeOut(io, "\n");
+        return 0;
+    }
+
+    const results = builtins_cmd.rank(arena, entries, query.?, 20) catch
+        return fail(io, 1, "out of memory", .{});
+    if (results.total == 0) {
+        return fail(io, 1, "No builtin functions found matching \"{s}\".\nTry `zigpeek builtins list` to see all functions.", .{query.?});
+    }
+    builtins_cmd.renderGet(&aw.writer, results, query.?) catch
+        return fail(io, 1, "out of memory", .{});
+    writeOut(io, aw.written());
+    writeOut(io, "\n");
+    return 0;
+}
+
+fn readLangref(gpa: Allocator, io: Io, path: []const u8) ![]u8 {
+    const dir_path = std.fs.path.dirname(path) orelse ".";
+    var dir = try Io.Dir.openDirAbsolute(io, dir_path, .{});
+    defer dir.close(io);
+    return dir.readFileAlloc(io, std.fs.path.basename(path), gpa, .limited(16 << 20));
+}
+
+const no_langref_message =
+    "this Zig installation does not ship doc/langref.html (looked next to '{s}').\n" ++
+    "`zigpeek builtins` needs the compiler tarball's doc/ directory.";
+
+// ---------------------------------------------------------------------------
+// Batch mode
+// ---------------------------------------------------------------------------
+
+pub const batch_usage =
+    \\Usage: zigpeek batch [-f FILE]
+    \\
+    \\Run one command per line, in one process, so the stdlib index is parsed
+    \\only once. Blank lines and lines starting with `#` are skipped. Each
+    \\result is framed with `===> <line>`. The exit code is the worst one seen.
+    \\
+    \\Options:
+    \\  -f, --file PATH  Read commands from PATH instead of stdin
+    \\  -h, --help       Show this help
+    \\
+;
+
+/// Caches the parsed stdlib across batch lines. A plain `zigpeek` invocation
+/// creates one and drops it; `batch` keeps it for the whole run.
+const Ctx = struct {
+    cached_std_dir: ?[]const u8 = null,
+    cached_index: ?stdlib.Index = null,
+
+    fn indexFor(
+        self: *Ctx,
+        init: std.process.Init,
+        arena: Allocator,
+        std_dir: []const u8,
+    ) !*const stdlib.Index {
+        if (self.cached_index) |*index| {
+            if (self.cached_std_dir) |cached| {
+                if (std.mem.eql(u8, cached, std_dir)) return index;
+            }
+            index.deinit();
+            self.cached_index = null;
+        }
+        self.cached_index = try stdlib.build(init.gpa, init.io, std_dir);
+        self.cached_std_dir = try arena.dupe(u8, std_dir);
+        return &self.cached_index.?;
+    }
+
+    fn deinit(self: *Ctx) void {
+        if (self.cached_index) |*index| index.deinit();
+        self.cached_index = null;
+    }
+};
+
+fn runBatch(init: std.process.Init, args: []const [:0]const u8) u8 {
+    const io = init.io;
+    const arena = init.arena.allocator();
+
+    var file: ?[]const u8 = null;
+    var i: usize = 0;
+    while (i < args.len) : (i += 1) {
+        const arg = args[i];
+        if (is(arg, "-h") or is(arg, "--help")) {
+            writeOut(io, batch_usage);
+            return 0;
+        }
+
+        var matched = false;
+        switch (optionValue(arg, "-f", args, &i)) {
+            .no => {},
+            .missing_value => return fail(io, 1, "option '-f' requires a value", .{}),
+            .value => |value| {
+                file = value;
+                matched = true;
+            },
+        }
+        switch (optionValue(arg, "--file", args, &i)) {
+            .no => {},
+            .missing_value => return fail(io, 1, "option '--file' requires a value", .{}),
+            .value => |value| {
+                file = value;
+                matched = true;
+            },
+        }
+        if (matched) continue;
+
+        return fail(io, 1, "unknown argument '{s}' for `zigpeek batch`\n\n{s}", .{ arg, batch_usage });
+    }
+
+    const text = if (file) |path|
+        readTextFile(init.gpa, io, path) catch
+            return fail(io, 2, "could not read '{s}'", .{path})
+    else
+        readStdin(init.gpa, io) catch
+            return fail(io, 2, "could not read stdin", .{});
+    defer init.gpa.free(text);
+
+    var ctx: Ctx = .{};
+    defer ctx.deinit();
+
+    var worst: u8 = 0;
+    var first = true;
+
+    var lines = std.mem.splitScalar(u8, text, '\n');
+    while (lines.next()) |raw| {
+        const line = std.mem.trim(u8, raw, " \t\r");
+        if (line.len == 0 or line[0] == '#') continue;
+
+        const tokens = splitLine(arena, line) catch {
+            frameLine(io, line, "# Error\nunparseable line (unmatched quote)\n", first);
+            worst = @max(worst, 1);
+            first = false;
+            continue;
+        };
+        if (tokens.len == 0) continue;
+        if (is(tokens[0], "batch")) {
+            frameLine(io, line, "# Error\n`batch` is not allowed inside batch.\n", first);
+            worst = @max(worst, 1);
+            first = false;
+            continue;
+        }
+
+        var out_aw: std.Io.Writer.Allocating = .init(init.gpa);
+        var err_aw: std.Io.Writer.Allocating = .init(init.gpa);
+
+        out_sink = &out_aw.writer;
+        err_sink = &err_aw.writer;
+        const code = dispatch(init, tokens, &ctx);
+        out_sink = null;
+        err_sink = null;
+
+        if (!first) writeOut(io, "\n");
+        writeOut(io, "===> ");
+        writeOut(io, line);
+        writeOut(io, "\n");
+        writeOut(io, out_aw.written());
+        writeOut(io, err_aw.written());
+
+        out_aw.deinit();
+        err_aw.deinit();
+
+        worst = @max(worst, code);
+        first = false;
+    }
+
+    return worst;
+}
+
+fn frameLine(io: Io, line: []const u8, payload: []const u8, first: bool) void {
+    if (!first) writeOut(io, "\n");
+    writeOut(io, "===> ");
+    writeOut(io, line);
+    writeOut(io, "\n");
+    writeOut(io, payload);
+}
+
+/// Split a batch line into argv, honoring single and double quotes.
+fn splitLine(arena: Allocator, line: []const u8) error{ UnmatchedQuote, OutOfMemory }![]const [:0]const u8 {
+    var tokens: std.ArrayList([:0]const u8) = .empty;
+    var i: usize = 0;
+
+    while (i < line.len) {
+        while (i < line.len and (line[i] == ' ' or line[i] == '\t')) i += 1;
+        if (i >= line.len) break;
+
+        var token: std.ArrayList(u8) = .empty;
+        var quote: ?u8 = null;
+        while (i < line.len) {
+            const c = line[i];
+            if (quote) |q| {
+                if (c == q) {
+                    quote = null;
+                } else {
+                    token.append(arena, c) catch return error.OutOfMemory;
+                }
+            } else if (c == '"' or c == '\'') {
+                quote = c;
+            } else if (c == ' ' or c == '\t') {
+                break;
+            } else {
+                token.append(arena, c) catch return error.OutOfMemory;
+            }
+            i += 1;
+        }
+        if (quote != null) return error.UnmatchedQuote;
+        if (token.items.len != 0) {
+            const sentinel = arena.dupeSentinel(u8, token.items, 0) catch return error.OutOfMemory;
+            tokens.append(arena, sentinel) catch return error.OutOfMemory;
+        }
+    }
+    return tokens.items;
+}
+
+fn readStdin(gpa: Allocator, io: Io) ![]u8 {
+    var buffer: [4096]u8 = undefined;
+    var reader = Io.File.stdin().reader(io, &buffer);
+    return reader.interface.allocRemaining(gpa, .limited(16 << 20));
+}
+
+fn readTextFile(gpa: Allocator, io: Io, path: []const u8) ![]u8 {
+    if (!std.fs.path.isAbsolute(path)) {
+        return Io.Dir.cwd().readFileAlloc(io, path, gpa, .limited(16 << 20));
+    }
+    const dir_path = std.fs.path.dirname(path) orelse ".";
+    var dir = try Io.Dir.openDirAbsolute(io, dir_path, .{});
+    defer dir.close(io);
+    return dir.readFileAlloc(io, std.fs.path.basename(path), gpa, .limited(16 << 20));
 }
 
 const StdSource = struct {
@@ -452,11 +804,22 @@ fn is(a: []const u8, b: []const u8) bool {
     return std.mem.eql(u8, a, b);
 }
 
+var out_sink: ?*std.Io.Writer = null;
+var err_sink: ?*std.Io.Writer = null;
+
 fn writeOut(io: Io, text: []const u8) void {
+    if (out_sink) |w| {
+        w.writeAll(text) catch {};
+        return;
+    }
     Io.File.stdout().writeStreamingAll(io, text) catch {};
 }
 
 fn writeErr(io: Io, text: []const u8) void {
+    if (err_sink) |w| {
+        w.writeAll(text) catch {};
+        return;
+    }
     Io.File.stderr().writeStreamingAll(io, text) catch {};
 }
 
@@ -507,4 +870,29 @@ test "usage texts list flags" {
     try testing.expect(std.mem.indexOf(u8, search_usage, "--limit") != null);
     try testing.expect(std.mem.indexOf(u8, search_usage, "--lib-dir") != null);
     try testing.expect(std.mem.indexOf(u8, info_usage, "--zig") != null);
+}
+
+test "batch: splitLine honors quotes and whitespace" {
+    var arena_state: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena_state.deinit();
+
+    const tokens = try splitLine(arena_state.allocator(), "search \"two words\" --limit=3");
+    try testing.expectEqual(@as(usize, 3), tokens.len);
+    try testing.expectEqualStrings("search", tokens[0]);
+    try testing.expectEqualStrings("two words", tokens[1]);
+    try testing.expectEqualStrings("--limit=3", tokens[2]);
+}
+
+test "batch: splitLine rejects unmatched quotes" {
+    var arena_state: std.heap.ArenaAllocator = .init(testing.allocator);
+    defer arena_state.deinit();
+    try testing.expectError(
+        error.UnmatchedQuote,
+        splitLine(arena_state.allocator(), "search \"unterminated"),
+    );
+}
+
+test "batch: usage mentions stdin and file" {
+    try testing.expect(std.mem.indexOf(u8, batch_usage, "stdin") != null);
+    try testing.expect(std.mem.indexOf(u8, batch_usage, "--file") != null);
 }

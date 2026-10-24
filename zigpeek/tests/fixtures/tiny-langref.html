@@ -1,0 +1,37 @@
+<!doctype html>
+<html>
+<body>
+      <h2 id="Builtin-Functions"><a href="#toc-Builtin-Functions">Builtin Functions</a> <a class="hdr" href="#Builtin-Functions">§</a></h2>
+
+      <p>
+      Builtin functions are provided by the compiler and are prefixed with <code>@</code>.
+      </p>
+      <h3 id="addWithOverflow"><a href="#toc-addWithOverflow">@addWithOverflow</a> <a class="hdr" href="#addWithOverflow">§</a></h3>
+
+      <pre><code><span class="tok-builtin">@addWithOverflow</span>(a: <span class="tok-kw">anytype</span>, b: <span class="tok-kw">anytype</span>) <span class="tok-kw">struct</span> { <span class="tok-builtin">@TypeOf</span>(a, b), <span class="tok-type">u1</span> }</code></pre>
+      <p>
+      Performs <code>a + b</code> and returns a tuple with the result and a possible overflow bit.
+      </p>
+
+      <h3 id="atomicLoad"><a href="#toc-atomicLoad">@atomicLoad</a> <a class="hdr" href="#atomicLoad">§</a></h3>
+
+      <pre><code><span class="tok-builtin">@atomicLoad</span>(comptime T: <span class="tok-type">type</span>, ptr: *<span class="tok-kw">const</span> T, comptime ordering: <span class="tok-type">AtomicOrder</span>) T</code></pre>
+      <p>
+      Loads a value from memory with <code>ptr</code> atomically.
+      </p>
+      <p>
+      The pointer must be aligned to <code>@alignOf(T)</code>.
+      </p>
+      <ul>
+        <li>ordering must be <code>.acquire</code>, <code>.acq_rel</code>, or <code>.seq_cst</code>.</li>
+        <li>This is a <a href="#toc-atomic">memory ordering</a> guarantee.</li>
+      </ul>
+      <figure><figcaption class="zig-cap"><cite class="file">test_atomic.zig</cite></figcaption><pre><code><span class="tok-kw">const</span> value = <span class="tok-builtin">@atomicLoad</span>(u32, &amp;ptr, .acquire);</code></pre></figure>
+
+      <h2 id="Build-Mode"><a href="#toc-Build-Mode">Build Mode</a> <a class="hdr" href="#Build-Mode">§</a></h2>
+
+      <h3 id="ignored"><a href="#toc-ignored">@ignored</a> <a class="hdr" href="#ignored">§</a></h3>
+      <pre><code>@ignored() void</code></pre>
+      <p>This must not be parsed.</p>
+</body>
+</html>

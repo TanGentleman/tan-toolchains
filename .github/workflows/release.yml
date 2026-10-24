@@ -1,0 +1,90 @@
+name: release
+
+# Proposal, inert until a `v*` tag is pushed. Sign off on asset naming /
+# whether to publish before tagging.
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  build:
+    name: zigpeek (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-linux-musl
+          - aarch64-linux-musl
+          - x86_64-macos
+          - aarch64-macos
+          - x86_64-windows
+          - aarch64-windows
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.17.0
+
+      - name: Verify src/version.zig matches the tag
+        working-directory: zigpeek
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME#v}"
+          grep -q "pub const version = \"$tag\";" src/version.zig || {
+            echo "::error file=zigpeek/src/version.zig::version does not match tag $tag"
+            exit 1
+          }
+
+      - name: Cross-compile
+        working-directory: zigpeek
+        run: |
+          set -euo pipefail
+          zig build --release=small -Dtarget=${{ matrix.target }} \
+            --prefix "dist/zigpeek-${{ matrix.target }}"
+
+      - name: Package
+        working-directory: zigpeek/dist
+        run: |
+          set -euo pipefail
+          name="zigpeek-${{ github.ref_name }}-${{ matrix.target }}"
+          mv "zigpeek-${{ matrix.target }}" "$name"
+          case "${{ matrix.target }}" in
+            *windows*) zip -qr "$name.zip" "$name" ;;
+            *) tar -czf "$name.tar.gz" "$name" ;;
+          esac
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist-${{ matrix.target }}
+          path: |
+            zigpeek/dist/*.tar.gz
+            zigpeek/dist/*.zip
+          if-no-files-found: error
+
+  github-release:
+    name: attach binaries to the GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: dist-*
+          path: dist
+          merge-multiple: true
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" --title "$TAG" --generate-notes dist/*
+          fi

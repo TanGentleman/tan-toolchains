@@ -1,0 +1,45 @@
+name: test
+
+on:
+  push:
+    branches: [main, zigpeek]
+  pull_request:
+
+concurrency:
+  group: test-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ZIG_VERSION: 0.17.0
+
+jobs:
+  zigpeek:
+    name: zigpeek (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: zigpeek
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Unit tests
+        run: zig build test
+
+      - name: Release build
+        run: zig build --release=small
+
+      - name: Smoke test against the installed compiler
+        run: |
+          ./zig-out/bin/zigpeek info
+          ./zig-out/bin/zigpeek search ArrayList --limit 3
+          ./zig-out/bin/zigpeek get std.Io.Dir.openFile
+          ./zig-out/bin/zigpeek builtins get atomicLoad
+          printf 'search ArrayList --limit 2\nget std.Io.File.close\n' | ./zig-out/bin/zigpeek batch

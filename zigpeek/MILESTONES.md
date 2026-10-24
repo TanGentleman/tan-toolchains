@@ -82,23 +82,32 @@ a named module. (0.17 removed `std.multi_array_list` entirely.)
       needs a compiler instance, not an AST. `get std.ArrayList` shows the
       constructor instead.
 
-## M5 — `zigpeek builtins`
+## M5 — `zigpeek builtins` ✅
 
-- [ ] extract `#Builtin-Functions` from the compiler's own `doc/langref.html`
-      (no download; `info` already reports whether it is present)
-- [ ] `builtins list`, `builtins get QUERY` (name **and** doc text ranking)
-- [ ] clear error when the installation ships no langref
+- [x] extract `#Builtin-Functions` from the compiler's own `doc/langref.html`
+      (no download; 48 ms for the 1 MB file in ReleaseSmall)
+- [x] `builtins list`, `builtins get QUERY`: name matches first, doc-text
+      matches only when no name matches (124 builtins on 0.17.0)
+- [x] figures become fenced code blocks, bullets become `*` lines, tags and
+      entities are stripped
+- [x] clear exit-2 error when the installation ships no langref
 
-## M6 — polish, parity, remove Python
+## M6 — batch, docs, CI ✅ (one open decision)
 
-- [ ] `zigpeek batch` reading one command per line (kept for agent ergonomics,
-      even though there is no interpreter startup to amortize)
-- [ ] `-h/--help` for every subcommand; `--zig`/`--lib-dir` everywhere
-- [ ] replace `src/zigpeek/`, `pyproject.toml`, `uv.lock`, `packages/`,
-      `vendor/`, `skills/zigpeek/SKILL.md` install instructions
-- [ ] CI: `zig build test` matrix (linux/macos/windows), cross-compiled release
-      binaries attached to GitHub Releases; delete the PyPI release workflow
-- [ ] README/ARCHITECTURE rewrite; keep `skills/zig-0.15-to-0.16/` as content
+- [x] `zigpeek batch` reading one command per line; reuses one parsed index
+      (5 searches: 118 ms total vs ~100 ms each standalone), frames output,
+      skips blanks/comments, aggregates the worst exit code
+- [x] `-h/--help` for every subcommand; `--zig`/`--lib-dir` everywhere
+- [x] README (repo + tool), agent skill in `skills/zigpeek/SKILL.md`
+- [x] CI: `zig build test` + `--release=small` + CLI smoke test on
+      linux/macos/windows (`.github/workflows/test.yml`)
+- [x] proposed release workflow cross-compiling six targets and attaching
+      them to a GitHub Release; **inert until a tag is pushed**
+
+Open decision (needs a human): whether to adopt the release workflow as
+written (asset naming `zigpeek-vX.Y.Z-<triple>.tar.gz|.zip`, no PyPI), and
+whether the old Python repo should be archived or left alone. Also open:
+whether `MILESTONES.md` should survive 1.0.
 
 Non-goals: offline docs bundles, fetching docs for another Zig version, any
 HTTP client, any cache directory.
