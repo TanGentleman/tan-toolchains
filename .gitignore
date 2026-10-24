@@ -1,0 +1,3 @@
+# zigpeek build artifacts
+zigpeek/.zig-cache/
+zigpeek/zig-out/
