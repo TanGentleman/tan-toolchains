@@ -64,6 +64,12 @@ path_within() { # $1 parent, $2 child
   return 1
 }
 
+require_cli() {
+  command -v "$cli" >/dev/null 2>&1 && return 0
+  echo "run.sh: '$cli' not found; install Apple container and run 'container system start' (see README)" >&2
+  exit 1
+}
+
 require_agent_image() {
   local image=${PI_IMAGE:-pi-agent:local}
   "$cli" image inspect "$image" >/dev/null 2>&1 && return 0
@@ -334,6 +340,8 @@ proxy_ip() {
 if [ "${PI_SOURCE_ONLY:-}" = 1 ]; then
   return 0 2>/dev/null || exit 0
 fi
+
+require_cli
 
 if [ "${1:-}" = proxy-stop ]; then
   "$cli" stop "$proxy_name" >/dev/null 2>&1 || true

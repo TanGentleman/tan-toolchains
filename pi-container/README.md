@@ -36,7 +36,9 @@ container build -t pi-agent:local -f Dockerfile ..
 
 The build context is the repo root (`..`), not `pi-container/`, because the image
 compiles `../zigpeek` from source and installs it as `zigpeek`. `run.sh` does not
-build `pi-agent:local` for you; it only rebuilds `pi-proxy:local`.
+build `pi-agent:local` for you; it only rebuilds `pi-proxy:local`, and it cannot
+tell that the image predates an edit to the `Dockerfile` or `zigpeek/`, so
+re-run the build command after changing either.
 
 The first `check` builds `pi-proxy`. It spends no OpenRouter credits.
 

@@ -125,8 +125,12 @@ fn docsText(arena: Allocator, fragment: []const u8) Error![]const u8 {
         }
         if (startsWithAt(fragment, i, "<figure")) {
             const close = std.mem.indexOfPos(u8, fragment, i, "</figure>") orelse break;
-            const body = try figureMarkdown(arena, fragment[i..close]);
-            try appendBlock(arena, &out, body);
+            // Shell figures replay compiler output, e.g. a panic dump full of
+            // /home/ci/... paths. The Zig example above them says the same thing.
+            if (indexOf(fragment[i..close], "shell-cap", true) == null) {
+                const body = try figureMarkdown(arena, fragment[i..close]);
+                try appendBlock(arena, &out, body);
+            }
             i = close + "</figure>".len;
             continue;
         }
@@ -142,6 +146,7 @@ fn appendBlock(arena: Allocator, out: *std.ArrayList(u8), block: []const u8) Err
     out.append(arena, '\n') catch return error.OutOfMemory;
 }
 
+/// Render one `<figure>`; only called for figures that carry a Zig example.
 fn figureMarkdown(arena: Allocator, fragment: []const u8) Error![]const u8 {
     var label: []const u8 = "";
     var language: []const u8 = "";
@@ -455,6 +460,9 @@ test "builtins: docs include paragraphs, bullets, and figure code" {
     try testing.expect(std.mem.indexOf(u8, atomic, "**test_atomic.zig**") != null);
     try testing.expect(std.mem.indexOf(u8, atomic, "```zig\nconst value = @atomicLoad(u32, &ptr, .acquire);\n```") != null);
     try testing.expect(std.mem.indexOf(u8, atomic, "&amp;") == null);
+    // The shell figure's replay of a panic must not reach the docs.
+    try testing.expect(std.mem.indexOf(u8, atomic, "zig test test_atomic.zig") == null);
+    try testing.expect(std.mem.indexOf(u8, atomic, "Shell") == null);
 }
 
 test "builtins: missing section is an error" {

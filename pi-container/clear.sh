@@ -45,6 +45,11 @@ image_exists() { "$cli" image inspect "$1" >/dev/null 2>&1; }
 container_exists() { "$cli" inspect "$1" >/dev/null 2>&1; }
 network_exists() { "$cli" network list -q 2>/dev/null | grep -qx "$1"; }
 
+require_cli() {
+  command -v "$cli" >/dev/null 2>&1 && return 0
+  die "'$cli' not found; install Apple container and run 'container system start'"
+}
+
 build_hint() {
   # The image compiles ../zigpeek, so the context is the repo root.
   printf '%s build -t %s -f %s/Dockerfile %s/..' "$cli" "$pi_image" "$here" "$here"
@@ -198,8 +203,8 @@ cmd_nuke() {
 cmd=${1:-help}
 shift || true
 case $cmd in
-  save) cmd_save "$@" ;;
-  nuke) cmd_nuke "$@" ;;
+  save) require_cli; cmd_save "$@" ;;
+  nuke) require_cli; cmd_nuke "$@" ;;
   help | -h | --help) usage ;;
   *) usage >&2; die "unknown command: $cmd" ;;
 esac

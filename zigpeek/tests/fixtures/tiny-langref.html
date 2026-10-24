@@ -26,7 +26,9 @@
         <li>ordering must be <code>.acquire</code>, <code>.acq_rel</code>, or <code>.seq_cst</code>.</li>
         <li>This is a <a href="#toc-atomic">memory ordering</a> guarantee.</li>
       </ul>
-      <figure><figcaption class="zig-cap"><cite class="file">test_atomic.zig</cite></figcaption><pre><code><span class="tok-kw">const</span> value = <span class="tok-builtin">@atomicLoad</span>(u32, &amp;ptr, .acquire);</code></pre></figure>
+      <figure><figcaption class="zig-cap"><cite class="file">test_atomic.zig</cite></figcaption><pre><code><span class="tok-kw">const</span> value = <span class="tok-builtin">@atomicLoad</span>(u32, &amp;ptr, .acquire);</code></pre></figure><figure><figcaption class="shell-cap">Shell</figcaption><pre><samp>$ <kbd>zig test test_atomic.zig</kbd>
+/home/ci/work/zig-bootstrap/zig/doc/langref/test_atomic.zig:1:1: panic
+</samp></pre></figure>
 
       <h2 id="Build-Mode"><a href="#toc-Build-Mode">Build Mode</a> <a class="hdr" href="#Build-Mode">§</a></h2>
 

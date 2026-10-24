@@ -133,13 +133,16 @@ async def read_body(reader: asyncio.StreamReader, headers: list[bytes]) -> bytes
         return await reader.readexactly(length)
     if not chunked:
         return b""
-    body = b""
+    body = bytearray()
     while True:
         size_line = await reader.readline()
-        size = int(size_line.split(b";", 1)[0], 16)
+        try:
+            size = int(size_line.split(b";", 1)[0], 16)
+        except ValueError as exc:
+            raise ValueError("bad chunk size") from exc
         if size == 0:
             await reader.readline()
-            return body
+            return bytes(body)
         if len(body) + size > MAX_BODY:
             raise ValueError("body too large")
         body += await reader.readexactly(size)
