@@ -12,6 +12,54 @@ env:
   ZIG_VERSION: 0.17.0
 
 jobs:
+  pins:
+    name: version pins
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # The image compiles zigpeek against the Zig it documents, so these pins
+      # have to move in one change. If they drift, the image ships a parser that
+      # reads another version's sources.
+      - name: Zig version is pinned once
+        run: |
+          set -euo pipefail
+          dockerfile=$(sed -n 's/^ARG ZIG_VERSION=\(.*\)$/\1/p' pi-container/Dockerfile)
+          workflow=$(sed -n 's/^  ZIG_VERSION: \(.*\)$/\1/p' .github/workflows/test.yml)
+          zon=$(sed -n 's/^ *\.minimum_zig_version = "\(.*\)",$/\1/p' zigpeek/build.zig.zon)
+          printf 'Dockerfile=%s\nworkflow=%s\nbuild.zig.zon=%s\n' "$dockerfile" "$workflow" "$zon"
+          [ -n "$dockerfile" ] && [ "$dockerfile" = "$workflow" ] && [ "$workflow" = "$zon" ] || {
+            echo "::error::Zig version pins disagree; update pi-container/Dockerfile, .github/workflows/test.yml and zigpeek/build.zig.zon together"
+            exit 1
+          }
+
+      - name: zigpeek release version matches build.zig.zon
+        run: |
+          set -euo pipefail
+          src=$(sed -n 's/^pub const version = "\(.*\)";$/\1/p' zigpeek/src/version.zig)
+          zon=$(sed -n 's/^ *\.version = "\(.*\)",$/\1/p' zigpeek/build.zig.zon)
+          printf 'src/version.zig=%s\nbuild.zig.zon=%s\n' "$src" "$zon"
+          [ -n "$src" ] && [ "$src" = "$zon" ] || {
+            echo "::error::zigpeek versions disagree; bump src/version.zig and build.zig.zon together"
+            exit 1
+          }
+
+  scripts:
+    name: scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Shell syntax
+        run: |
+          set -euo pipefail
+          for f in pi-container/run.sh pi-container/clear.sh; do
+            bash -n "$f"
+          done
+
+      - name: Python syntax
+        run: python3 -m py_compile pi-container/proxy.py
+
   zigpeek:
     name: zigpeek (${{ matrix.os }})
     strategy:

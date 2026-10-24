@@ -35,6 +35,7 @@ COPY zigpeek /tmp/zigpeek
 # so build it here: it cannot drift from the compiler it documents, and it needs
 # no network at runtime. The build reuses the warm global cache from above.
 RUN cd /tmp/zigpeek \
+    && zig build test \
     && zig build --release=small \
     && install -m755 zig-out/bin/zigpeek /usr/local/bin/zigpeek \
     && cd / \

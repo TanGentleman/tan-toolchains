@@ -14,11 +14,9 @@ Open work only. History is in git.
 
 ## Quality
 
-- Extend `run.sh check`; add shell and Python tests, then CI.
+- Extend `run.sh check`; add behavioural tests for `run.sh` and `clear.sh`
+  (CI checks their syntax only).
 - Restrict OpenRouter paths and add proxy rate limits.
 - Pin base images and tool versions; add image smoke tests.
 - Build the image in CI on an Apple-silicon macOS 26 runner: `container build`
   plus `zigpeek info` and `run.sh check` against a throwaway proxy.
-- Bump `ARG ZIG_VERSION` and zigpeek's `minimum_zig_version` in one change; the
-  image compiles zigpeek against the Zig it documents, so a mismatch fails the
-  build rather than shipping a tool that parses other sources.
