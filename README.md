@@ -41,9 +41,8 @@ lookup tool and the Zig it documents are the same version. See
   CONNECT proxy. This affects dev-time `zig fetch` inside the container; it is
   not a reason to add network code to a shipped binary. Keep binaries
   network-free and let the container's proxy serve Pi and dev-time fetches.
-- **Release:** `.github/workflows/release.yml` cross-compiles for macOS (and
-  other targets) on a tag. It is a proposal; adopt it when you need distributed
-  binaries.
+- **Release:** not configured yet. Add a workflow when you are ready to
+  publish binaries.
 
 ## Toolchain policy
 
