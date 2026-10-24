@@ -1,22 +1,17 @@
 # Upgrade notes
 
-Open work only. History is in git.
+Open work only. History is in git. The container is a dev environment; shipped
+binaries run on macOS and do not use its network.
 
 ## Security
 
-- Authenticate proxy clients if more than Pi can reach `pi-locked`.
-- Run Pi as non-root with fewer capabilities.
-
-## Features
-
-- Add `--scratch` workspace modes.
-- Harden `--clone` and add `clear.sh restore` for backups.
+- Authenticate proxy clients only if you add more containers to the host-only
+  `pi-locked` network. With just Pi and `pi-proxy`, only Pi can reach the proxy.
 
 ## Quality
 
-- Extend `run.sh check`; add behavioural tests for `run.sh` and `clear.sh`
-  (CI checks their syntax only).
-- Restrict OpenRouter paths and add proxy rate limits.
-- Pin base images and tool versions; add image smoke tests.
-- Build the image in CI on an Apple-silicon macOS 26 runner: `container build`
-  plus `zigpeek info` and `run.sh check` against a throwaway proxy.
+- Add smoke tests for `run.sh check` and `clear.sh save`. CI checks syntax only.
+- Run a manual end-to-end test on macOS before calling a branch stable. Cover
+  build, `run.sh check`, `--clone`, proxy start/stop, and `clear.sh save`/`nuke`.
+  This stays manual because Apple `container` is not available on GitHub Actions.
+- Pin base-image digests and keep tool versions pinned via `ARG`.
