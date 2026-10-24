@@ -1,15 +1,3 @@
-# zigpeek is Python; freeze it into one executable so the final image has no Python.
-FROM python:3.12-slim-bookworm AS zigpeek
-ARG ZIGPEEK_VERSION=0.5.1
-RUN apt-get update && apt-get install -y --no-install-recommends binutils \
-    && pip install --no-cache-dir "zigpeek==${ZIGPEEK_VERSION}" "pyinstaller==6.*" \
-    && printf 'import sys\nfrom zigpeek.cli import main\nsys.exit(main())\n' > /tmp/entry.py \
-    && lib="linux-$(uname -m)" \
-    && wt="$(python -c 'import os, wasmtime; print(os.path.dirname(wasmtime.__file__))')" \
-    && pyinstaller --onefile --name zigpeek --collect-all zigpeek --collect-all wasmtime \
-        --add-binary "$wt/$lib/_libwasmtime.so:wasmtime/$lib" \
-        --distpath /out --workpath /tmp/build --specpath /tmp/build /tmp/entry.py
-
 FROM node:24-bookworm-slim
 ARG PI_VERSION=1.4.0
 ARG ZIG_VERSION=0.17.0
@@ -42,14 +30,21 @@ RUN tmp="$(mktemp -d)" \
     && cd / \
     && rm -rf "$tmp"
 
-COPY --from=zigpeek /out/zigpeek /usr/local/bin/zigpeek
-RUN mkdir -p /root/.agents/skills/zigpeek && printf '%s\n' \
-    '---' \
-    'name: zigpeek' \
-    'description: Look up Zig stdlib APIs and @-builtins with the zigpeek CLI instead of guessing. Run `zigpeek info` first.' \
-    '---' \
-    'Run `zigpeek info` before writing or reviewing Zig. It explains search, get and builtins.' \
-    > /root/.agents/skills/zigpeek/SKILL.md
+COPY zigpeek /tmp/zigpeek
+# zigpeek is pure Zig and reads doc/langref.html + lib/std next to the Zig above,
+# so build it here: it cannot drift from the compiler it documents, and it needs
+# no network at runtime. The build reuses the warm global cache from above.
+RUN cd /tmp/zigpeek \
+    && zig build --release=small \
+    && install -m755 zig-out/bin/zigpeek /usr/local/bin/zigpeek \
+    && cd / \
+    && rm -rf /tmp/zigpeek
+# Smoke test against a dead proxy: builtins must come from /opt, not the network.
+RUN HTTP_PROXY=http://127.0.0.1:9 HTTPS_PROXY=http://127.0.0.1:9 \
+    http_proxy=http://127.0.0.1:9 https_proxy=http://127.0.0.1:9 \
+    zigpeek builtins get @intCast >/dev/null \
+    && zigpeek get std.Io.Writer.print >/dev/null
+COPY zigpeek/skills/zigpeek/SKILL.md /root/.agents/skills/zigpeek/SKILL.md
 
 # gh supplies GITHUB_TOKEN to git; rewrite SSH remotes to HTTPS so it applies.
 RUN git config --system credential.https://github.com.helper '!gh auth git-credential' \

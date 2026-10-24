@@ -1,0 +1,15 @@
+# Build context is the repo root (see pi-container/README.md), so the image can
+# compile ../zigpeek. Keep history, build artifacts, and secrets out of it.
+.git
+.gitignore
+.dockerignore
+**/.zig-cache
+**/zig-out
+*.pem
+*.key
+*.csr
+*.srl
+proxy.env
+pi.env
+env
+.DS_Store

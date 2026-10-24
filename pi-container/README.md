@@ -6,6 +6,10 @@ Run [Pi](https://pi.dev) on OpenRouter in an Apple [`container`](https://github.
 
 The image has Pi, git, gh, ripgrep, fd, Zig 0.17.0, and zigpeek. Zig's cache is prewarmed.
 
+`zigpeek` (`search`, `get`, `builtins`) answers Zig API questions straight from
+the installed compiler's `lib/` and `doc/langref.html`, so it works with no
+network at all. Its skill file tells Pi to look APIs up instead of guessing.
+
 ## Setup
 
 Requires macOS 26, Apple silicon, and `container`.
@@ -26,9 +30,12 @@ EOF
 chmod 600 ~/.config/pi-container/env
 open -e ~/.config/pi-container/env
 
-container build -t pi-agent:local .
+container build -t pi-agent:local -f Dockerfile ..
 ./run.sh check you/your-repo
 ```
+
+The build context is the repo root (`..`), not `pi-container/`, because the image
+compiles `../zigpeek` from source and installs it as `zigpeek`.
 
 The first `check` builds `pi-proxy`. It spends no OpenRouter credits.
 
