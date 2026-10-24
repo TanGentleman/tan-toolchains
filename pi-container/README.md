@@ -4,7 +4,7 @@ Run [Pi](https://pi.dev) on OpenRouter in an Apple [`container`](https://github.
 
 `pi-proxy` tunnels GitHub, adds your OpenRouter key, and refuses everything else. Pi shares only the host-only `pi-locked` network with it.
 
-The image has Pi, git, gh, ripgrep, fd, Zig 0.17.0, and zigpeek. Zig's global cache is prewarmed at build time.
+The image has Pi, git, gh, ripgrep, fd, Zig 0.17.0, and zigpeek. Zig's cache is prewarmed.
 
 ## Setup
 
@@ -84,20 +84,16 @@ pic pi --model openrouter/<model>:high
 
 ## Manage
 
-`clear.sh` handles backups and cleanup. Backups default to `~/pi-backups`.
+`clear.sh` saves sessions to `~/pi-backups/sessions-<time>/` before any reset.
 
 ```bash
-./clear.sh save                  # sessions, as a directory for analysis
-./clear.sh save agent --tar      # full agent directory plus a tar
-./clear.sh nuke agent            # save sessions, delete pi-agent-home
-./clear.sh nuke all              # save sessions, delete proxy/network/images/builder cache
-./clear.sh nuke all --clones     # also delete pi-clone-* volumes
-./clear.sh status
-./clear.sh shell                 # helper shell in the agent volume
-./clear.sh logs
+./clear.sh save                 # sessions only, for analysis
+./clear.sh nuke agent           # save, then delete pi-agent-home
+./clear.sh nuke all             # also delete proxy, network, images, builder cache
+./clear.sh nuke all --clones    # also delete pi-clone-* volumes
 ```
 
-Nuke keeps `~/.config/pi-container` and host project files. It prompts unless you add `--yes`.
+Add `--yes` for non-interactive use. Host config and project files stay. Set `PI_BACKUP_DIR` to move backups.
 
 ## Limits
 
