@@ -29,6 +29,22 @@ The image builds `../zigpeek` from source and installs it as `zigpeek`, so the
 lookup tool and the Zig it documents are the same version. See
 [pi-container/README.md](pi-container/README.md).
 
+## Scope and network boundary
+
+- **Dev environment:** `pi-container/` runs Pi in an Apple `container` VM. It is
+  where the tools are built and where the agent works. Its proxy is the only
+  network path for Pi and for dev-time fetches.
+- **Shipped binaries:** handy tools built here run on macOS outside the
+  container. They do not make network requests. When they need the network,
+  they delegate to a separate process that owns the network layer.
+- **Known dev gap:** Zig 0.17.0's `std.http.Client` mishandles HTTPS through a
+  CONNECT proxy. This affects dev-time `zig fetch` inside the container; it is
+  not a reason to add network code to a shipped binary. Keep binaries
+  network-free and let the container's proxy serve Pi and dev-time fetches.
+- **Release:** `.github/workflows/release.yml` cross-compiles for macOS (and
+  other targets) on a tag. It is a proposal; adopt it when you need distributed
+  binaries.
+
 ## Toolchain policy
 
 - No compiler tarballs, wheels, or package caches in Git. Keep the repository

@@ -10,8 +10,8 @@ binaries run on macOS and do not use its network.
 
 ## Quality
 
-- Add smoke tests for `run.sh check` and `clear.sh save`. CI checks syntax only.
-- Run a manual end-to-end test on macOS before calling a branch stable. Cover
-  build, `run.sh check`, `--clone`, proxy start/stop, and `clear.sh save`/`nuke`.
-  This stays manual because Apple `container` is not available on GitHub Actions.
+- Add smoke tests for `run.sh check` and `clear.sh save`; run them manually on
+  macOS. CI checks syntax only.
+- Run the [E2E checklist](E2E.md) on macOS before calling a branch stable. This
+  stays manual because Apple `container` is not available on GitHub Actions.
 - Pin base-image digests and keep tool versions pinned via `ARG`.
