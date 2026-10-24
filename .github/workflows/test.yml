@@ -31,13 +31,30 @@ jobs:
           version: ${{ env.ZIG_VERSION }}
 
       - name: Unit tests
-        run: zig build test
+        shell: bash
+        run: |
+          set -o pipefail
+          zig build test 2>&1 | tee unit-tests.log
+
+      # Surface test names in the check annotations: raw job logs are not
+      # always downloadable (e.g. from restricted tokens).
+      - name: Report test output
+        if: failure()
+        shell: bash
+        run: |
+          while IFS= read -r line; do
+            echo "::error::$line"
+          done < unit-tests.log
 
       - name: Release build
+        if: success()
         run: zig build --release=small
 
       - name: Smoke test against the installed compiler
+        if: success()
+        shell: bash
         run: |
+          set -euo pipefail
           ./zig-out/bin/zigpeek info
           ./zig-out/bin/zigpeek search ArrayList --limit 3
           ./zig-out/bin/zigpeek get std.Io.Dir.openFile

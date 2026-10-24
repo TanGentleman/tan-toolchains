@@ -528,7 +528,9 @@ test "index: accepts lib/, std/, and the root file path" {
     const arena = arena_state.allocator();
 
     const as_std = try resolveStdDir(arena, testing.io, fixture_dir);
-    try testing.expect(std.mem.endsWith(u8, as_std, "std") or std.mem.endsWith(u8, as_std, fixture_dir));
+    // `as_std` is absolute, so only compare the last component: separators
+    // differ on Windows.
+    try testing.expect(std.mem.endsWith(u8, as_std, "mini-std"));
 
     const as_file = try std.fmt.allocPrint(arena, "{s}/std.zig", .{fixture_dir});
     _ = try resolveStdDir(arena, testing.io, as_file);
