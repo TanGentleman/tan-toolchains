@@ -315,7 +315,8 @@ test "parseEnvZon: derives std_dir when the field is absent" {
         \\.{ .lib_dir = "/z/lib", .version = "0.16.0" }
         ,
     );
-    try testing.expectEqualStrings("/z/lib/std", env.std_dir);
+    const expected_std_dir = try std.fs.path.join(arena, &.{ "/z/lib", "std" });
+    try testing.expectEqualStrings(expected_std_dir, env.std_dir);
     try testing.expectEqualStrings("", env.zig_exe);
 }
 
