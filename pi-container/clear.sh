@@ -7,6 +7,7 @@
 #   clear.sh help
 set -euo pipefail
 
+here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 cli="${CONTAINER_CLI:-container}"
 agent_volume="${PI_AGENT_VOLUME:-pi-agent-home}"
 pi_image="${PI_IMAGE:-pi-agent:local}"
@@ -44,8 +45,13 @@ image_exists() { "$cli" image inspect "$1" >/dev/null 2>&1; }
 container_exists() { "$cli" inspect "$1" >/dev/null 2>&1; }
 network_exists() { "$cli" network list -q 2>/dev/null | grep -qx "$1"; }
 
+build_hint() {
+  # The image compiles ../zigpeek, so the context is the repo root.
+  printf '%s build -t %s -f %s/Dockerfile %s/..' "$cli" "$pi_image" "$here" "$here"
+}
+
 require_image() {
-  image_exists "$pi_image" || die "missing image $pi_image; build it with: container build -t $pi_image ."
+  image_exists "$pi_image" || die "missing image $pi_image; build it with: $(build_hint)"
 }
 require_agent_volume() { volume_exists "$agent_volume" || die "missing volume $agent_volume"; }
 
@@ -176,6 +182,7 @@ cmd_nuke_all() {
   "$cli" builder delete --force >/dev/null 2>&1 || true
   say "deleted: builder cache"
   say "kept: $cfg"
+  say "rebuild the agent image before ./run.sh: $(build_hint)"
 }
 
 cmd_nuke() {

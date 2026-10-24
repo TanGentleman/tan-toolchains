@@ -8,7 +8,7 @@ and all `pi-clone-*` volumes. Quit Pi first. Save sessions (`./clear.sh save`)
 and push or copy uncommitted work from any clone volume. Host config and project
 files stay. The agent volume also holds Pi's `auth.json`, models store, and any
 user-installed skills/extensions; save custom skills too. Everything else
-rebuilds.
+rebuilds except the agent image, which you rebuild by hand in Build and keys.
 
 ## Setup
 
@@ -87,7 +87,9 @@ Run these from `pi-container/` unless noted.
 - [ ] `./clear.sh nuke all` deletes proxy, network, images, and builder cache.
 - [ ] Skip `nuke all --clones` if you have real clone volumes with uncommitted
       work. Otherwise run it and verify `pi-clone-*` volumes are gone.
-- [ ] After `nuke all`, rebuild or run `./run.sh check` again.
+- [ ] After `nuke all`, `./run.sh` reports the missing image instead of pulling
+      from Docker Hub. Then rebuild and `./run.sh check` again:
+      `container build -t pi-agent:local -f Dockerfile ..`
 - [ ] Host config and project files survive every cleanup.
 
 ### Config and edge cases

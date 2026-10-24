@@ -64,6 +64,16 @@ path_within() { # $1 parent, $2 child
   return 1
 }
 
+require_agent_image() {
+  local image=${PI_IMAGE:-pi-agent:local}
+  "$cli" image inspect "$image" >/dev/null 2>&1 && return 0
+  # Without a local image, `container run` would pull docker.io/library/pi-agent.
+  echo "run.sh: missing image $image" >&2
+  echo "run.sh: build it from the repo root context, because the image compiles ../zigpeek:" >&2
+  echo "  $cli build -t $image -f $here/Dockerfile $here/.." >&2
+  exit 1
+}
+
 require_env() {
   [ -f "$env_file" ] || { echo "run.sh: missing $env_file (see README)" >&2; exit 1; }
   [ -r "$env_file" ] || { echo "run.sh: cannot read $env_file" >&2; exit 1; }
@@ -336,6 +346,7 @@ case "${1:-}" in
 esac
 [ "$mount_project" = 0 ] || guard_config
 require_env
+if [ "${1:-}" != proxy ]; then require_agent_image; fi
 write_pi_env
 ensure_settings
 if [ "${PI_SKIP_HOST_SETUP:-}" = 1 ]; then
