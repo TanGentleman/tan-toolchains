@@ -17,8 +17,7 @@ pub const USAGE_GUIDE =
     \\builtins list / get for @-functions
     \\batch if you have more than two lookups
     \\
-    \\Inner types use the module that defines them, not the re-export:
-    \\std.multi_array_list.MultiArrayList.Slice, not std.MultiArrayList.Slice.
+    \\FQNs follow the module graph, not the file layout: std.Io.Dir.openFile.
     \\
     \\zigpeek --help lists the rest.
 ;
@@ -231,8 +230,8 @@ test "usage guide keeps the agent-facing contract" {
     const guide = USAGE_GUIDE;
     try testing.expect(std.mem.startsWith(u8, guide, "Look up Zig stdlib"));
     for ([_][]const u8{
-        "search",                                    "get --source-file", "builtins list / get", "batch", "zigpeek --help",
-        "std.multi_array_list.MultiArrayList.Slice",
+        "search",                       "get --source-file", "builtins list / get", "batch", "zigpeek --help",
+        "FQNs follow the module graph",
     }) |needle| {
         try testing.expect(std.mem.indexOf(u8, guide, needle) != null);
     }

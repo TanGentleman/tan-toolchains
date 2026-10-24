@@ -100,7 +100,7 @@ pub fn resolveExecutable(
     value: []const u8,
 ) ?[]const u8 {
     if (hasPathSeparator(value)) {
-        const abs = absolute(arena, value) catch return null;
+        const abs = absolute(arena, io, value) catch return null;
         return if (isExecutable(io, abs)) abs else null;
     }
     return findOnPath(arena, io, environ, value);
@@ -119,7 +119,7 @@ pub fn findOnPath(
     while (dirs.next()) |dir| {
         if (dir.len == 0) continue;
         const candidate = std.fs.path.join(arena, &.{ dir, with_suffix }) catch return null;
-        const abs = absolute(arena, candidate) catch continue;
+        const abs = absolute(arena, io, candidate) catch continue;
         if (isExecutable(io, abs)) return abs;
     }
     return null;
@@ -229,7 +229,7 @@ pub fn parseEnvZon(
 }
 
 pub fn pathExists(arena: Allocator, io: Io, path: []const u8) bool {
-    const abs = absolute(arena, path) catch return false;
+    const abs = absolute(arena, io, path) catch return false;
     std.Io.Dir.accessAbsolute(io, abs, .{ .read = true }) catch return false;
     return true;
 }
@@ -249,9 +249,12 @@ pub fn findLangref(arena: Allocator, io: Io, lib_or_std: []const u8) ?[]const u8
     return null;
 }
 
-fn absolute(arena: Allocator, path: []const u8) ![]const u8 {
+/// Lexical absolutization against the process cwd. 0.17's
+/// `std.fs.path.resolveAlloc` no longer prepends the cwd on its own.
+fn absolute(arena: Allocator, io: Io, path: []const u8) ![]const u8 {
     if (std.fs.path.isAbsolute(path)) return path;
-    return std.fs.path.resolve(arena, &.{path});
+    const cwd = try std.process.currentPathAlloc(io, arena);
+    return std.fs.path.resolveAlloc(arena, &.{ cwd, path });
 }
 
 fn hasPathSeparator(value: []const u8) bool {

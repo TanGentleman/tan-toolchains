@@ -40,36 +40,47 @@ Known gap: the usage guide already advertises `search`/`get`/`builtins`/`batch`,
 which arrive in M2–M6. `info` stays exit 0 even with no compiler, because it is
 the diagnostic command.
 
-## M2 — walk the stdlib + `zigpeek search`
+## M2 — walk the stdlib + `zigpeek search` ✅
 
-- [ ] `lib/` → `std/` normalization (accept either; `--lib-dir` beats discovery)
-- [ ] walk every `std/**/*.zig`, `std.zig.Ast.parse` each file
-- [ ] build a decl index: FQN, kind, doc comment, file/offset
-- [ ] follow `pub const X = @import("y.zig")` root re-exports far enough to
-      name the defining module (the "inner types" rule in the guide)
-- [ ] `zigpeek search QUERY [--limit N]`, ranked like today's output
-      (exact > prefix > substring; case-insensitive for all-lowercase queries)
-- [ ] measure cold run; target < 250 ms. (Prototype: parsing 563 files /
-      16 MB of 0.17 stdlib took 82 ms in ReleaseFast, so no index cache is
-      planned unless this regresses.)
-- [ ] `search` exits 2 with a clear message when no compiler/lib is found
+- [x] `lib/` → `std/` normalization (accept either; `--lib-dir` beats discovery)
+- [x] walk the module graph from `std.zig` via `pub const X = @import(...)`,
+      `std.zig.Ast.parse` each file; private imports are not modules
+- [x] flat decl index: FQN, short name, kind, file, AST node
+- [x] `zigpeek search QUERY [--limit N]`: exact > prefix > substring, shorter
+      names first, case-insensitive for all-lowercase queries, dotted queries
+      match whole FQNs
+- [x] measured: 104 ms ReleaseSmall for a full stdlib search (563 files,
+      16 MB parsed); no index cache needed
+- [x] `search` exits 2 with a clear message when no compiler/lib is found
+- [x] unparseable files are skipped with a warning instead of failing the run
 
-## M3 — `zigpeek get FQN`
+Deliberate deviation: FQNs come from the module graph, not the filesystem, so
+`std.Io.Dir.openFile` works but a path-derived name like
+`std.multi_array_list.X` does not exist unless something imports that file as
+a named module. (0.17 removed `std.multi_array_list` entirely.)
 
-- [ ] resolve an FQN through namespaces and alias chains (`get_aliasee` today)
-- [ ] render markdown: heading, docs, signature, parameters, errors, doctest,
-      source snippet
-- [ ] `get --source-file FQN` → whole defining file
-- [ ] unknown decl → `# Error` on stderr, exit 1
+## M3 — `zigpeek get FQN` ✅
 
-## M4 — namespaces, types, and error sets
+- [x] alias chains: `other`, `other.member`, `@import("x.zig").Member`,
+      with a hop limit so `A = B; B = A` cannot loop
+- [x] markdown: heading, `Alias of ...`, doc comments (including fenced
+      examples), signature, source snippet
+- [x] `get --source-file FQN` → whole defining file (alias-aware)
+- [x] `std.` prefix is optional (`get Io.File.close`)
+- [x] unknown decl → `# Error` + "Did you mean" suggestions on stderr, exit 1
 
-- [ ] namespace/container listings grouped as Types / Namespaces / Error Sets /
-      Functions / Fields / Global Variables / Values
-- [ ] struct fields, `type_fn` members, error-set node lists
-- [ ] alias/cycle handling in one shared helper (today it is repeated three
-      times with subtly different behavior)
-- [ ] golden-output tests over a fixture stdlib
+## M4 — namespaces, containers, and error sets ✅
+
+- [x] namespace/container listings grouped as Types / Namespaces / Error Sets /
+      Functions / Global Variables / Values
+- [x] struct fields (`- \`name: Type\``) for containers *and* for file-root
+      structs (`std.mem.Allocator` is `@This()` at the top of its file)
+- [x] module `//!` docs for namespaces
+- [x] error sets list their members; private decls/fields never appear
+- [x] golden-ish tests over `tests/fixtures/mini-std`
+- [ ] comptime-evaluated members (`std.ArrayList(u8).…`) — out of scope: that
+      needs a compiler instance, not an AST. `get std.ArrayList` shows the
+      constructor instead.
 
 ## M5 — `zigpeek builtins`
 

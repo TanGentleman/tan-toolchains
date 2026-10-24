@@ -7,7 +7,9 @@ pub fn main(init: std.process.Init) u8 {
 
 test {
     _ = @import("cli.zig");
+    _ = @import("get.zig");
     _ = @import("info.zig");
+    _ = @import("stdlib.zig");
     _ = @import("version.zig");
     _ = @import("zig_env.zig");
 }
