@@ -70,6 +70,18 @@ The env file stays on the Mac, mode 600 or 400. `run.sh` writes two filtered cop
 
 Pi's install ping and `gh` telemetry are off. `pi.dev` is unreachable anyway.
 
+## Config
+
+`run.sh` creates `~/.config/pi-container/settings.json` if missing and mounts it at
+`/root/.pi/agent/settings.json`. Edit it on the Mac; changes apply on the next launch.
+The default is `openrouter` / `deepseek/deepseek-v4.1-flash-1017`.
+
+For a one-off override:
+
+```bash
+pic pi --model openrouter/<model>:high
+```
+
 ## Limits
 
 - Allowed: GitHub hosts, `openrouter.ai`, and its subdomains. Everything else is refused.

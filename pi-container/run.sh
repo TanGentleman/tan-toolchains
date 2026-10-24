@@ -11,6 +11,7 @@ set -euo pipefail
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 env_file="${PI_ENV_FILE:-$HOME/.config/pi-container/env}"
 cfg="${PI_CONFIG_DIR:-$HOME/.config/pi-container}"
+settings_file="${PI_SETTINGS_FILE:-$cfg/settings.json}"
 proxy_env="$cfg/private/proxy.env"
 port="${PI_PROXY_PORT:-8888}"
 placeholder="sk-or-v1-placeholder"
@@ -160,6 +161,22 @@ write_pi_env() {
     mv "$tmp" "$cfg/pi.env"
     chmod 600 "$cfg/pi.env"
   fi
+}
+
+# Pi reads this file directly; edits on the Mac apply on the next launch.
+ensure_settings() {
+  mkdir -p "$(dirname "$settings_file")"
+  [ -f "$settings_file" ] && return
+  (
+    umask 077
+    cat > "$settings_file" <<'EOF'
+{
+  "$schema": "https://pi.dev/schemas/settings.schema.json",
+  "defaultProvider": "openrouter",
+  "defaultModel": "deepseek/deepseek-v4.1-flash-1017"
+}
+EOF
+  )
 }
 
 # Refuse project mounts that expose secrets.
@@ -319,6 +336,7 @@ esac
 [ "$mount_project" = 0 ] || guard_config
 require_env
 write_pi_env
+ensure_settings
 if [ "${PI_SKIP_HOST_SETUP:-}" = 1 ]; then
   proxy_ip_value="172.30.240.2"
 else
@@ -347,7 +365,8 @@ args=(run --rm -i --init --network pi-locked
   -e CURL_CA_BUNDLE=/etc/pi-proxy-ca/ca.pem
   -e REQUESTS_CA_BUNDLE=/etc/pi-proxy-ca/ca.pem
   -v "$cfg/certs:/etc/pi-proxy-ca:ro"
-  -v pi-agent-home:/root/.pi/agent)
+  -v pi-agent-home:/root/.pi/agent
+  -v "$settings_file:/root/.pi/agent/settings.json")
 if [ -n "${TZ:-}" ]; then args+=(-e "TZ=$TZ"); fi
 if [ -n "${COLORTERM:-}" ]; then args+=(-e "COLORTERM=$COLORTERM"); fi
 if [ -t 0 ] && [ -t 1 ]; then args+=(-t); fi
