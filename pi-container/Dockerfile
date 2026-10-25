@@ -2,6 +2,8 @@ FROM node:24-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054f
 ARG PI_VERSION=1.4.0
 ARG ZIG_VERSION=0.17.0
 ARG ZIG_PUBKEY=RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U
+ARG NVIM_VERSION=0.12.6
+ARG NVIM_SHA256=8f1f64a0bdb97247034038c3823c6cbad5bdf9ecd5751b85494b71c3ee04c815
 
 RUN [ "$(uname -m)" = aarch64 ] || (echo "this image currently pins aarch64 only" >&2; exit 1)
 
@@ -22,6 +24,13 @@ RUN name="zig-$(uname -m)-linux-${ZIG_VERSION}" && cd /tmp \
     && minisign -Vm "${name}.tar.xz" -P "${ZIG_PUBKEY}" \
     && tar -xJf "${name}.tar.xz" -C /opt && rm "${name}".tar.xz* \
     && ln -s "/opt/${name}/zig" /usr/local/bin/zig
+
+RUN name="nvim-linux-arm64" && cd /tmp \
+    && curl -fsSLO "https://github.com/neovim/neovim/releases/download/v${NVIM_VERSION}/${name}.tar.gz" \
+    && printf '%s  %s\n' "${NVIM_SHA256}" "${name}.tar.gz" | sha256sum -c - \
+    && tar -xzf "${name}.tar.gz" -C /opt \
+    && rm "${name}.tar.gz" \
+    && ln -s "/opt/${name}/bin/nvim" /usr/local/bin/nvim
 
 # Cold `zig init` spends ~50s building compiler_rt and the build runner.
 # Warm the cache so the first Zig command in a fresh container is fast.
