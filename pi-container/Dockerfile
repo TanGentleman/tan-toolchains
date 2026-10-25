@@ -4,6 +4,8 @@ ARG ZIG_VERSION=0.17.0
 ARG ZIG_PUBKEY=RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U
 ARG NVIM_VERSION=0.12.6
 ARG NVIM_SHA256=8f1f64a0bdb97247034038c3823c6cbad5bdf9ecd5751b85494b71c3ee04c815
+ARG ZLS_VERSION=0.17.0
+ARG ZLS_SHA256=0d314f3cab30da770328e1b8c84ab89bb308e56dbc26a85ac82429ff02b44873
 
 RUN [ "$(uname -m)" = aarch64 ] || (echo "this image currently pins aarch64 only" >&2; exit 1)
 
@@ -31,6 +33,17 @@ RUN name="nvim-linux-arm64" && cd /tmp \
     && tar -xzf "${name}.tar.gz" -C /opt \
     && rm "${name}.tar.gz" \
     && ln -s "/opt/${name}/bin/nvim" /usr/local/bin/nvim
+
+# A ZLS built for another Zig silently mis-parses the project, so keep the pins together.
+RUN [ "${ZLS_VERSION}" = "${ZIG_VERSION}" ] \
+    || (echo "ZLS_VERSION (${ZLS_VERSION}) must match ZIG_VERSION (${ZIG_VERSION})" >&2; exit 1)
+RUN name="zls-$(uname -m)-linux" && cd /tmp \
+    && curl -fsSLO "https://github.com/zigtools/zls/releases/download/${ZLS_VERSION}/${name}.tar.xz" \
+    && printf '%s  %s\n' "${ZLS_SHA256}" "${name}.tar.xz" | sha256sum -c - \
+    && mkdir -p /opt/zls \
+    && tar -xJf "${name}.tar.xz" -C /opt/zls \
+    && rm "${name}.tar.xz" \
+    && ln -s /opt/zls/zls /usr/local/bin/zls
 
 # Cold `zig init` spends ~50s building compiler_rt and the build runner.
 # Warm the cache so the first Zig command in a fresh container is fast.
