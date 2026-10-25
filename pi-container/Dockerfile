@@ -76,14 +76,14 @@ RUN [ "$(zig version)" = "$ZIG_VERSION" ] \
     || (echo "zig version mismatch: expected ${ZIG_VERSION}, got $(zig version)" >&2; exit 1)
 RUN [ "$(zls --version)" = "$ZLS_VERSION" ] \
     || (echo "zls version mismatch: expected ${ZLS_VERSION}, got $(zls --version)" >&2; exit 1)
-RUN got="$(nvim --headless -c 'lua print(vim.version().major .. "." .. vim.version().minor .. "." .. vim.version().patch)' -c q)" \
+RUN got="$(nvim --version | sed -n 's/^NVIM v//p')" \
     && [ "$got" = "$NVIM_VERSION" ] \
     || (echo "nvim version mismatch: expected ${NVIM_VERSION}, got ${got:-nothing}" >&2; exit 1)
 
 # Prove the runtime and builtin Zig filetype work without plugins.
 RUN nvim --headless -c 'lua assert(vim.log.levels.INFO ~= nil)' -c q
 RUN printf 'const std = @import("std");\n' > /tmp/nvim-filetype.zig \
-    && [ "$(nvim --headless /tmp/nvim-filetype.zig -c 'lua print(vim.bo.filetype)' -c q)" = zig ] \
+    && (nvim --headless /tmp/nvim-filetype.zig -c 'set ft?' -c q 2>&1 | grep -q 'filetype=zig') \
     && rm /tmp/nvim-filetype.zig \
     || (rm -f /tmp/nvim-filetype.zig; echo "nvim did not detect filetype=zig" >&2; exit 1)
 
