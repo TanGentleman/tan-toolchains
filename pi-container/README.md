@@ -110,9 +110,8 @@ Pi's install ping and `gh` telemetry are off.
 
 `run.sh` creates `~/.config/pi-container/settings.json` if missing and mounts it
 read-only at `/root/.pi/agent/settings.json`. The file is shared by every
-instance and is shared. Edit it on the Mac; changes apply on the
-next launch. The default is `openrouter` /
-`deepseek/deepseek-v4.1-flash-1017`.
+instance. Edit it on the Mac; changes apply on the next launch. The default is
+`openrouter` / `deepseek/deepseek-v4.1-flash-1017`.
 
 A new file also records `lastChangelogVersion` for the image's pinned Pi version
 so Pi does not try to update it. If you have an older file without that key, add

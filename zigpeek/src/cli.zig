@@ -148,7 +148,7 @@ fn runInfo(init: std.process.Init, args: []const [:0]const u8) u8 {
         init.gpa,
         io,
         init.environ_map,
-        .{ .zig = source.zig, .lib_dir = source.lib_dir },
+        source,
     ) catch return fail(io, 1, "out of memory", .{});
 
     var aw: std.Io.Writer.Allocating = .init(init.gpa);
@@ -320,7 +320,7 @@ pub const builtins_usage =
     \\Usage: zigpeek builtins <list|get> [query] [options]
     \\
     \\Browse the `@`-builtin functions from the langref that ships inside the
-    \\Zig installation (no network).
+    \\Zig installation.
     \\
     \\Commands:
     \\  list             List every builtin with its signature

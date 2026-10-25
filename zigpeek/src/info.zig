@@ -9,15 +9,15 @@ const Allocator = std.mem.Allocator;
 const Io = std.Io;
 
 pub const USAGE_GUIDE =
-    \\Look up Zig stdlib and @-builtins before guessing.
+    \\Look up Zig stdlib and @-builtin docs from the local compiler.
     \\
-    \\search when you don't know the name
-    \\get when you do
-    \\get --source-file when you need the body
-    \\builtins list / get for @-functions
-    \\batch if you have more than two lookups
+    \\search QUERY            find a name
+    \\get FQN                 docs, signature, source
+    \\get FQN --source-file   whole defining file
+    \\builtins list / get     @-builtins
+    \\batch                   many lookups, one stdlib parse
     \\
-    \\FQNs follow the module graph, not the file layout: std.Io.Dir.openFile.
+    \\FQNs follow the module graph, not the file layout.
     \\
     \\zigpeek --help lists the rest.
 ;
