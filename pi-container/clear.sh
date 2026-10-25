@@ -185,8 +185,12 @@ save_sessions() {
   local vol=$1 dest=$2
   (umask 077; mkdir -p "$dest")
   if "$cli" run --rm -v "$vol:/agent:ro" "$pi_image" test -d /agent/sessions >/dev/null 2>&1; then
-    "$cli" run --rm -v "$vol:/agent:ro" "$pi_image" tar -C /agent -cf - sessions |
-      tar -C "$dest" -xf -
+    # Archive only regular session files. This keeps symlinks, device nodes, and
+    # unrelated volume contents out of the host backup.
+    "$cli" run --rm -v "$vol:/agent:ro" "$pi_image" sh -c '
+      cd /agent || exit 1
+      find sessions -type f -name "*.jsonl" -print0 | tar --null -T - -cf -
+    ' | tar -C "$dest" --no-same-owner --no-same-permissions -xf -
   else
     say "no sessions in $vol"
   fi

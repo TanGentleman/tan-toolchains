@@ -4,7 +4,7 @@ ARG ZIG_VERSION=0.17.0
 ARG ZIG_PUBKEY=RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends bash ca-certificates curl fd-find git jq minisign ripgrep xz-utils \
+    && apt-get install -y --no-install-recommends bash ca-certificates curl fd-find findutils git jq minisign ripgrep xz-utils \
     && ln -s /usr/bin/fdfind /usr/local/bin/fd \
     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli.gpg \
     && echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli.gpg] https://cli.github.com/packages stable main" \
