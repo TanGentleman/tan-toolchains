@@ -46,4 +46,17 @@ case $work_clone in
   *) fail "new clone volume lacks the pi-clone_ namespace: $work_clone" ;;
 esac
 
+# pi_sha256 must forward file arguments: run.sh hashes files through it, and a
+# helper that always reads stdin blocks when run from a terminal.
+tmp=$(mktemp -d)
+trap 'rm -rf "$tmp"' EXIT
+printf 'alpha\n' > "$tmp/a"
+printf 'beta\n' > "$tmp/b"
+expected=$(printf 'alpha\n' | pi_sha256 | awk '{print $1}')
+actual=$(pi_sha256 "$tmp/a" < /dev/null | awk '{print $1}')
+expect "$expected" "$actual" "pi_sha256 hashes a file argument"
+if [ "$(pi_sha256 "$tmp/a" < /dev/null)" = "$(pi_sha256 "$tmp/b" < /dev/null)" ]; then
+  fail "pi_sha256 ignored distinct file arguments"
+fi
+
 printf 'test-names.sh: ok\n'

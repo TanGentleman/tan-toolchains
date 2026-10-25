@@ -30,9 +30,9 @@ pi_settings_file() {
 
 pi_sha256() {
   if command -v shasum >/dev/null 2>&1; then
-    shasum -a 256
+    shasum -a 256 "$@"
   else
-    sha256sum
+    sha256sum "$@"
   fi
 }
 

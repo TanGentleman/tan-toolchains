@@ -341,7 +341,7 @@ ensure_proxy() {
   write_proxy_env
   stamp="$cfg/proxy.stamp"
   image_hash=$(hash_files "$here/proxy.py" "$here/Dockerfile.proxy")
-  config_hash=$( { cat "$proxy_env" 2>/dev/null || true; printf '%s\n' "$port"; } | shasum -a 256 | awk '{print $1}' )
+  config_hash=$( { cat "$proxy_env" 2>/dev/null || true; printf '%s\n' "$port"; } | pi_sha256 | awk '{print $1}' )
   old_image=""
   old_config=""
   if [ -f "$stamp" ]; then read -r old_image old_config < "$stamp" || true; fi
