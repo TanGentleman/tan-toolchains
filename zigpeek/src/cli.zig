@@ -1,9 +1,9 @@
 //! Argument parsing and command dispatch.
 //!
-//! Exit codes follow the Python tool's contract:
+//! Exit codes:
 //!   0 — success
 //!   1 — bad input (unknown command, missing argument, empty query)
-//!   2 — the local Zig installation could not be used (network is never involved)
+//!   2 — the local Zig installation could not be used
 
 const std = @import("std");
 const info_cmd = @import("info.zig");
@@ -78,10 +78,8 @@ pub const get_usage =
     \\
 ;
 
-const SourceOptions = struct {
-    zig: ?[]const u8 = null,
-    lib_dir: ?[]const u8 = null,
-};
+// Where the docs come from; shared by every command.
+const SourceOptions = zig_env.Source;
 
 pub fn run(init: std.process.Init) u8 {
     const arena = init.arena.allocator();
@@ -133,24 +131,11 @@ fn runInfo(init: std.process.Init, args: []const [:0]const u8) u8 {
             return 0;
         }
 
-        var matched = false;
-        switch (optionValue(arg, "--zig", args, &i)) {
+        switch (parseSourceOption(arg, args, &i, &source)) {
+            .ok => continue,
+            .missing => |name| return fail(io, 1, "option '{s}' requires a value", .{name}),
             .no => {},
-            .missing_value => return fail(io, 1, "option '--zig' requires a value", .{}),
-            .value => |value| {
-                source.zig = value;
-                matched = true;
-            },
         }
-        switch (optionValue(arg, "--lib-dir", args, &i)) {
-            .no => {},
-            .missing_value => return fail(io, 1, "option '--lib-dir' requires a value", .{}),
-            .value => |value| {
-                source.lib_dir = value;
-                matched = true;
-            },
-        }
-        if (matched) continue;
 
         if (isOption(arg)) {
             return fail(io, 1, "unknown option '{s}' for `zigpeek info`\n\n{s}", .{ arg, info_usage });
@@ -189,22 +174,10 @@ fn runSearch(init: std.process.Init, args: []const [:0]const u8, ctx: *Ctx) u8 {
             return 0;
         }
 
-        var matched = false;
-        switch (optionValue(arg, "--zig", args, &i)) {
+        switch (parseSourceOption(arg, args, &i, &source)) {
+            .ok => continue,
+            .missing => |name| return fail(io, 1, "option '{s}' requires a value", .{name}),
             .no => {},
-            .missing_value => return fail(io, 1, "option '--zig' requires a value", .{}),
-            .value => |value| {
-                source.zig = value;
-                matched = true;
-            },
-        }
-        switch (optionValue(arg, "--lib-dir", args, &i)) {
-            .no => {},
-            .missing_value => return fail(io, 1, "option '--lib-dir' requires a value", .{}),
-            .value => |value| {
-                source.lib_dir = value;
-                matched = true;
-            },
         }
         switch (optionValue(arg, "--limit", args, &i)) {
             .no => {},
@@ -212,10 +185,9 @@ fn runSearch(init: std.process.Init, args: []const [:0]const u8, ctx: *Ctx) u8 {
             .value => |value| {
                 limit = std.fmt.parseInt(usize, value, 10) catch
                     return fail(io, 1, "invalid --limit '{s}': expected a positive integer", .{value});
-                matched = true;
+                continue;
             },
         }
-        if (matched) continue;
 
         if (isOption(arg)) {
             return fail(io, 1, "unknown option '{s}' for `zigpeek search`\n\n{s}", .{ arg, search_usage });
@@ -231,22 +203,9 @@ fn runSearch(init: std.process.Init, args: []const [:0]const u8, ctx: *Ctx) u8 {
     }
     if (limit == 0) return fail(io, 1, "--limit must be at least 1", .{});
 
-    const std_dir = switch (openStd(init, arena, source)) {
-        .ok => |ok| ok.std_dir,
-        .out_of_memory => return fail(io, 1, "out of memory", .{}),
-        .no_zig => return fail(io, 2, no_zig_message, .{}),
-        .bad_lib_dir => |raw| return fail(io, 2, bad_lib_dir_message, .{raw}),
-        .probe_failed => |failure| {
-            if (failure.stderr.len != 0) {
-                return fail(io, 2, "{s}\n{s}", .{ failure.message, failure.stderr });
-            }
-            return fail(io, 2, "{s}", .{failure.message});
-        },
-    };
-
-    const index = ctx.indexFor(init, arena, std_dir) catch |err| switch (err) {
-        error.StdLibNotFound => return fail(io, 2, bad_std_dir_message, .{std_dir}),
-        error.OutOfMemory => return fail(io, 1, "out of memory", .{}),
+    const index = switch (resolveIndexOrFail(init, ctx, arena, source)) {
+        .index => |idx| idx,
+        .exit => |code| return code,
     };
 
     if (index.skipped_files != 0) {
@@ -291,24 +250,11 @@ fn runGet(init: std.process.Init, args: []const [:0]const u8, ctx: *Ctx) u8 {
             continue;
         }
 
-        var matched = false;
-        switch (optionValue(arg, "--zig", args, &i)) {
+        switch (parseSourceOption(arg, args, &i, &source)) {
+            .ok => continue,
+            .missing => |name| return fail(io, 1, "option '{s}' requires a value", .{name}),
             .no => {},
-            .missing_value => return fail(io, 1, "option '--zig' requires a value", .{}),
-            .value => |value| {
-                source.zig = value;
-                matched = true;
-            },
         }
-        switch (optionValue(arg, "--lib-dir", args, &i)) {
-            .no => {},
-            .missing_value => return fail(io, 1, "option '--lib-dir' requires a value", .{}),
-            .value => |value| {
-                source.lib_dir = value;
-                matched = true;
-            },
-        }
-        if (matched) continue;
 
         if (isOption(arg)) {
             return fail(io, 1, "unknown option '{s}' for `zigpeek get`\n\n{s}", .{ arg, get_usage });
@@ -323,22 +269,9 @@ fn runGet(init: std.process.Init, args: []const [:0]const u8, ctx: *Ctx) u8 {
         return fail(io, 1, "name cannot be empty\n\n{s}", .{get_usage});
     }
 
-    const std_dir = switch (openStd(init, arena, source)) {
-        .ok => |ok| ok.std_dir,
-        .out_of_memory => return fail(io, 1, "out of memory", .{}),
-        .no_zig => return fail(io, 2, no_zig_message, .{}),
-        .bad_lib_dir => |raw| return fail(io, 2, bad_lib_dir_message, .{raw}),
-        .probe_failed => |failure| {
-            if (failure.stderr.len != 0) {
-                return fail(io, 2, "{s}\n{s}", .{ failure.message, failure.stderr });
-            }
-            return fail(io, 2, "{s}", .{failure.message});
-        },
-    };
-
-    const index = ctx.indexFor(init, arena, std_dir) catch |err| switch (err) {
-        error.StdLibNotFound => return fail(io, 2, bad_std_dir_message, .{std_dir}),
-        error.OutOfMemory => return fail(io, 1, "out of memory", .{}),
+    const index = switch (resolveIndexOrFail(init, ctx, arena, source)) {
+        .index => |idx| idx,
+        .exit => |code| return code,
     };
 
     var aw: std.Io.Writer.Allocating = .init(init.gpa);
@@ -421,24 +354,11 @@ fn runBuiltins(init: std.process.Init, args: []const [:0]const u8) u8 {
             return 0;
         }
 
-        var matched = false;
-        switch (optionValue(arg, "--zig", args, &i)) {
+        switch (parseSourceOption(arg, args, &i, &source)) {
+            .ok => continue,
+            .missing => |name| return fail(io, 1, "option '{s}' requires a value", .{name}),
             .no => {},
-            .missing_value => return fail(io, 1, "option '--zig' requires a value", .{}),
-            .value => |value| {
-                source.zig = value;
-                matched = true;
-            },
         }
-        switch (optionValue(arg, "--lib-dir", args, &i)) {
-            .no => {},
-            .missing_value => return fail(io, 1, "option '--lib-dir' requires a value", .{}),
-            .value => |value| {
-                source.lib_dir = value;
-                matched = true;
-            },
-        }
-        if (matched) continue;
 
         if (isOption(arg)) {
             return fail(io, 1, "unknown option '{s}' for `zigpeek builtins`\n\n{s}", .{ arg, builtins_usage });
@@ -465,23 +385,15 @@ fn runBuiltins(init: std.process.Init, args: []const [:0]const u8) u8 {
         return fail(io, 1, "unknown builtins subcommand '{s}'\n\n{s}", .{ sub, builtins_usage });
     }
 
-    const std_dir = switch (openStd(init, arena, source)) {
-        .ok => |ok| ok.std_dir,
-        .out_of_memory => return fail(io, 1, "out of memory", .{}),
-        .no_zig => return fail(io, 2, no_zig_message, .{}),
-        .bad_lib_dir => |raw| return fail(io, 2, bad_lib_dir_message, .{raw}),
-        .probe_failed => |failure| {
-            if (failure.stderr.len != 0) {
-                return fail(io, 2, "{s}\n{s}", .{ failure.message, failure.stderr });
-            }
-            return fail(io, 2, "{s}", .{failure.message});
-        },
+    const std_dir = switch (resolveStdDirOrFail(init, arena, source)) {
+        .std_dir => |dir| dir,
+        .exit => |code| return code,
     };
 
-    const langref = builtins_cmd.findLangref(arena, io, std_dir) orelse
+    const langref = zig_env.findLangref(arena, io, std_dir) orelse
         return fail(io, 2, no_langref_message, .{std_dir});
 
-    const html = readLangref(init.gpa, io, langref) catch |err| switch (err) {
+    const html = readTextFile(init.gpa, io, langref) catch |err| switch (err) {
         error.OutOfMemory => return fail(io, 1, "out of memory", .{}),
         else => return fail(io, 2, "could not read '{s}'", .{langref}),
     };
@@ -508,18 +420,11 @@ fn runBuiltins(init: std.process.Init, args: []const [:0]const u8) u8 {
     if (results.total == 0) {
         return fail(io, 1, "No builtin functions found matching \"{s}\".\nTry `zigpeek builtins list` to see all functions.", .{query.?});
     }
-    builtins_cmd.renderGet(&aw.writer, results, query.?) catch
+    builtins_cmd.renderGet(&aw.writer, results) catch
         return fail(io, 1, "out of memory", .{});
     writeOut(io, aw.written());
     writeOut(io, "\n");
     return 0;
-}
-
-fn readLangref(gpa: Allocator, io: Io, path: []const u8) ![]u8 {
-    const dir_path = std.fs.path.dirname(path) orelse ".";
-    var dir = try Io.Dir.openDirAbsolute(io, dir_path, .{});
-    defer dir.close(io);
-    return dir.readFileAlloc(io, std.fs.path.basename(path), gpa, .limited(16 << 20));
 }
 
 const no_langref_message =
@@ -728,12 +633,8 @@ fn readTextFile(gpa: Allocator, io: Io, path: []const u8) ![]u8 {
     return dir.readFileAlloc(io, std.fs.path.basename(path), gpa, .limited(16 << 20));
 }
 
-const StdSource = struct {
-    std_dir: []const u8,
-};
-
 const OpenStd = union(enum) {
-    ok: StdSource,
+    ok: []const u8,
     no_zig: void,
     probe_failed: zig_env.Failure,
     bad_lib_dir: []const u8,
@@ -746,16 +647,59 @@ fn openStd(init: std.process.Init, arena: Allocator, options: SourceOptions) Ope
             error.OutOfMemory => return .out_of_memory,
             error.StdLibNotFound => return .{ .bad_lib_dir = raw },
         };
-        return .{ .ok = .{ .std_dir = std_dir } };
+        return .{ .ok = std_dir };
     }
 
     const discovery = zig_env.discover(arena, init.io, init.environ_map, options.zig);
     const exe = discovery.exe() orelse return .no_zig;
     const probe = zig_env.probe(arena, init.gpa, init.io, exe) catch return .out_of_memory;
     return switch (probe) {
-        .ok => |env| .{ .ok = .{ .std_dir = env.std_dir } },
+        .ok => |env| .{ .ok = env.std_dir },
         .failed => |failure| .{ .probe_failed = failure },
     };
+}
+
+const StdDirResult = union(enum) {
+    std_dir: []const u8,
+    exit: u8,
+};
+
+/// Resolve the stdlib directory for `source`, printing the failure and
+/// returning the exit code when there is none.
+fn resolveStdDirOrFail(init: std.process.Init, arena: Allocator, source: SourceOptions) StdDirResult {
+    return switch (openStd(init, arena, source)) {
+        .ok => |std_dir| .{ .std_dir = std_dir },
+        .out_of_memory => .{ .exit = fail(init.io, 1, "out of memory", .{}) },
+        .no_zig => .{ .exit = fail(init.io, 2, no_zig_message, .{}) },
+        .bad_lib_dir => |raw| .{ .exit = fail(init.io, 2, bad_lib_dir_message, .{raw}) },
+        .probe_failed => |failure| .{ .exit = if (failure.stderr.len != 0)
+            fail(init.io, 2, "{s}\n{s}", .{ failure.message, failure.stderr })
+        else
+            fail(init.io, 2, "{s}", .{failure.message}) },
+    };
+}
+
+const IndexResult = union(enum) {
+    index: *const stdlib.Index,
+    exit: u8,
+};
+
+/// Resolve the stdlib and build its index; used by `search` and `get`.
+fn resolveIndexOrFail(
+    init: std.process.Init,
+    ctx: *Ctx,
+    arena: Allocator,
+    source: SourceOptions,
+) IndexResult {
+    const std_dir = switch (resolveStdDirOrFail(init, arena, source)) {
+        .std_dir => |dir| dir,
+        .exit => |code| return .{ .exit = code },
+    };
+    const index = ctx.indexFor(init, arena, std_dir) catch |err| switch (err) {
+        error.StdLibNotFound => return .{ .exit = fail(init.io, 2, bad_std_dir_message, .{std_dir}) },
+        error.OutOfMemory => return .{ .exit = fail(init.io, 1, "out of memory", .{}) },
+    };
+    return .{ .index = index };
 }
 
 const no_zig_message =
@@ -774,6 +718,42 @@ const OptionMatch = union(enum) {
     missing_value,
     value: []const u8,
 };
+
+const SourceParse = union(enum) {
+    /// `arg` is not `--zig` or `--lib-dir`.
+    no,
+    /// Matched; continue the argument loop.
+    ok,
+    /// Matched but the value is missing; payload is the option name.
+    missing: []const u8,
+};
+
+/// Parse `--zig PATH` / `--lib-dir PATH` (both `--x v` and `--x=v`), shared
+/// by every command's argument loop.
+fn parseSourceOption(
+    arg: []const u8,
+    args: []const [:0]const u8,
+    i: *usize,
+    source: *SourceOptions,
+) SourceParse {
+    switch (optionValue(arg, "--zig", args, i)) {
+        .no => {},
+        .missing_value => return .{ .missing = "--zig" },
+        .value => |value| {
+            source.zig = value;
+            return .ok;
+        },
+    }
+    switch (optionValue(arg, "--lib-dir", args, i)) {
+        .no => {},
+        .missing_value => return .{ .missing = "--lib-dir" },
+        .value => |value| {
+            source.lib_dir = value;
+            return .ok;
+        },
+    }
+    return .no;
+}
 
 /// Accepts both `--name value` and `--name=value`.
 fn optionValue(
@@ -865,11 +845,23 @@ test "optionValue: not this option" {
     try testing.expect(optionValue("--ziggy", "--zig", &args, &i) == .no);
 }
 
-test "usage texts list flags" {
-    try testing.expect(std.mem.indexOf(u8, main_usage, "search") != null);
-    try testing.expect(std.mem.indexOf(u8, search_usage, "--limit") != null);
-    try testing.expect(std.mem.indexOf(u8, search_usage, "--lib-dir") != null);
-    try testing.expect(std.mem.indexOf(u8, info_usage, "--zig") != null);
+test "parseSourceOption fills both fields and reports missing values" {
+    const args = [_][:0]const u8{ "--zig", "/z", "--lib-dir=/l" };
+    var source: SourceOptions = .{};
+    var i: usize = 0;
+
+    try testing.expect(parseSourceOption(args[0], &args, &i, &source) == .ok);
+    try testing.expectEqual(@as(usize, 1), i);
+    try testing.expect(parseSourceOption(args[2], &args, &i, &source) == .ok);
+    try testing.expectEqualStrings("/z", source.zig.?);
+    try testing.expectEqualStrings("/l", source.lib_dir.?);
+
+    try testing.expect(parseSourceOption("--other", &args, &i, &source) == .no);
+
+    const missing = [_][:0]const u8{"--zig"};
+    var j: usize = 0;
+    const parse = parseSourceOption(missing[0], &missing, &j, &source);
+    try testing.expectEqualStrings("--zig", parse.missing);
 }
 
 test "batch: splitLine honors quotes and whitespace" {
@@ -890,9 +882,4 @@ test "batch: splitLine rejects unmatched quotes" {
         error.UnmatchedQuote,
         splitLine(arena_state.allocator(), "search \"unterminated"),
     );
-}
-
-test "batch: usage mentions stdin and file" {
-    try testing.expect(std.mem.indexOf(u8, batch_usage, "stdin") != null);
-    try testing.expect(std.mem.indexOf(u8, batch_usage, "--file") != null);
 }

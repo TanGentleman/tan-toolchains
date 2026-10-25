@@ -19,8 +19,8 @@ pub fn build(b: *std.Build) void {
 
     const run = b.addRunArtifact(exe);
     run.step.dependOn(b.getInstallStep());
-    // 0.17 no longer forwards `zig build run -- <args>`; M1 has one command,
-    // so default to it. Later milestones can add a `-Dcmd` option.
+    // 0.17 no longer forwards `zig build run -- <args>`, so the step runs the
+    // one command that needs no arguments.
     run.addArg("info");
     b.step("run", "Run `zigpeek info`").dependOn(&run.step);
 

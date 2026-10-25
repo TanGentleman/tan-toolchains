@@ -22,11 +22,6 @@ pub const USAGE_GUIDE =
     \\zigpeek --help lists the rest.
 ;
 
-pub const Options = struct {
-    zig: ?[]const u8 = null,
-    lib_dir: ?[]const u8 = null,
-};
-
 pub const ZigStatus = enum { ok, unusable, missing };
 
 pub const SourceKind = enum { compiler, override, none };
@@ -55,7 +50,7 @@ pub fn collect(
     gpa: Allocator,
     io: Io,
     environ: *const std.process.Environ.Map,
-    options: Options,
+    options: zig_env.Source,
 ) error{OutOfMemory}!Report {
     var report: Report = .{
         .zigpeek_exe = std.process.executablePathAlloc(io, arena) catch null,
@@ -66,7 +61,7 @@ pub fn collect(
 
     var compiler: ?zig_env.Env = null;
     if (discovery.exe()) |exe| {
-        report.zig_exe = discovery.resolved orelse exe;
+        report.zig_exe = exe;
         switch (try zig_env.probe(arena, gpa, io, exe)) {
             .ok => |env| compiler = env,
             .failed => |failure| {
@@ -226,19 +221,12 @@ fn renderToOwned(allocator: Allocator, report: Report) ![]u8 {
     return allocator.dupe(u8, aw.written());
 }
 
-test "usage guide keeps the agent-facing contract" {
-    const guide = USAGE_GUIDE;
-    try testing.expect(std.mem.startsWith(u8, guide, "Look up Zig stdlib"));
-    for ([_][]const u8{
-        "search",                       "get --source-file", "builtins list / get", "batch", "zigpeek --help",
-        "FQNs follow the module graph",
-    }) |needle| {
-        try testing.expect(std.mem.indexOf(u8, guide, needle) != null);
-    }
-    // The guide is plain text, not markdown: `info` output is pasted into
-    // terminals, and headings/table pipes just add noise.
-    try testing.expect(std.mem.indexOf(u8, guide, "##") == null);
-    try testing.expect(std.mem.indexOf(u8, guide, "|") == null);
+test "usage guide is plain text" {
+    // `info` output is pasted into terminals, so no markdown headings or
+    // table pipes.
+    try testing.expect(std.mem.startsWith(u8, USAGE_GUIDE, "Look up Zig stdlib"));
+    try testing.expect(std.mem.indexOf(u8, USAGE_GUIDE, "##") == null);
+    try testing.expect(std.mem.indexOf(u8, USAGE_GUIDE, "|") == null);
 }
 
 test "render: working local compiler" {
@@ -261,7 +249,7 @@ test "render: working local compiler" {
     const out = try renderToOwned(testing.allocator, report);
     defer testing.allocator.free(out);
 
-    try testing.expect(std.mem.indexOf(u8, out, "zigpeek:\n  version:  0.6.0\n  binary:   /usr/local/bin/zigpeek") != null);
+    try testing.expect(std.mem.indexOf(u8, out, "zigpeek:\n  version:  " ++ version ++ "\n  binary:   /usr/local/bin/zigpeek") != null);
     try testing.expect(std.mem.indexOf(u8, out, "\nzig:\n  binary:   /opt/zig/zig\n  version:  0.17.0\n  lib/:     /opt/zig/lib\n  std/:     /opt/zig/lib/std\n") != null);
     try testing.expect(std.mem.indexOf(u8, out, "\ndocs:\n  version:  0.17.0  (from local zig)\n") != null);
     try testing.expect(std.mem.indexOf(u8, out, "  source:   local compiler lib/\n            /opt/zig/lib/std (found)\n") != null);

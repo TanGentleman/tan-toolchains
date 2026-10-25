@@ -6,9 +6,8 @@ Run [Pi](https://pi.dev) on OpenRouter in an Apple [`container`](https://github.
 
 The image has Pi, git, gh, ripgrep, fd, Zig 0.17.0, and zigpeek. Zig's cache is prewarmed.
 
-`zigpeek` (`search`, `get`, `builtins`) answers Zig API questions straight from
-the installed compiler's `lib/` and `doc/langref.html`, so it works with no
-network at all. Its skill file tells Pi to look APIs up instead of guessing.
+`zigpeek` answers Zig API questions offline from the compiler's own docs; its
+skill file tells Pi to use it. See [../zigpeek/README.md](../zigpeek/README.md).
 
 ## Setup
 
@@ -65,7 +64,7 @@ pic --clone you/your-repo
 
 The default mode mounts the current folder. Use it only for repos you trust; use `--clone` otherwise. `run.sh --help` lists the flags.
 
-`run.sh proxy` follows the proxy log. `run.sh proxy-stop` stops it. A normal `pic` starts it again. The proxy is shared, so `proxy-stop` affects every instance.
+`run.sh proxy` follows the proxy log; `proxy-stop` stops it; a normal `pic` starts it again. The proxy is shared, so `proxy-stop` affects every instance.
 
 ## Multiple instances
 
@@ -86,13 +85,12 @@ cd ~/code/repo-b && pic --instance personal
 cd ~/code/repo-c && pic
 ```
 
-`PI_INSTANCE=work pic` is equivalent to `pic --instance work`, which is handy for
-one alias per window. Instance names are lowercase letters, digits, and hyphens,
-up to 24 characters; `home` is reserved. The default instance is named `default`.
+`PI_INSTANCE=work pic` is equivalent to `pic --instance work`. Instance names
+are lowercase letters, digits, and hyphens, up to 24 characters; `home` is
+reserved and the default instance is named `default`.
 
-Use one instance per concurrent Pi process. Do not run two Pi processes against
-the same instance or the same clone volume. Default-mode instances share the host
-working tree, so use `--clone` when each window needs its own checkout.
+Run one Pi process per instance. Default-mode instances share the host working
+tree; use `--clone` when each window needs its own checkout.
 
 ## Keys
 
@@ -106,13 +104,13 @@ The env file stays on the Mac, mode 600 or 400. `run.sh` writes two filtered cop
 - **Push:** no `git config` or `gh auth login` needed. `gh` supplies the token, and SSH remotes are rewritten to HTTPS.
 - **Commits:** set `GIT_AUTHOR_NAME` and `GIT_AUTHOR_EMAIL`. Add `GIT_COMMITTER_*` only if the committer differs.
 
-Pi's install ping and `gh` telemetry are off. `pi.dev` is unreachable anyway.
+Pi's install ping and `gh` telemetry are off.
 
 ## Config
 
 `run.sh` creates `~/.config/pi-container/settings.json` if missing and mounts it
 read-only at `/root/.pi/agent/settings.json`. The file is shared by every
-instance and is the source of truth. Edit it on the Mac; changes apply on the
+instance and is shared. Edit it on the Mac; changes apply on the
 next launch. The default is `openrouter` /
 `deepseek/deepseek-v4.1-flash-1017`.
 
@@ -151,26 +149,21 @@ pic pi --model openrouter/<model>:high
 ./clear.sh nuke all --instance work               # shared reset for work
 ```
 
-There is no bare `./clear.sh nuke`; choose `agent`, `clones`, or `all`. `save` and
-`nuke` accept `--instance NAME` or `PI_INSTANCE=NAME`; without either they use
-the default instance. `list` always shows every instance. Add `--yes` for
-non-interactive use. Host config and project files stay. Set `PI_BACKUP_DIR` to
-move backups.
+`nuke` requires `agent`, `clones`, or `all`. `save` and `nuke` accept
+`--instance NAME` or `PI_INSTANCE=NAME`; without either they use the default
+instance. `list` always shows every instance. Add `--yes` for non-interactive
+use, and set `PI_BACKUP_DIR` to move backups. Host config and project files
+stay.
 
 `nuke agent` saves sessions, then deletes the whole agent volume: `auth.json`,
 installed skills/extensions, trust decisions, and other state. The shared
-settings file is not in that volume and is not deleted.
+settings file is not in that volume.
 
-`nuke agent` and `nuke clones` are instance-scoped. Clone scoping uses volume
-labels, not a separate manifest; `--legacy` is the explicit path for unlabelled
-volumes left by older versions. Use those two commands for per-instance cleanup.
+`nuke clones` deletes the selected instance's clone volumes, scoped by volume
+labels; `--legacy` targets unlabelled volumes left by older versions.
 `nuke all` deletes the selected instance's agent volume plus the shared proxy,
-network, images, and builder cache; other agent volumes and all clone volumes
-stay. It is machine-wide because the proxy is shared, even when it names one
-instance.
-
-`nuke all` deletes `pi-agent:local` as well, so the next `./run.sh` fails until you
-build the image again. `run.sh` says so; the command is the same one as in Setup:
+network, images, and builder cache, so it affects every instance. It also
+deletes `pi-agent:local`, and the next `./run.sh` fails until you rebuild it:
 
 ```bash
 container build -t pi-agent:local -f Dockerfile ..
@@ -183,8 +176,6 @@ container build -t pi-agent:local -f Dockerfile ..
 - If the Mac forwards IP, the host-only network can reach the internet. `run.sh check` reports this.
 - `run.sh` refuses to mount `~`, `/`, ancestors of `~`, secrets directories, or anything overlapping the config directory.
 - `--clone` keeps the repo in a volume until you `git push`; uncommitted changes stay outside. Clone volumes are named per instance.
-- Instances isolate Pi's agent volume only. The settings file, proxy key, network, and port are shared.
-- `settings.json` is mounted read-only. Pi cannot change defaults, packages, resource paths, or the project-trust fallback. In-session preference changes do not persist.
 - Advanced: `PI_AGENT_VOLUME` overrides the instance-derived agent volume and `PI_SETTINGS_FILE` overrides the shared settings path. Prefer `PI_INSTANCE`; `clear.sh list` discovers labelled volumes.
 - `PI_PROXY_PORT` defaults to 8888. `PI_CPUS` defaults to 4. `PI_MEMORY` defaults to 4G.
 - Rebuild with `--build-arg PI_VERSION=…` or `--build-arg ZIG_VERSION=…` to upgrade tools.

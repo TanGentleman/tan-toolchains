@@ -176,17 +176,23 @@ require_env() {
   fi
 }
 
-# Keep secrets outside a mounted project.
-guard_config() {
-  local pwd_phys cfg_phys env_phys
-  pwd_phys=$(physical_dir "$PWD") || return 0
+# Refuse a project directory that contains the config, the env file, or
+# either's parent; applies to mounts and to check/proxy runs alike.
+refuse_config_overlap() { # $1 project dir, physical
+  local cfg_phys env_phys
   cfg_phys=$(physical_path "$cfg")
   env_phys=$(physical_path "$env_file")
-  if path_within "$pwd_phys" "$cfg_phys" || path_within "$cfg_phys" "$pwd_phys" || \
-     path_within "$pwd_phys" "$env_phys"; then
-    echo "run.sh: config and env files must not be inside $pwd_phys" >&2
+  if path_within "$1" "$cfg_phys" || path_within "$cfg_phys" "$1" || \
+     path_within "$1" "$env_phys"; then
+    echo "run.sh: $cfg and $env_file must not be inside $1" >&2
     exit 1
   fi
+}
+
+guard_config() {
+  local pwd_phys
+  pwd_phys=$(physical_dir "$PWD") || return 0
+  refuse_config_overlap "$pwd_phys"
 }
 
 ensure_network() {
@@ -282,18 +288,12 @@ EOF
 
 # Refuse project mounts that expose secrets.
 guard_mount() {
-  local pwd_phys cfg_phys env_phys home_phys
+  local pwd_phys home_phys secret
   pwd_phys=$(physical_dir "$PWD") || { echo "run.sh: cannot resolve $PWD" >&2; exit 1; }
-  cfg_phys=$(physical_path "$cfg")
-  env_phys=$(physical_path "$env_file")
+  refuse_config_overlap "$pwd_phys"
   home_phys=$(physical_dir "$HOME") || home_phys=$HOME
   if [ "$pwd_phys" = / ] || path_within "$pwd_phys" "$home_phys"; then
     echo "run.sh: refusing to mount $pwd_phys; choose a project below $home_phys" >&2
-    exit 1
-  fi
-  if path_within "$pwd_phys" "$cfg_phys" || path_within "$cfg_phys" "$pwd_phys" || \
-     path_within "$pwd_phys" "$env_phys"; then
-    echo "run.sh: refusing to mount $pwd_phys; it overlaps $cfg or $env_file" >&2
     exit 1
   fi
   for secret in .ssh .aws .gnupg .kube Library/Keychains; do
@@ -332,7 +332,7 @@ valid_ip() {
 }
 
 hash_files() {
-  shasum -a 256 "$@" | shasum -a 256 | awk '{print $1}'
+  pi_sha256 "$@" | pi_sha256 | awk '{print $1}'
 }
 
 ensure_proxy() {
@@ -360,7 +360,6 @@ ensure_proxy() {
     printf '%s %s\n' "$image_hash" "$config_hash" > "$stamp"
   fi
   state=$(proxy_state || true)
-  state=$(printf '%s\n' "$state" | sed -n '1p')
   case "$state" in
     running) return ;;
     stopped|stopping)
@@ -435,11 +434,10 @@ if [ "${1:-}" = proxy-stop ]; then
   exit 0
 fi
 
-mount_project=1
 case "${1:-}" in
-  check|proxy|--clone) mount_project=0 ;;
+  check|proxy|--clone) ;;
+  *) guard_config ;;
 esac
-[ "$mount_project" = 0 ] || guard_config
 require_env
 if [ "${1:-}" != proxy ]; then require_agent_image; fi
 acquire_host_lock

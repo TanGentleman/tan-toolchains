@@ -5,7 +5,6 @@
 //! deliberately small scanner rather than a general HTML parser.
 
 const std = @import("std");
-const zig_env = @import("zig_env.zig");
 
 const Allocator = std.mem.Allocator;
 const Io = std.Io;
@@ -19,11 +18,6 @@ pub const Entry = struct {
     signature: []const u8,
     docs: []const u8,
 };
-
-/// Find the langref that belongs to a compiler installation.
-pub fn findLangref(arena: Allocator, io: Io, std_dir: []const u8) ?[]const u8 {
-    return zig_env.findLangref(arena, io, std_dir);
-}
 
 pub fn parse(arena: Allocator, html: []const u8) Error![]Entry {
     const marker = std.mem.indexOf(u8, html, "id=\"Builtin-Functions\"") orelse
@@ -386,8 +380,7 @@ pub fn renderList(w: *std.Io.Writer, entries: []const Entry, langref_path: []con
     }
 }
 
-pub fn renderGet(w: *std.Io.Writer, results: Results, query: []const u8) std.Io.Writer.Error!void {
-    if (results.total == 0) return;
+pub fn renderGet(w: *std.Io.Writer, results: Results) std.Io.Writer.Error!void {
     if (results.total == 1) {
         try renderEntry(w, results.hits[0].entry);
         return;
@@ -397,7 +390,6 @@ pub fn renderGet(w: *std.Io.Writer, results: Results, query: []const u8) std.Io.
         if (index != 0) try w.writeAll("\n---\n\n");
         try renderEntry(w, hit.entry);
     }
-    _ = query;
 }
 
 fn renderEntry(w: *std.Io.Writer, entry: *const Entry) std.Io.Writer.Error!void {

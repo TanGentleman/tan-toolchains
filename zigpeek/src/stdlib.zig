@@ -3,7 +3,7 @@
 //! zigpeek never ships docs: it walks the `std/` tree of an installed Zig
 //! compiler, parses every file reachable through `pub const X = @import(...)`,
 //! and builds a flat index of fully-qualified declarations. `search` ranks
-//! that index; `get` (later) re-parses the one file a decl lives in.
+//! that index; `get` re-parses the one file a decl lives in.
 //!
 //! FQNs follow the module graph, not the filesystem: `std.Io` is a module
 //! because `std.zig` says `pub const Io = @import("Io.zig")`, and
@@ -80,10 +80,7 @@ pub fn build(gpa: Allocator, io: Io, std_dir_raw: []const u8) StdLibError!Index 
     errdefer arena_state.deinit();
     const arena = arena_state.allocator();
 
-    const std_dir = resolveStdDir(arena, io, std_dir_raw) catch |err| switch (err) {
-        error.OutOfMemory => return error.OutOfMemory,
-        error.StdLibNotFound => return error.StdLibNotFound,
-    };
+    const std_dir = try resolveStdDir(arena, io, std_dir_raw);
 
     var builder: Builder = .{
         .arena = arena,
@@ -114,7 +111,7 @@ pub fn resolveStdDir(
     arena: Allocator,
     io: Io,
     raw: []const u8,
-) error{ StdLibNotFound, OutOfMemory }![]const u8 {
+) StdLibError![]const u8 {
     const abs = absolute(arena, io, raw) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         else => return error.StdLibNotFound,

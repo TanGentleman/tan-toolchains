@@ -439,8 +439,7 @@ fn renderSource(w: *std.Io.Writer, loaded: *const Loaded, node: Ast.Node.Index) 
     const text = sourceSlice(loaded.gpa, loaded, first, last) catch return error.OutOfMemory;
     defer loaded.gpa.free(text);
 
-    // An extern/prototype declaration has no body: the signature already
-    // showed everything, so don't print the same text twice.
+    // A prototype has no body, so its source repeats the signature.
     try w.print("## Source Code\n\n```zig\n{s}\n```\n", .{text});
 }
 

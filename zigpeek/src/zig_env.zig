@@ -21,9 +21,15 @@ pub const auto_sentinels = [_][]const u8{ "zig", "auto" };
 
 const exe_suffix = if (builtin.os.tag == .windows) ".exe" else "";
 
+/// Where docs come from: an explicit compiler (`--zig`) and/or an explicit
+/// stdlib root (`--lib-dir`). Every command parses these two options.
+pub const Source = struct {
+    zig: ?[]const u8 = null,
+    lib_dir: ?[]const u8 = null,
+};
+
 /// Parsed `zig env` output, reduced to the fields zigpeek uses.
 pub const Env = struct {
-    zig_exe: []const u8,
     lib_dir: []const u8,
     std_dir: []const u8,
     version: []const u8,
@@ -41,10 +47,7 @@ pub const Discovery = struct {
     }
 };
 
-pub const FailureKind = enum { spawn_failed, bad_exit, bad_output };
-
 pub const Failure = struct {
-    kind: FailureKind,
     message: []const u8,
     stderr: []const u8 = "",
 };
@@ -150,36 +153,27 @@ pub fn probe(
             .raw = .{ .nanoseconds = 15 * std.time.ns_per_s },
             .clock = .awake,
         } },
-    }) catch |err| return failed(arena, .spawn_failed, "could not run `{s} env`: {t}", .{ exe, err });
+    }) catch |err| return .{ .failed = .{
+        .message = try std.fmt.allocPrint(arena, "could not run `{s} env`: {t}", .{ exe, err }),
+    } };
 
     defer gpa.free(result.stdout);
     defer gpa.free(result.stderr);
 
     if (!result.term.success()) {
-        return failed(arena, .bad_exit, "`{s} env` did not exit cleanly: {t}", .{ exe, result.term });
+        return .{ .failed = .{
+            .message = try std.fmt.allocPrint(arena, "`{s} env` did not exit cleanly: {t}", .{ exe, result.term }),
+        } };
     }
 
     const env = parseEnvZon(arena, gpa, result.stdout) catch |err| switch (err) {
         error.OutOfMemory => return error.OutOfMemory,
         error.InvalidZigEnvZon => return .{ .failed = .{
-            .kind = .bad_output,
             .message = try std.fmt.allocPrint(arena, "`{s} env` printed unparseable output", .{exe}),
             .stderr = try arena.dupe(u8, std.mem.trim(u8, result.stderr, " \t\r\n")),
         } },
     };
     return .{ .ok = env };
-}
-
-fn failed(
-    arena: Allocator,
-    kind: FailureKind,
-    comptime fmt: []const u8,
-    args: anytype,
-) error{OutOfMemory}!Probe {
-    return .{ .failed = .{
-        .kind = kind,
-        .message = try std.fmt.allocPrint(arena, fmt, args),
-    } };
 }
 
 /// Parse the ZON document printed by `zig env`.
@@ -195,7 +189,6 @@ pub fn parseEnvZon(
     const sentinel = try arena.dupeSentinel(u8, trimmed, 0);
 
     const Raw = struct {
-        zig_exe: []const u8 = "",
         lib_dir: []const u8 = "",
         std_dir: []const u8 = "",
         version: []const u8 = "",
@@ -221,7 +214,6 @@ pub fn parseEnvZon(
         try std.fs.path.join(arena, &.{ raw.lib_dir, "std" });
 
     return .{
-        .zig_exe = raw.zig_exe,
         .lib_dir = raw.lib_dir,
         .std_dir = std_dir,
         .version = raw.version,
@@ -298,7 +290,6 @@ test "parseEnvZon: real zig 0.17 output, unknown fields ignored" {
     ;
 
     const env = try parseEnvZon(arena, testing.allocator, source);
-    try testing.expectEqualStrings("/opt/zig-aarch64-linux-0.17.0/zig", env.zig_exe);
     try testing.expectEqualStrings("/opt/zig-aarch64-linux-0.17.0/lib", env.lib_dir);
     try testing.expectEqualStrings("/opt/zig-aarch64-linux-0.17.0/lib/std", env.std_dir);
     try testing.expectEqualStrings("0.17.0", env.version);
@@ -317,7 +308,6 @@ test "parseEnvZon: derives std_dir when the field is absent" {
     );
     const expected_std_dir = try std.fs.path.join(arena, &.{ "/z/lib", "std" });
     try testing.expectEqualStrings(expected_std_dir, env.std_dir);
-    try testing.expectEqualStrings("", env.zig_exe);
 }
 
 test "parseEnvZon: rejects output without a lib_dir" {

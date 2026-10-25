@@ -1,6 +1,6 @@
 ---
 name: zigpeek
-description: Look up Zig stdlib and @-builtin docs with the local zigpeek CLI. Run `zigpeek info` first. Use before writing or reviewing Zig that touches stdlib APIs — especially std.Io, Reader/Writer, and std.process.Init.
+description: Look up Zig stdlib and @-builtin docs with the local zigpeek CLI. Run `zigpeek info` first. Use before writing or reviewing Zig that touches stdlib APIs, especially std.Io, Reader/Writer, and std.process.Init.
 ---
 
 # zigpeek
@@ -9,8 +9,8 @@ description: Look up Zig stdlib and @-builtin docs with the local zigpeek CLI. R
 zigpeek info
 ```
 
-That prints when/how to use this CLI, the resolved binaries, and which Zig
-version + stdlib directory the docs come from.
+Prints usage, the resolved `zigpeek` and `zig` binaries, and the Zig version +
+stdlib directory the docs come from.
 
 If it is missing, build it from the tan-toolchains checkout:
 
@@ -19,15 +19,14 @@ cd zigpeek && zig build --release=small
 install -m755 zig-out/bin/zigpeek ~/.local/bin/
 ```
 
-No Zig installation? zigpeek has nothing to read — install Zig first. It
-never downloads docs.
+Requires Zig: zigpeek reads its `lib/` and `doc/langref.html` and never
+downloads docs.
 
-## Look things up instead of guessing
+## Lookups
 
 ```sh
 zigpeek search writer          # don't know the name
 zigpeek get std.Io.Writer      # know the name
-zigpeek get std.Io.File.close
 zigpeek get std.Io.Dir.openFile --source-file   # whole defining file
 zigpeek builtins get atomic    # @-builtins, by name or doc words
 ```
@@ -37,9 +36,9 @@ zigpeek builtins get atomic    # @-builtins, by name or doc words
 - A dotted query matches whole FQNs: `zigpeek search Io.Dir.open`.
 - FQNs follow the module graph, not the file layout: `std.Io.Dir.openFile`.
 
-## More than two lookups? Use batch
+## Batch
 
-Each `zigpeek` invocation parses the whole stdlib (~100 ms). `batch` parses it
+Each `zigpeek` invocation parses the whole stdlib (~100 ms); `batch` parses it
 once and runs one command per line:
 
 ```sh
@@ -62,11 +61,3 @@ the rest.
   Functions / Global Variables / Values, plus struct fields.
 - Aliases say what they point at and then show the target.
 - `# Error` on stderr + exit 1 means the FQN does not exist; use `search`.
-
-## Checking a migrated call site
-
-```sh
-zigpeek get std.Io.Dir.createDir
-zigpeek get std.process.currentPathAlloc
-zigpeek get std.Io.File.close
-```

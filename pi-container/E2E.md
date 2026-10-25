@@ -4,13 +4,12 @@ Run on macOS before calling a branch stable. A failure is a blocker; fix it on
 the branch, not `main`.
 
 **This test deletes** the E2E agent volume, the shared proxy, network, images,
-and builder cache. It also deletes E2E clone volumes when you run the scoped
-clone cleanup below. Other instances' agent volumes stay. Quit all Pi processes
-first. Save sessions (`./clear.sh save --instance e2e`) before resetting. Host
-config and project files stay. The agent volume also holds Pi's `auth.json`,
-models store, and any user-installed skills/extensions; save custom skills too.
-Everything else rebuilds except the agent image, which you rebuild by hand in
-Build and keys.
+and builder cache, plus E2E clone volumes during the scoped clone cleanup
+below. Other instances' agent volumes stay. Quit all Pi processes first and
+save sessions (`./clear.sh save --instance e2e`). The agent volume holds Pi's
+`auth.json`, models store, and user-installed skills/extensions; save custom
+skills too. Host config and project files stay. Everything else rebuilds
+except the agent image, which you rebuild by hand in Build and keys.
 
 ## Setup
 
@@ -44,7 +43,7 @@ From the repo root, record: `git rev-parse HEAD`, `date`, and
 Run these from `pi-container/` unless noted.
 
 ### Build and keys
-- [ ] `cd pi-container && container build -t pi-agent:local -f Dockerfile ..`
+- [ ] `container build -t pi-agent:local -f Dockerfile ..`
 - [ ] `$PI_ENV_FILE` is mode 600/400; `private/proxy.env` and `pi.env` are
       filtered; no secret in logs.
 
@@ -95,11 +94,13 @@ Run these from `pi-container/` unless noted.
 - [ ] Run one with `HTTP_PROXY=http://127.0.0.1:9`; it still works.
 
 ### Zig build and cross-compile
+
+The product path: build in the container, run on the Mac.
+
 - [ ] `zig init --minimal` in a scratch dir; `zig build` succeeds and reuses the warm cache.
 - [ ] Build a sample pure-Zig binary for `aarch64-macos` in the container; the
       output lands in the mounted folder; run it on the Mac. Example:
       `cd zigpeek && zig build --release=small -Dtarget=aarch64-macos --prefix ../zigpeek-macos`.
-      This is the product use case: build in the container, run on macOS.
 
 ### Cleanup
 - [ ] `./clear.sh save` writes a session backup for the E2E instance.
