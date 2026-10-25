@@ -14,6 +14,7 @@ here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 env_file="${PI_ENV_FILE:-$HOME/.config/pi-container/env}"
 cfg="${PI_CONFIG_DIR:-$HOME/.config/pi-container}"
 settings_file="${PI_SETTINGS_FILE:-$cfg/settings.json}"
+ca_file="$cfg/certs/ca.pem"
 proxy_env="$cfg/private/proxy.env"
 port="${PI_PROXY_PORT:-8888}"
 placeholder="sk-or-v1-placeholder"
@@ -259,14 +260,19 @@ write_pi_env() {
 }
 
 # Pi reads this file directly; edits on the Mac apply on the next launch.
+# The file is mounted read-only, so Pi cannot change settings, packages, or
+# resource paths. Seed lastChangelogVersion so Pi does not try to write it.
 ensure_settings() {
   mkdir -p "$(dirname "$settings_file")"
   [ -f "$settings_file" ] && return
+  pi_version=$(sed -n 's/^ARG PI_VERSION=\(.*\)$/\1/p' "$here/Dockerfile" | head -n 1)
+  [ -n "$pi_version" ] || { echo "run.sh: cannot read PI_VERSION from $here/Dockerfile" >&2; exit 1; }
   (
     umask 077
-    cat > "$settings_file" <<'EOF'
+    cat > "$settings_file" <<EOF
 {
-  "$schema": "https://pi.dev/schemas/settings.schema.json",
+  "\$schema": "https://pi.dev/schemas/settings.schema.json",
+  "lastChangelogVersion": "$pi_version",
   "defaultProvider": "openrouter",
   "defaultModel": "deepseek/deepseek-v4.1-flash-1017"
 }
@@ -453,6 +459,7 @@ fi
 release_host_lock
 proxy_url="http://${proxy_ip_value}:${port}"
 if [ "${1:-}" != proxy ]; then ensure_volume "$agent_volume" agent; fi
+[ -f "$ca_file" ] || { echo "run.sh: missing $ca_file; start pi-proxy or unset PI_SKIP_HOST_SETUP" >&2; exit 1; }
 
 args=(run --rm -i --init --network pi-locked
   --env-file "$cfg/pi.env"
@@ -469,9 +476,9 @@ args=(run --rm -i --init --network pi-locked
   -e SSL_CERT_FILE=/etc/pi-proxy-ca/ca.pem
   -e CURL_CA_BUNDLE=/etc/pi-proxy-ca/ca.pem
   -e REQUESTS_CA_BUNDLE=/etc/pi-proxy-ca/ca.pem
-  -v "$cfg/certs:/etc/pi-proxy-ca:ro"
+  -v "$ca_file:/etc/pi-proxy-ca/ca.pem:ro"
   -v "$agent_volume:/root/.pi/agent"
-  -v "$settings_file:/root/.pi/agent/settings.json")
+  -v "$settings_file:/root/.pi/agent/settings.json:ro")
 if [ -n "${TZ:-}" ]; then args+=(-e "TZ=$TZ"); fi
 if [ -n "${COLORTERM:-}" ]; then args+=(-e "COLORTERM=$COLORTERM"); fi
 if [ -t 0 ] && [ -t 1 ]; then args+=(-t); fi

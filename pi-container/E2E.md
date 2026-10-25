@@ -63,8 +63,13 @@ Run these from `pi-container/` unless noted.
       shared settings path, and session sizes.
 - [ ] Sessions and `auth.json` do not cross between `e2e` and `other`.
 - [ ] Both instances read the same `settings.json`.
+- [ ] `settings.json` is read-only: record its hash, change a preference through
+      `/settings`, save a model with `Ctrl+S`, save thinking with `Ctrl+S`, and
+      save scoped models with `Ctrl+S`; after quitting, the hash is unchanged.
+- [ ] An edit to the host `settings.json` applies on the next launch.
 - [ ] `./clear.sh nuke agent --instance other --yes` deletes only
-      `pi-agent-other`; `pi-agent-e2e` and the proxy remain.
+      `pi-agent-other`; `pi-agent-e2e`, the proxy, and the shared settings file
+      remain.
 
 ### Mounts and clone
 - [ ] Default mount edits land on the Mac.
@@ -78,6 +83,8 @@ Run these from `pi-container/` unless noted.
 ### Proxy
 - [ ] `./run.sh proxy` follows logs; `proxy-stop` stops; a normal run restarts.
 - [ ] The proxy survives a Pi restart without leaking keys.
+- [ ] Inside Pi, `/etc/pi-proxy-ca` contains only `ca.pem`; no private keys or
+      serial files are visible.
 
 ### zigpeek offline
 - [ ] `zigpeek info` shows local Zig and `doc/langref.html`.
@@ -96,7 +103,8 @@ Run these from `pi-container/` unless noted.
 
 ### Cleanup
 - [ ] `./clear.sh save` writes a session backup for the E2E instance.
-- [ ] `./clear.sh nuke agent` deletes the E2E agent volume after saving.
+- [ ] `./clear.sh nuke agent` deletes the E2E agent volume after saving; the
+      shared settings file remains.
 - [ ] Create a throwaway clone, then `./clear.sh nuke clones --instance e2e
       --yes` deletes only that instance's clone volumes.
 - [ ] `./clear.sh nuke clones --legacy --yes` selects only unlabelled old clone
@@ -111,8 +119,12 @@ Run these from `pi-container/` unless noted.
 - [ ] Host config and project files survive every cleanup.
 
 ### Config and edge cases
-- [ ] `settings.json` is created and shared by both instances; one-off
+- [ ] `settings.json` is created, shared, and read-only; one-off
       `pic pi --model …` works.
+- [ ] `/settings`, `/model` `Ctrl+S`, `/thinking` `Ctrl+S`, and
+      `/scoped-models` `Ctrl+S` change the session but not the host file.
+- [ ] `pi config` and `pi install` changes do not persist; a restart uses the
+      host settings again.
 - [ ] Missing `container` CLI, missing env file, invalid repo name, and invalid
       instance names fail clearly.
 - [ ] Starting two instances at once does not race on proxy or network creation.

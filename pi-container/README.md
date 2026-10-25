@@ -110,12 +110,28 @@ Pi's install ping and `gh` telemetry are off. `pi.dev` is unreachable anyway.
 
 ## Config
 
-`run.sh` creates `~/.config/pi-container/settings.json` if missing and mounts it at
-`/root/.pi/agent/settings.json`. The file is shared by every instance. Edit it on
-the Mac; changes apply on the next launch. The default is `openrouter` /
+`run.sh` creates `~/.config/pi-container/settings.json` if missing and mounts it
+read-only at `/root/.pi/agent/settings.json`. The file is shared by every
+instance and is the source of truth. Edit it on the Mac; changes apply on the
+next launch. The default is `openrouter` /
 `deepseek/deepseek-v4.1-flash-1017`.
 
-For a one-off override:
+A new file also records `lastChangelogVersion` for the image's pinned Pi version
+so Pi does not try to update it. If you have an older file without that key, add
+the current version or expect one failed write on startup.
+
+Because settings are read-only, Pi cannot persist preference changes. These
+still work for the current session where applicable, but do not survive a
+restart:
+
+- `/settings`
+- `/model` then `Ctrl+S` (plain `/model` still changes the current session)
+- `/thinking` then `Ctrl+S`
+- `/scoped-models` then `Ctrl+S`
+- `pi install`, `pi remove`, and `pi config` resource changes
+
+Use a one-off flag for temporary changes, and edit the host file for permanent
+ones:
 
 ```bash
 pic pi --model openrouter/<model>:high
@@ -135,17 +151,23 @@ pic pi --model openrouter/<model>:high
 ./clear.sh nuke all --instance work               # shared reset for work
 ```
 
-`save` and `nuke` accept `--instance NAME` or `PI_INSTANCE=NAME`; without either
-they use the default instance. `list` always shows every instance. Add `--yes`
-for non-interactive use. Host config and project files stay. Set `PI_BACKUP_DIR`
-to move backups.
+There is no bare `./clear.sh nuke`; choose `agent`, `clones`, or `all`. `save` and
+`nuke` accept `--instance NAME` or `PI_INSTANCE=NAME`; without either they use
+the default instance. `list` always shows every instance. Add `--yes` for
+non-interactive use. Host config and project files stay. Set `PI_BACKUP_DIR` to
+move backups.
+
+`nuke agent` saves sessions, then deletes the whole agent volume: `auth.json`,
+installed skills/extensions, trust decisions, and other state. The shared
+settings file is not in that volume and is not deleted.
 
 `nuke agent` and `nuke clones` are instance-scoped. Clone scoping uses volume
 labels, not a separate manifest; `--legacy` is the explicit path for unlabelled
-volumes left by older versions. `nuke all` deletes the selected instance's agent
-volume plus the shared proxy, network, images, and builder cache; other agent
-volumes and all clone volumes stay. It is machine-wide because the proxy is
-shared, even when it names one instance.
+volumes left by older versions. Use those two commands for per-instance cleanup.
+`nuke all` deletes the selected instance's agent volume plus the shared proxy,
+network, images, and builder cache; other agent volumes and all clone volumes
+stay. It is machine-wide because the proxy is shared, even when it names one
+instance.
 
 `nuke all` deletes `pi-agent:local` as well, so the next `./run.sh` fails until you
 build the image again. `run.sh` says so; the command is the same one as in Setup:
@@ -162,6 +184,7 @@ container build -t pi-agent:local -f Dockerfile ..
 - `run.sh` refuses to mount `~`, `/`, ancestors of `~`, secrets directories, or anything overlapping the config directory.
 - `--clone` keeps the repo in a volume until you `git push`; uncommitted changes stay outside. Clone volumes are named per instance.
 - Instances isolate Pi's agent volume only. The settings file, proxy key, network, and port are shared.
+- `settings.json` is mounted read-only. Pi cannot change defaults, packages, resource paths, or the project-trust fallback. In-session preference changes do not persist.
 - Advanced: `PI_AGENT_VOLUME` overrides the instance-derived agent volume and `PI_SETTINGS_FILE` overrides the shared settings path. Prefer `PI_INSTANCE`; `clear.sh list` discovers labelled volumes.
 - `PI_PROXY_PORT` defaults to 8888. `PI_CPUS` defaults to 4. `PI_MEMORY` defaults to 4G.
 - Rebuild with `--build-arg PI_VERSION=…` or `--build-arg ZIG_VERSION=…` to upgrade tools.

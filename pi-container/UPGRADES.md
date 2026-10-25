@@ -8,6 +8,10 @@ binaries run on macOS and do not use its network.
 - The proxy does not identify clients. Every Pi instance on `pi-locked` can spend
   the one OpenRouter key. Authenticate proxy clients if untrusted containers join
   that network.
+- The proxy still mounts `$cfg/private` read-write. That directory holds the
+  OpenRouter key, CA private key, and leaf key. Generate certificates outside
+  the long-running proxy, mount only the public certificate into Pi, and mount
+  runtime certificates read-only into the proxy.
 - Separate keys need a later `--profile DIR` feature: its own config directory,
   network, proxy, port offset, and subnet. One proxy owns one key, so profiles
   stay one-proxy-per-key.
