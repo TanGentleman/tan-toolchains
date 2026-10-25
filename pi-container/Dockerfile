@@ -71,6 +71,22 @@ RUN HTTP_PROXY=http://127.0.0.1:9 HTTPS_PROXY=http://127.0.0.1:9 \
     && zigpeek get std.Io.Writer.print >/dev/null
 COPY zigpeek/skills/zigpeek/SKILL.md /root/.agents/skills/zigpeek/SKILL.md
 
+# Version drift fails the build; a mismatched Zig/ZLS pair mis-parses code silently.
+RUN [ "$(zig version)" = "$ZIG_VERSION" ] \
+    || (echo "zig version mismatch: expected ${ZIG_VERSION}, got $(zig version)" >&2; exit 1)
+RUN [ "$(zls --version)" = "$ZLS_VERSION" ] \
+    || (echo "zls version mismatch: expected ${ZLS_VERSION}, got $(zls --version)" >&2; exit 1)
+RUN got="$(nvim --headless -c 'lua print(vim.version().major .. "." .. vim.version().minor .. "." .. vim.version().patch)' -c q)" \
+    && [ "$got" = "$NVIM_VERSION" ] \
+    || (echo "nvim version mismatch: expected ${NVIM_VERSION}, got ${got:-nothing}" >&2; exit 1)
+
+# Prove the runtime and builtin Zig filetype work without plugins.
+RUN nvim --headless -c 'lua assert(vim.log.levels.INFO ~= nil)' -c q
+RUN printf 'const std = @import("std");\n' > /tmp/nvim-filetype.zig \
+    && [ "$(nvim --headless /tmp/nvim-filetype.zig -c 'lua print(vim.bo.filetype)' -c q)" = zig ] \
+    && rm /tmp/nvim-filetype.zig \
+    || (rm -f /tmp/nvim-filetype.zig; echo "nvim did not detect filetype=zig" >&2; exit 1)
+
 # gh supplies GITHUB_TOKEN to git; rewrite SSH remotes to HTTPS so it applies.
 RUN git config --system credential.https://github.com.helper '!gh auth git-credential' \
     && git config --system url.https://github.com/.insteadOf git@github.com: \
