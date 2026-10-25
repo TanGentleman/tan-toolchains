@@ -8,8 +8,9 @@ and builder cache, plus E2E clone volumes during the scoped clone cleanup
 below. Other instances' agent volumes stay. Quit all Pi processes first and
 save sessions (`./clear.sh save --instance e2e`). The agent volume holds Pi's
 `auth.json`, models store, and user-installed skills/extensions; save custom
-skills too. Host config and project files stay. Everything else rebuilds
-except the agent image, which you rebuild by hand in Build and keys.
+skills too. Host config, the Neovim paths under `$PI_CONFIG_DIR`, and project
+files stay. Everything else rebuilds except the agent image, which you rebuild
+by hand in Build and keys.
 
 ## Setup
 
@@ -29,7 +30,8 @@ export PI_CONFIG_DIR="$(mktemp -d)"
 export PI_ENV_FILE="$PI_CONFIG_DIR/env"
 export PI_BACKUP_DIR="$(mktemp -d)"
 export PI_INSTANCE=e2e
-unset PI_AGENT_VOLUME PI_SETTINGS_FILE
+unset PI_AGENT_VOLUME PI_SETTINGS_FILE PI_CLONE
+unset PI_NVIM_CONFIG PI_NVIM_DATA PI_NVIM_STATE PI_NVIM_CACHE
 cp ~/.config/pi-container/env "$PI_ENV_FILE"
 # edit "$PI_ENV_FILE": set GITHUB_TOKEN to the test token
 chmod 600 "$PI_ENV_FILE"
@@ -46,6 +48,8 @@ Run these from `pi-container/` unless noted.
 - [ ] `container build -t pi-agent:local -f Dockerfile ..`
 - [ ] `$PI_ENV_FILE` is mode 600/400; `private/proxy.env` and `pi.env` are
       filtered; no secret in logs.
+- [ ] `./run.sh --manual sh -c 'nvim --version | head -n 1; zls --version'`
+      reports Neovim 0.12.6 and ZLS 0.17.0.
 
 ### First check
 - [ ] `./run.sh check "$owner/tan-toolchains-e2e"` builds `pi-proxy` and reports no failure.
@@ -78,6 +82,24 @@ Run these from `pi-container/` unless noted.
       and repo; it appears under `e2e` in `./clear.sh list`.
 - [ ] Uncommitted changes stay in the volume until pushed.
 - [ ] `git push` works through `gh`.
+
+### Neovim and ZLS
+- [ ] `./run.sh --manual` seeds `$PI_CONFIG_DIR/nvim/init.lua` and starts a shell.
+- [ ] From a Zig project on the host mount, `nvim src/main.zig`;
+      `:checkhealth vim.lsp` and `:lua =vim.lsp.get_clients()` show `zls`.
+- [ ] Edit the host `init.lua`, relaunch, and confirm the change applies; an
+      existing `init.lua` or `init.vim` is never overwritten.
+- [ ] `PI_CLONE="$owner/tan-toolchains-e2e" ./run.sh --manual` starts in
+      `/work/tan-toolchains-e2e`; ZLS attaches there and `./clear.sh list`
+      shows the shared clone volume.
+- [ ] Manual clone authenticates the private E2E repo from
+      `$PI_CONFIG_DIR/pi.env`; a public clone still works without that file.
+- [ ] `zig build` after editing `src/main.zig` in a host-mounted scratch
+      project stays fast and leaves no `.zig-cache` on the host mount.
+- [ ] Write a marker under `$PI_CONFIG_DIR/nvim-state`, relaunch manual mode,
+      and confirm it survives.
+- [ ] `pi` inside `--manual` reports no models; normal `pic` reports models.
+      This is expected and confirms the split.
 
 ### Proxy
 - [ ] `./run.sh proxy` follows logs; `proxy-stop` stops; a normal run restarts.
@@ -117,7 +139,8 @@ The product path: build in the container, run on the Mac.
 - [ ] After `nuke all`, `./run.sh` reports the missing image instead of pulling
       from Docker Hub. Then rebuild and `./run.sh check` again:
       `container build -t pi-agent:local -f Dockerfile ..`
-- [ ] Host config and project files survive every cleanup.
+- [ ] Host config, the Neovim paths under `$PI_CONFIG_DIR`, and project files
+      survive every cleanup.
 
 ### Config and edge cases
 - [ ] `settings.json` is created, shared, and read-only; one-off
@@ -126,11 +149,12 @@ The product path: build in the container, run on the Mac.
       `/scoped-models` `Ctrl+S` change the session but not the host file.
 - [ ] `pi config` and `pi install` changes do not persist; a restart uses the
       host settings again.
-- [ ] Missing `container` CLI, missing env file, invalid repo name, and invalid
-      instance names fail clearly.
+- [ ] Missing `container` CLI, missing env file, invalid repo name (including
+      `PI_CLONE`), and invalid instance names fail clearly.
 - [ ] Starting two instances at once does not race on proxy or network creation.
 - [ ] Proxy already running and network already exists are handled without conflicts.
-- [ ] `--build-arg PI_VERSION=…` and `--build-arg ZIG_VERSION=…` change the image.
+- [ ] `--build-arg PI_VERSION=…`, `ZIG_VERSION=…`, `NVIM_VERSION=…`, and
+      `ZLS_VERSION=…` change the image; a ZLS/Zig mismatch fails.
 
 ### Sign-off
 - [ ] All checks pass.

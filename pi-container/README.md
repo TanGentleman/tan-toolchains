@@ -4,7 +4,7 @@ Run [Pi](https://pi.dev) on OpenRouter in an Apple [`container`](https://github.
 
 `pi-proxy` tunnels GitHub, adds your OpenRouter key, and refuses everything else. Pi shares only the host-only `pi-locked` network with it. One proxy serves every Pi instance.
 
-The image has Pi, git, gh, ripgrep, fd, Zig 0.17.0, and zigpeek. Zig's cache is prewarmed.
+The image has Pi, git, gh, ripgrep, fd, Zig 0.17.0, Neovim 0.12.6, ZLS 0.17.0, and zigpeek. Zig's cache is prewarmed. The image is aarch64-only and fails early on other architectures.
 
 `zigpeek` answers Zig API questions offline from the compiler's own docs; its
 skill file tells Pi to use it. See [../zigpeek/README.md](../zigpeek/README.md).
@@ -58,6 +58,11 @@ pic --instance work      # separate sessions and agent state
 pic pi --continue
 pic bash
 pic --clone you/your-repo
+
+pic --manual             # local Neovim/ZLS shell, no Pi or proxy
+pic --manual nvim .
+pic --manual --clone you/your-repo
+PI_CLONE=you/your-repo pic --manual
 ```
 
 `/model` picks a model; `:free` costs nothing. `/quit` exits and deletes the Pi VM. Do not run `/login`; it saves a real key into the agent volume.
@@ -65,6 +70,43 @@ pic --clone you/your-repo
 The default mode mounts the current folder. Use it only for repos you trust; use `--clone` otherwise. `run.sh --help` lists the flags.
 
 `run.sh proxy` follows the proxy log; `proxy-stop` stops it; a normal `pic` starts it again. The proxy is shared, so `proxy-stop` affects every instance.
+
+## Local development
+
+`--manual` opens a shell in the image without Pi, the proxy, or OpenRouter
+configuration. It uses the container's default network, so it is not subject to
+`pi-proxy`'s allowlist; use it only with trusted projects. `pi` is still
+installed, but manual mode configures no provider, so use normal `pic` for the
+agent.
+
+Manual mode does not require the env file. It mounts the current folder, or a
+clone with `--clone O/R`; clone mode reuses an existing `pi.env` for GitHub
+authentication. `PI_CLONE=O/R` makes clone the default. A cloned shell starts in
+`/work/<repo>` and shares its volume with normal `--clone`.
+
+Neovim paths:
+
+| Host | Container |
+| ---- | --------- |
+| `~/.config/pi-container/nvim` | `/root/.config/nvim` |
+| `~/.config/pi-container/nvim-data` | `/root/.local/share/nvim` |
+| `~/.config/pi-container/nvim-state` | `/root/.local/state/nvim` |
+| `~/.config/pi-container/nvim-cache` | `/root/.cache/nvim` |
+
+`run.sh` seeds `init.lua` once from [`nvim/init.lua`](nvim/init.lua) and never
+overwrites an existing `init.lua` or `init.vim`. The stock config only enables
+ZLS. Edit the host copy; changes apply on the next launch. Override the paths
+with `PI_NVIM_CONFIG`, `PI_NVIM_DATA`, `PI_NVIM_STATE`, and `PI_NVIM_CACHE`.
+Neovim config and state are shared by all instances by default.
+
+On a bind-mounted project, Zig's local cache is redirected to
+`/root/.cache/zig-local/<project-hash>` so builds do not crawl over the macOS
+filesystem. Clone mode keeps `.zig-cache` in the clone volume. Plugins are not baked in: manual mode has internet, but normal Pi mode is
+behind the proxy, so Git clones from `github.com` work while release-asset and
+tool downloads may fail. The image does not include a compiler for Treesitter
+parsers; use Neovim's builtin Zig syntax for now.
+
+Normal Pi mode does not mount the Neovim paths yet.
 
 ## Multiple instances
 
@@ -90,7 +132,9 @@ are lowercase letters, digits, and hyphens, up to 24 characters; `home` is
 reserved and the default instance is named `default`.
 
 Run one Pi process per instance. Default-mode instances share the host working
-tree; use `--clone` when each window needs its own checkout.
+tree; use `--clone` when each window needs its own checkout. Manual-mode
+instances also share the Neovim paths above; use the `PI_NVIM_*` overrides if
+parallel editors need separate state.
 
 ## Keys
 
@@ -161,8 +205,9 @@ settings file is not in that volume.
 `nuke clones` deletes the selected instance's clone volumes, scoped by volume
 labels; `--legacy` targets unlabelled volumes left by older versions.
 `nuke all` deletes the selected instance's agent volume plus the shared proxy,
-network, images, and builder cache, so it affects every instance. It also
-deletes `pi-agent:local`, and the next `./run.sh` fails until you rebuild it:
+network, images, and builder cache, so it affects every instance. It does not
+delete the Neovim host paths under `~/.config/pi-container/`. It also deletes
+`pi-agent:local`, and the next `./run.sh` fails until you rebuild it:
 
 ```bash
 container build -t pi-agent:local -f Dockerfile ..
@@ -170,11 +215,12 @@ container build -t pi-agent:local -f Dockerfile ..
 
 ## Limits
 
-- Allowed: GitHub hosts, `openrouter.ai`, and its subdomains. Everything else is refused.
+- Normal Pi mode allows GitHub hosts, `openrouter.ai`, and its subdomains. Everything else is refused.
+- `--manual` uses the default container network, not `pi-locked` or `pi-proxy`. When cloning, it passes `pi.env` if that file exists, so the GitHub token is available there; otherwise only public clones work.
 - `pi-locked` is host-only. Pi can reach your Mac and other containers on it.
 - If the Mac forwards IP, the host-only network can reach the internet. `run.sh check` reports this.
 - `run.sh` refuses to mount `~`, `/`, ancestors of `~`, secrets directories, or anything overlapping the config directory.
 - `--clone` keeps the repo in a volume until you `git push`; uncommitted changes stay outside. Clone volumes are named per instance.
-- Advanced: `PI_AGENT_VOLUME` overrides the instance-derived agent volume and `PI_SETTINGS_FILE` overrides the shared settings path. Prefer `PI_INSTANCE`; `clear.sh list` discovers labelled volumes.
+- Advanced: `PI_AGENT_VOLUME` overrides the instance-derived agent volume, `PI_SETTINGS_FILE` overrides the shared settings path, `PI_CLONE` defaults `--clone`, and the `PI_NVIM_*` variables override the Neovim paths. Prefer `PI_INSTANCE`; `clear.sh list` discovers labelled volumes.
 - `PI_PROXY_PORT` defaults to 8888. `PI_CPUS` defaults to 4. `PI_MEMORY` defaults to 4G.
-- Rebuild with `--build-arg PI_VERSION=…` or `--build-arg ZIG_VERSION=…` to upgrade tools.
+- Rebuild with `--build-arg PI_VERSION=…`, `ZIG_VERSION=…`, `NVIM_VERSION=…`, or `ZLS_VERSION=…`. Update the matching checksum when changing Neovim or ZLS; ZLS must match Zig.
