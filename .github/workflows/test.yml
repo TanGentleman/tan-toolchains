@@ -53,9 +53,12 @@ jobs:
       - name: Shell syntax
         run: |
           set -euo pipefail
-          for f in pi-container/run.sh pi-container/clear.sh; do
+          for f in pi-container/run.sh pi-container/clear.sh pi-container/names.sh pi-container/test-names.sh; do
             bash -n "$f"
           done
+
+      - name: Instance naming
+        run: bash pi-container/test-names.sh
 
       - name: Python syntax
         run: python3 -m py_compile pi-container/proxy.py

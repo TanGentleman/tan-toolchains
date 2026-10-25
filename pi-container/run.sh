@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # Run Pi inside Apple's container, on a host-only network.
-#   run.sh                         Pi on the current folder (trusted repos only)
-#   run.sh --clone OWNER/REPO      Pi on a clone kept in a volume
-#   run.sh check [OWNER/REPO]      keys, GitHub, and the network lock
-#   run.sh proxy                   follow the proxy container's logs
-#   run.sh proxy-stop              stop the proxy container
-#   run.sh --help                  show this text
+#   run.sh [--instance NAME]                Pi on the current folder (trusted repos only)
+#   run.sh [--instance NAME] --clone O/R    Pi on a clone kept in a volume
+#   run.sh [--instance NAME] check [O/R]    keys, GitHub, and the network lock
+#   run.sh proxy                            follow the proxy container's logs
+#   run.sh proxy-stop                       stop the proxy container
+#   run.sh --help                           show this text
+#   PI_INSTANCE=NAME                        default for --instance
 set -euo pipefail
 
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+. "$here/names.sh"
 env_file="${PI_ENV_FILE:-$HOME/.config/pi-container/env}"
 cfg="${PI_CONFIG_DIR:-$HOME/.config/pi-container}"
 settings_file="${PI_SETTINGS_FILE:-$cfg/settings.json}"
@@ -18,7 +20,29 @@ placeholder="sk-or-v1-placeholder"
 cli="${CONTAINER_CLI:-container}"
 proxy_name="pi-proxy"
 proxy_image="${PI_PROXY_IMAGE:-pi-proxy:local}"
-agent_volume="${PI_AGENT_VOLUME:-pi-agent-home}"
+lock_dir="$cfg/private/host-setup.lock"
+host_lock_held=0
+
+instance=${PI_INSTANCE:-$pi_default_instance}
+while [ $# -gt 0 ]; do
+  case $1 in
+    --instance)
+      [ $# -ge 2 ] || { echo "run.sh: --instance needs a name" >&2; exit 2; }
+      instance=$2
+      shift 2
+      ;;
+    --instance=*)
+      instance=${1#*=}
+      shift
+      ;;
+    *) break ;;
+  esac
+done
+if ! pi_instance_valid "$instance"; then
+  echo "run.sh: invalid instance '$instance'; use lowercase letters, digits, and hyphens (max 24; not 'home')" >&2
+  exit 2
+fi
+agent_volume="${PI_AGENT_VOLUME:-$(pi_agent_volume "$instance")}"
 
 case $port in
   ''|*[!0-9]*) echo "run.sh: PI_PROXY_PORT must be a number" >&2; exit 2 ;;
@@ -29,7 +53,7 @@ if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
 fi
 
 if [ "${1:-}" = --help ] || [ "${1:-}" = -h ] || [ "${1:-}" = help ]; then
-  sed -n '2,8p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'
   exit 0
 fi
 
@@ -78,6 +102,60 @@ require_agent_image() {
   echo "run.sh: build it from the repo root context, because the image compiles ../zigpeek:" >&2
   echo "  $cli build -t $image -f $here/Dockerfile $here/.." >&2
   exit 1
+}
+
+volume_exists() { "$cli" volume list -q 2>/dev/null | grep -qx "$1"; }
+
+# Create volumes explicitly so they carry the labels clear.sh uses for scoping.
+# `container run -v name:/path` would create them without labels.
+ensure_volume() { # name, kind, [repo]
+  local name=$1 kind=$2 repo=${3:-}
+  volume_exists "$name" && return 0
+  local labels=(--label pi.managed=true --label "pi.instance=$instance" --label "pi.kind=$kind")
+  [ -z "$repo" ] || labels+=(--label "pi.repo=$repo")
+  if ! "$cli" volume create "${labels[@]}" "$name" >/dev/null 2>&1; then
+    volume_exists "$name" && return 0
+    echo "run.sh: cannot create volume $name" >&2
+    exit 1
+  fi
+}
+
+acquire_host_lock() {
+  local pid waited=0 limit=${PI_LOCK_WAIT:-120}
+  mkdir -p "$cfg/private"
+  chmod 700 "$cfg/private" 2>/dev/null || true
+  while ! mkdir "$lock_dir" 2>/dev/null; do
+    pid=""
+    [ -f "$lock_dir/pid" ] && pid=$(cat "$lock_dir/pid" 2>/dev/null || true)
+    if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
+      rm -rf "$lock_dir"
+      continue
+    fi
+    if [ -z "$pid" ] && [ "$waited" -ge 5 ]; then
+      rm -rf "$lock_dir"
+      continue
+    fi
+    if [ "$waited" -ge "$limit" ]; then
+      echo "run.sh: timed out waiting for another pi-container start; remove $lock_dir if it is stale" >&2
+      exit 1
+    fi
+    [ "$waited" -eq 0 ] && echo "run.sh: waiting for another pi-container start to finish" >&2
+    sleep 1
+    waited=$((waited + 1))
+  done
+  if ! printf '%s\n' "$$" > "$lock_dir/pid"; then
+    rm -rf "$lock_dir"
+    echo "run.sh: cannot write $lock_dir/pid" >&2
+    exit 1
+  fi
+  host_lock_held=1
+}
+
+release_host_lock() {
+  if [ "${host_lock_held:-0}" = 1 ]; then
+    rm -rf "$lock_dir"
+    host_lock_held=0
+  fi
 }
 
 require_env() {
@@ -342,9 +420,12 @@ if [ "${PI_SOURCE_ONLY:-}" = 1 ]; then
 fi
 
 require_cli
+trap release_host_lock EXIT
 
 if [ "${1:-}" = proxy-stop ]; then
+  acquire_host_lock
   "$cli" stop "$proxy_name" >/dev/null 2>&1 || true
+  release_host_lock
   exit 0
 fi
 
@@ -355,6 +436,7 @@ esac
 [ "$mount_project" = 0 ] || guard_config
 require_env
 if [ "${1:-}" != proxy ]; then require_agent_image; fi
+acquire_host_lock
 write_pi_env
 ensure_settings
 if [ "${PI_SKIP_HOST_SETUP:-}" = 1 ]; then
@@ -363,11 +445,14 @@ else
   ensure_network
   ensure_proxy
   if [ "${1:-}" = proxy ]; then
+    release_host_lock
     exec "$cli" logs -f "$proxy_name"
   fi
   proxy_ip_value=$(proxy_ip)
 fi
+release_host_lock
 proxy_url="http://${proxy_ip_value}:${port}"
+if [ "${1:-}" != proxy ]; then ensure_volume "$agent_volume" agent; fi
 
 args=(run --rm -i --init --network pi-locked
   --env-file "$cfg/pi.env"
@@ -484,9 +569,8 @@ fi
 [ -d "$d/.git" ] || git clone "https://github.com/$PI_CLONE.git" "$d" || exit 1
 cd "$d" && exec "$@"
 EOF
-  slug=$(printf '%s' "$clone" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9' '-' | cut -c1-40)
-  short_hash=$(printf '%s' "$clone" | shasum -a 256 | cut -c1-8)
-  vol="pi-clone-${slug}-${short_hash}"
+  vol=$(pi_clone_volume "$instance" "$clone")
+  ensure_volume "$vol" clone "$clone"
   echo "run.sh: clone volume: $vol" >&2
   args+=(-v "$vol:/work" -w /work -e "PI_CLONE=$clone")
   set -- bash -c "$boot" boot "$@"

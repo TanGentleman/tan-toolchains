@@ -26,7 +26,9 @@ container build -t pi-agent:local -f Dockerfile ..
 ```
 
 The image builds `../zigpeek` from source and installs it as `zigpeek`, so the
-lookup tool and the Zig it documents are the same version. See
+lookup tool and the Zig it documents are the same version. Use
+`./run.sh --instance NAME` or `PI_INSTANCE=NAME` to run Pi in several terminal
+windows with isolated sessions behind one shared proxy. See
 [pi-container/README.md](pi-container/README.md).
 
 ## Scope and network boundary

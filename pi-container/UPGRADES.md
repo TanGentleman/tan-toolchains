@@ -5,13 +5,17 @@ binaries run on macOS and do not use its network.
 
 ## Security
 
-- Authenticate proxy clients only if you add more containers to the host-only
-  `pi-locked` network. With just Pi and `pi-proxy`, only Pi can reach the proxy.
+- The proxy does not identify clients. Every Pi instance on `pi-locked` can spend
+  the one OpenRouter key. Authenticate proxy clients if untrusted containers join
+  that network.
+- Separate keys need a later `--profile DIR` feature: its own config directory,
+  network, proxy, port offset, and subnet. One proxy owns one key, so profiles
+  stay one-proxy-per-key.
 
 ## Quality
 
 - Add smoke tests for `run.sh check` and `clear.sh save`; run them manually on
-  macOS. CI checks syntax only.
+  macOS. CI checks syntax and instance/volume naming only.
 - Run the [E2E checklist](E2E.md) on macOS before calling a branch stable. This
   stays manual because Apple `container` is not available on GitHub Actions.
 - Base images are pinned to multi-arch digests; keep tool versions pinned via
