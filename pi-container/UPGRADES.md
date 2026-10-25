@@ -27,6 +27,8 @@ binaries run on macOS and do not use its network.
   prebuilt parsers.
 - Neovim config/state is shared by all instances. Make it per-instance if
   parallel editors contend.
+- Zig's local cache is container-local and disappears with the container. Add a
+  persistent cache volume if rebuilds matter.
 - inotify does not reliably cross the macOS bind mount; ZLS may miss saves made
   on the host. Edit inside the container.
 - The first `build.zig`-aware ZLS request may fetch project dependencies. The

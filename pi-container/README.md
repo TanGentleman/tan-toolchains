@@ -99,11 +99,12 @@ ZLS. Edit the host copy; changes apply on the next launch. Override the paths
 with `PI_NVIM_CONFIG`, `PI_NVIM_DATA`, `PI_NVIM_STATE`, and `PI_NVIM_CACHE`.
 Neovim config and state are shared by all instances by default.
 
-On a bind-mounted project, Zig's local cache is redirected to
-`/root/.cache/zig-local/<project-hash>` so builds do not crawl over the macOS
-filesystem. Clone mode keeps `.zig-cache` in the clone volume. Plugins are not baked in: manual mode has internet, but normal Pi mode is
-behind the proxy, so Git clones from `github.com` work while release-asset and
-tool downloads may fail. The image does not include a compiler for Treesitter
+Zig's local cache is redirected to `/root/.cache/zig-local/<project-hash>` for
+both bind-mounted and cloned projects, so builds do not crawl over a slow mount.
+The image's global cache is still prewarmed; the local cache is per container.
+Plugins are not baked in: manual mode has internet, but normal Pi mode is behind
+the proxy, so Git clones from `github.com` work while release-asset and tool
+downloads may fail. The image does not include a compiler for Treesitter
 parsers; use Neovim's builtin Zig syntax for now.
 
 Normal Pi mode does not mount the Neovim paths yet.

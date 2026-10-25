@@ -94,8 +94,8 @@ Run these from `pi-container/` unless noted.
       shows the shared clone volume.
 - [ ] Manual clone authenticates the private E2E repo from
       `$PI_CONFIG_DIR/pi.env`; a public clone still works without that file.
-- [ ] `zig build` after editing `src/main.zig` in a host-mounted scratch
-      project stays fast and leaves no `.zig-cache` on the host mount.
+- [ ] `zig build` after editing `src/main.zig` stays fast and leaves no
+      `.zig-cache` in the mounted or cloned project.
 - [ ] Write a marker under `$PI_CONFIG_DIR/nvim-state`, relaunch manual mode,
       and confirm it survives.
 - [ ] `pi` inside `--manual` reports no models; normal `pic` reports models.

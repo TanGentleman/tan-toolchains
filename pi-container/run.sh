@@ -510,13 +510,16 @@ if [ "$manual" = 1 ]; then
     guard_mount
     args+=(-v "$PWD:$PWD" -w "$PWD")
   fi
-  # The project is a macOS bind mount; Zig's default .zig-cache crawls there.
-  # Keep the local cache in the container and use the image's prewarmed global cache.
-  args+=(-e "ZIG_GLOBAL_CACHE_DIR=/root/.cache/zig")
-  if [ -z "$clone" ]; then
-    zig_cache_key=$(printf '%s' "$PWD" | pi_sha256 | cut -c1-16)
-    args+=(-e "ZIG_LOCAL_CACHE_DIR=/root/.cache/zig-local/$zig_cache_key")
+  # Project mounts can be slow; keep Zig's local cache in the container and use
+  # the image's prewarmed global cache.
+  if [ -n "$clone" ]; then
+    zig_cache_source="/work/${clone#*/}"
+  else
+    zig_cache_source=$PWD
   fi
+  zig_cache_key=$(printf '%s' "$zig_cache_source" | pi_sha256 | cut -c1-16)
+  args+=(-e "ZIG_GLOBAL_CACHE_DIR=/root/.cache/zig"
+    -e "ZIG_LOCAL_CACHE_DIR=/root/.cache/zig-local/$zig_cache_key")
   if [ -n "${COLORTERM:-}" ]; then args+=(-e "COLORTERM=$COLORTERM"); fi
   if [ -t 0 ] && [ -t 1 ]; then args+=(-t); fi
   exec "$cli" "${args[@]}" "${PI_IMAGE:-pi-agent:local}" "$@"
