@@ -464,6 +464,11 @@ if [ "$manual" = 1 ]; then
     -v "$nvim_data:/root/.local/share/nvim"
     -v "$nvim_state:/root/.local/state/nvim"
     -v "$nvim_cache:/root/.cache/nvim")
+  # The project is a macOS bind mount; Zig's default .zig-cache crawls there.
+  # Keep the local cache in the container and use the image's prewarmed global cache.
+  zig_cache_key=$(printf '%s' "$PWD" | pi_sha256 | cut -c1-16)
+  args+=(-e "ZIG_GLOBAL_CACHE_DIR=/root/.cache/zig"
+    -e "ZIG_LOCAL_CACHE_DIR=/root/.cache/zig-local/$zig_cache_key")
   if [ -n "${COLORTERM:-}" ]; then args+=(-e "COLORTERM=$COLORTERM"); fi
   if [ -t 0 ] && [ -t 1 ]; then args+=(-t); fi
   [ $# -gt 0 ] || set -- bash
