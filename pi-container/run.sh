@@ -15,6 +15,10 @@ here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 env_file="${PI_ENV_FILE:-$HOME/.config/pi-container/env}"
 cfg="${PI_CONFIG_DIR:-$HOME/.config/pi-container}"
 settings_file="${PI_SETTINGS_FILE:-$cfg/settings.json}"
+nvim_config="${PI_NVIM_CONFIG:-$cfg/nvim}"
+nvim_data="${PI_NVIM_DATA:-$cfg/nvim-data}"
+nvim_state="${PI_NVIM_STATE:-$cfg/nvim-state}"
+nvim_cache="${PI_NVIM_CACHE:-$cfg/nvim-cache}"
 ca_file="$cfg/certs/ca.pem"
 proxy_env="$cfg/private/proxy.env"
 port="${PI_PROXY_PORT:-8888}"
@@ -271,6 +275,14 @@ write_pi_env() {
   fi
 }
 
+ensure_nvim_mounts() {
+  mkdir -p "$nvim_config" "$nvim_data" "$nvim_state" "$nvim_cache"
+  if [ ! -e "$nvim_config/init.lua" ] && [ ! -L "$nvim_config/init.lua" ] \
+     && [ ! -e "$nvim_config/init.vim" ] && [ ! -L "$nvim_config/init.vim" ]; then
+    cp "$here/nvim/init.lua" "$nvim_config/init.lua"
+  fi
+}
+
 # Pi reads this file directly; edits on the Mac apply on the next launch.
 # The file is mounted read-only, so Pi cannot change settings, packages, or
 # resource paths. Seed lastChangelogVersion so Pi does not try to write it.
@@ -443,10 +455,15 @@ fi
 if [ "$manual" = 1 ]; then
   require_agent_image
   guard_mount
+  ensure_nvim_mounts
   args=(run --rm -i --init --network default
     -e "TERM=${TERM:-xterm-256color}"
     -e LANG=C.UTF-8 -e LC_ALL=C.UTF-8
-    -v "$PWD:$PWD" -w "$PWD")
+    -v "$PWD:$PWD" -w "$PWD"
+    -v "$nvim_config:/root/.config/nvim"
+    -v "$nvim_data:/root/.local/share/nvim"
+    -v "$nvim_state:/root/.local/state/nvim"
+    -v "$nvim_cache:/root/.cache/nvim")
   if [ -n "${COLORTERM:-}" ]; then args+=(-e "COLORTERM=$COLORTERM"); fi
   if [ -t 0 ] && [ -t 1 ]; then args+=(-t); fi
   [ $# -gt 0 ] || set -- bash
