@@ -2,12 +2,14 @@
 # Run Pi inside Apple's container, on a host-only network.
 #   run.sh [--instance NAME]                Pi on the current folder (trusted repos only)
 #   run.sh [--instance NAME] --clone O/R    Pi on a clone kept in a volume
-#   run.sh [--instance NAME] --manual [CMD] shell without Pi, proxy, or keys
+#   run.sh [--instance NAME] [--clone O/R] --manual [CMD]
+#                                              shell without Pi or proxy
 #   run.sh [--instance NAME] check [O/R]    keys, GitHub, and the network lock
 #   run.sh proxy                            follow the proxy container's logs
 #   run.sh proxy-stop                       stop the proxy container
 #   run.sh --help                           show this text
 #   PI_INSTANCE=NAME                        default for --instance
+#   PI_CLONE=O/R                            default for --clone
 set -euo pipefail
 
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
@@ -31,6 +33,7 @@ host_lock_held=0
 
 instance=${PI_INSTANCE:-$pi_default_instance}
 manual=0
+clone="${PI_CLONE:-}"
 while [ $# -gt 0 ]; do
   case $1 in
     --instance)
@@ -46,6 +49,15 @@ while [ $# -gt 0 ]; do
       manual=1
       shift
       ;;
+    --clone)
+      [ $# -ge 2 ] || { echo "run.sh: --clone needs OWNER/REPO" >&2; exit 2; }
+      clone=$2
+      shift 2
+      ;;
+    --clone=*)
+      clone=${1#*=}
+      shift
+      ;;
     *) break ;;
   esac
 done
@@ -54,6 +66,17 @@ if ! pi_instance_valid "$instance"; then
   exit 2
 fi
 agent_volume="${PI_AGENT_VOLUME:-$(pi_agent_volume "$instance")}"
+if [ -n "$clone" ]; then
+  owner=${clone%%/*}
+  repo=${clone#*/}
+  if [ "$owner" = "$clone" ] || [ -z "$owner" ] || [ -z "$repo" ] \
+     || ! [[ "$owner" =~ ^[A-Za-z0-9][A-Za-z0-9-]*$ ]] \
+     || ! [[ "$repo" =~ ^[A-Za-z0-9._-]+$ ]] \
+     || [ "$repo" = . ] || [ "$repo" = .. ] || [ "${repo#-}" != "$repo" ]; then
+    echo "run.sh: bad repo '$clone'" >&2
+    exit 2
+  fi
+fi
 
 case $port in
   ''|*[!0-9]*) echo "run.sh: PI_PROXY_PORT must be a number" >&2; exit 2 ;;
@@ -64,7 +87,7 @@ if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
 fi
 
 if [ "${1:-}" = --help ] || [ "${1:-}" = -h ] || [ "${1:-}" = help ]; then
-  sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
   exit 0
 fi
 
@@ -129,6 +152,18 @@ ensure_volume() { # name, kind, [repo]
     echo "run.sh: cannot create volume $name" >&2
     exit 1
   fi
+}
+
+clone_boot_script() {
+  cat <<'EOF'
+d="/work/${PI_CLONE#*/}"
+if [ -e "$d" ] && [ ! -d "$d/.git" ]; then
+  echo "run.sh: $d exists but is not a git clone; delete the clone volume and retry" >&2
+  exit 1
+fi
+[ -d "$d/.git" ] || git clone "https://github.com/$PI_CLONE.git" "$d" || exit 1
+cd "$d" && exec "$@"
+EOF
 }
 
 acquire_host_lock() {
@@ -454,30 +489,42 @@ fi
 
 if [ "$manual" = 1 ]; then
   require_agent_image
-  guard_mount
   ensure_nvim_mounts
+  [ $# -gt 0 ] || set -- bash
   args=(run --rm -i --init --network default
     -e "TERM=${TERM:-xterm-256color}"
     -e LANG=C.UTF-8 -e LC_ALL=C.UTF-8
-    -v "$PWD:$PWD" -w "$PWD"
     -v "$nvim_config:/root/.config/nvim"
     -v "$nvim_data:/root/.local/share/nvim"
     -v "$nvim_state:/root/.local/state/nvim"
     -v "$nvim_cache:/root/.cache/nvim")
+  if [ -n "$clone" ]; then
+    clone_vol=$(pi_clone_volume "$instance" "$clone")
+    ensure_volume "$clone_vol" clone "$clone"
+    echo "run.sh: clone volume: $clone_vol" >&2
+    boot=$(clone_boot_script)
+    args+=(-v "$clone_vol:/work" -w /work -e "PI_CLONE=$clone")
+    if [ -f "$cfg/pi.env" ]; then args+=(--env-file "$cfg/pi.env"); fi
+    set -- bash -c "$boot" boot "$@"
+  else
+    guard_mount
+    args+=(-v "$PWD:$PWD" -w "$PWD")
+  fi
   # The project is a macOS bind mount; Zig's default .zig-cache crawls there.
   # Keep the local cache in the container and use the image's prewarmed global cache.
-  zig_cache_key=$(printf '%s' "$PWD" | pi_sha256 | cut -c1-16)
-  args+=(-e "ZIG_GLOBAL_CACHE_DIR=/root/.cache/zig"
-    -e "ZIG_LOCAL_CACHE_DIR=/root/.cache/zig-local/$zig_cache_key")
+  args+=(-e "ZIG_GLOBAL_CACHE_DIR=/root/.cache/zig")
+  if [ -z "$clone" ]; then
+    zig_cache_key=$(printf '%s' "$PWD" | pi_sha256 | cut -c1-16)
+    args+=(-e "ZIG_LOCAL_CACHE_DIR=/root/.cache/zig-local/$zig_cache_key")
+  fi
   if [ -n "${COLORTERM:-}" ]; then args+=(-e "COLORTERM=$COLORTERM"); fi
   if [ -t 0 ] && [ -t 1 ]; then args+=(-t); fi
-  [ $# -gt 0 ] || set -- bash
   exec "$cli" "${args[@]}" "${PI_IMAGE:-pi-agent:local}" "$@"
 fi
 
 case "${1:-}" in
-  check|proxy|--clone) ;;
-  *) guard_config ;;
+  check|proxy) ;;
+  *) [ -n "$clone" ] || guard_config ;;
 esac
 require_env
 if [ "${1:-}" != proxy ]; then require_agent_image; fi
@@ -522,19 +569,6 @@ if [ -n "${TZ:-}" ]; then args+=(-e "TZ=$TZ"); fi
 if [ -n "${COLORTERM:-}" ]; then args+=(-e "COLORTERM=$COLORTERM"); fi
 if [ -t 0 ] && [ -t 1 ]; then args+=(-t); fi
 
-clone=""
-if [ "${1:-}" = --clone ]; then
-  clone="${2:?--clone needs OWNER/REPO}"; shift 2
-  owner=${clone%%/*}
-  repo=${clone#*/}
-  if [ "$owner" = "$clone" ] || [ -z "$owner" ] || [ -z "$repo" ] \
-     || ! [[ "$owner" =~ ^[A-Za-z0-9][A-Za-z0-9-]*$ ]] \
-     || ! [[ "$repo" =~ ^[A-Za-z0-9._-]+$ ]] \
-     || [ "$repo" = . ] || [ "$repo" = .. ] || [ "${repo#-}" != "$repo" ]; then
-    echo "run.sh: bad repo '$clone'" >&2
-    exit 2
-  fi
-fi
 [ $# -gt 0 ] || set -- pi
 case "${1:-}" in
   -*) echo "run.sh: unknown option '$1' (try --help)" >&2; exit 2 ;;
@@ -606,15 +640,7 @@ EOF
   set -- bash -c "$script" check "${2:-$clone}"
   args+=(-w /tmp)
 elif [ -n "$clone" ]; then
-  read -r -d '' boot <<'EOF' || true
-d="/work/${PI_CLONE#*/}"
-if [ -e "$d" ] && [ ! -d "$d/.git" ]; then
-  echo "run.sh: $d exists but is not a git clone; delete the clone volume and retry" >&2
-  exit 1
-fi
-[ -d "$d/.git" ] || git clone "https://github.com/$PI_CLONE.git" "$d" || exit 1
-cd "$d" && exec "$@"
-EOF
+  boot=$(clone_boot_script)
   vol=$(pi_clone_volume "$instance" "$clone")
   ensure_volume "$vol" clone "$clone"
   echo "run.sh: clone volume: $vol" >&2
