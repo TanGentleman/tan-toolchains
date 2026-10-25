@@ -2,6 +2,7 @@
 # Run Pi inside Apple's container, on a host-only network.
 #   run.sh [--instance NAME]                Pi on the current folder (trusted repos only)
 #   run.sh [--instance NAME] --clone O/R    Pi on a clone kept in a volume
+#   run.sh [--instance NAME] --manual [CMD] shell without Pi, proxy, or keys
 #   run.sh [--instance NAME] check [O/R]    keys, GitHub, and the network lock
 #   run.sh proxy                            follow the proxy container's logs
 #   run.sh proxy-stop                       stop the proxy container
@@ -25,6 +26,7 @@ lock_dir="$cfg/private/host-setup.lock"
 host_lock_held=0
 
 instance=${PI_INSTANCE:-$pi_default_instance}
+manual=0
 while [ $# -gt 0 ]; do
   case $1 in
     --instance)
@@ -34,6 +36,10 @@ while [ $# -gt 0 ]; do
       ;;
     --instance=*)
       instance=${1#*=}
+      shift
+      ;;
+    --manual)
+      manual=1
       shift
       ;;
     *) break ;;
@@ -54,7 +60,7 @@ if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
 fi
 
 if [ "${1:-}" = --help ] || [ "${1:-}" = -h ] || [ "${1:-}" = help ]; then
-  sed -n '2,9p' "$0" | sed 's/^# \{0,1\}//'
+  sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'
   exit 0
 fi
 
@@ -432,6 +438,19 @@ if [ "${1:-}" = proxy-stop ]; then
   "$cli" stop "$proxy_name" >/dev/null 2>&1 || true
   release_host_lock
   exit 0
+fi
+
+if [ "$manual" = 1 ]; then
+  require_agent_image
+  guard_mount
+  args=(run --rm -i --init --network default
+    -e "TERM=${TERM:-xterm-256color}"
+    -e LANG=C.UTF-8 -e LC_ALL=C.UTF-8
+    -v "$PWD:$PWD" -w "$PWD")
+  if [ -n "${COLORTERM:-}" ]; then args+=(-e "COLORTERM=$COLORTERM"); fi
+  if [ -t 0 ] && [ -t 1 ]; then args+=(-t); fi
+  [ $# -gt 0 ] || set -- bash
+  exec "$cli" "${args[@]}" "${PI_IMAGE:-pi-agent:local}" "$@"
 fi
 
 case "${1:-}" in
