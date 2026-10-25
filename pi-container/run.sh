@@ -492,6 +492,7 @@ if [ "$manual" = 1 ]; then
   ensure_nvim_mounts
   [ $# -gt 0 ] || set -- bash
   args=(run --rm -i --init --network default
+    --cpus "${PI_CPUS:-4}" --memory "${PI_MEMORY:-4G}"
     -e "TERM=${TERM:-xterm-256color}"
     -e LANG=C.UTF-8 -e LC_ALL=C.UTF-8
     -v "$nvim_config:/root/.config/nvim"
