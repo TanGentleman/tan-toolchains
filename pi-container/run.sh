@@ -14,8 +14,8 @@ set -euo pipefail
 
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 . "$here/names.sh"
-env_file="${PI_ENV_FILE:-$HOME/.config/pi-container/env}"
-cfg="${PI_CONFIG_DIR:-$HOME/.config/pi-container}"
+cfg="${PI_CONFIG_DIR:-$(pi_default_config_dir)}"
+env_file="${PI_ENV_FILE:-$cfg/env}"
 settings_file="${PI_SETTINGS_FILE:-$cfg/settings.json}"
 nvim_config="${PI_NVIM_CONFIG:-$cfg/nvim}"
 nvim_data="${PI_NVIM_DATA:-$cfg/nvim-data}"
@@ -26,9 +26,11 @@ proxy_env="$cfg/private/proxy.env"
 port="${PI_PROXY_PORT:-8888}"
 placeholder="sk-or-v1-placeholder"
 cli="${CONTAINER_CLI:-container}"
-proxy_name="pi-proxy"
-proxy_image="${PI_PROXY_IMAGE:-pi-proxy:local}"
-lock_dir="$cfg/private/host-setup.lock"
+proxy_name="${PI_PROXY_NAME:-$(pi_proxy_name "$cfg")}"
+network_name="${PI_NETWORK_NAME:-$(pi_network_name "$cfg")}"
+locked_subnet="${PI_LOCKED_SUBNET:-$(pi_locked_subnet "$cfg")}"
+proxy_image="${PI_PROXY_IMAGE:-$(pi_proxy_image "$cfg")}"
+lock_dir="$(pi_lock_dir)"
 host_lock_held=0
 
 instance=${PI_INSTANCE:-$pi_default_instance}
@@ -65,8 +67,11 @@ if ! pi_instance_valid "$instance"; then
   echo "run.sh: invalid instance '$instance'; use lowercase letters, digits, and hyphens (max 24; not 'home')" >&2
   exit 2
 fi
-agent_volume="${PI_AGENT_VOLUME:-$(pi_agent_volume "$instance")}"
+agent_volume="${PI_AGENT_VOLUME:-$(pi_agent_volume "$instance" "$cfg")}"
 if [ -n "$clone" ]; then
+  case $clone in
+    *.git) clone=${clone%.git} ;;
+  esac
   owner=${clone%%/*}
   repo=${clone#*/}
   if [ "$owner" = "$clone" ] || [ -z "$owner" ] || [ -z "$repo" ] \
@@ -117,8 +122,13 @@ physical_path() {
 }
 
 path_within() { # $1 parent, $2 child
-  [ "$1" = / ] && return 0
-  case $2 in "$1"|"$1"/*) return 0 ;; esac
+  # Compare case-folded: macOS volumes are usually case-insensitive, and the
+  # guard should fail closed if the user types a different case.
+  local parent child
+  parent=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
+  child=$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')
+  [ "$parent" = / ] && return 0
+  case $child in "$parent"|"$parent"/*) return 0 ;; esac
   return 1
 }
 
@@ -143,9 +153,12 @@ volume_exists() { "$cli" volume list -q 2>/dev/null | grep -qx "$1"; }
 # Create volumes explicitly so they carry the labels clear.sh uses for scoping.
 # `container run -v name:/path` would create them without labels.
 ensure_volume() { # name, kind, [repo]
-  local name=$1 kind=$2 repo=${3:-}
+  local name=$1 kind=$2 repo=${3:-} profile
   volume_exists "$name" && return 0
-  local labels=(--label pi.managed=true --label "pi.instance=$instance" --label "pi.kind=$kind")
+  profile=$(pi_profile_label "$cfg")
+  local labels=(--label pi.managed=true --label "pi.profile=$profile"
+    --label "pi.config=$cfg" --label "pi.settings=$settings_file"
+    --label "pi.instance=$instance" --label "pi.kind=$kind")
   [ -z "$repo" ] || labels+=(--label "pi.repo=$repo")
   if ! "$cli" volume create "${labels[@]}" "$name" >/dev/null 2>&1; then
     volume_exists "$name" && return 0
@@ -167,9 +180,10 @@ EOF
 }
 
 acquire_host_lock() {
-  local pid waited=0 limit=${PI_LOCK_WAIT:-120}
-  mkdir -p "$cfg/private"
-  chmod 700 "$cfg/private" 2>/dev/null || true
+  local pid waited=0 limit=${PI_LOCK_WAIT:-120} lock_parent
+  lock_parent=$(dirname "$lock_dir")
+  mkdir -p "$lock_parent"
+  chmod 700 "$lock_parent" 2>/dev/null || true
   while ! mkdir "$lock_dir" 2>/dev/null; do
     pid=""
     [ -f "$lock_dir/pid" ] && pid=$(cat "$lock_dir/pid" 2>/dev/null || true)
@@ -221,39 +235,47 @@ require_env() {
   fi
 }
 
-# Refuse a project directory that contains the config, the env file, or
-# either's parent; applies to mounts and to check/proxy runs alike.
+# Refuse a project directory that contains the current config, the default
+# config (which holds the global lock), the env file, or either config's
+# parent. Used for project mounts.
 refuse_config_overlap() { # $1 project dir, physical
-  local cfg_phys env_phys
+  local cfg_phys env_phys default_phys settings_phys
   cfg_phys=$(physical_path "$cfg")
   env_phys=$(physical_path "$env_file")
+  default_phys=$(physical_path "$(pi_default_config_dir)")
+  settings_phys=$(physical_path "$settings_file")
   if path_within "$1" "$cfg_phys" || path_within "$cfg_phys" "$1" || \
-     path_within "$1" "$env_phys"; then
-    echo "run.sh: $cfg and $env_file must not be inside $1" >&2
+     path_within "$1" "$default_phys" || path_within "$default_phys" "$1" || \
+     path_within "$1" "$env_phys" || path_within "$1" "$settings_phys" || \
+     path_within "$settings_phys" "$1"; then
+    echo "run.sh: $1 must not overlap $cfg, $(pi_default_config_dir), $env_file, or $settings_file" >&2
     exit 1
   fi
 }
 
-guard_config() {
-  local pwd_phys
-  pwd_phys=$(physical_dir "$PWD") || return 0
-  refuse_config_overlap "$pwd_phys"
-}
-
 ensure_network() {
+  local names inspect
   names=$("$cli" network list -q) || { echo "run.sh: container network list failed" >&2; exit 1; }
-  if printf '%s\n' "$names" | grep -qx pi-locked; then
-    if inspect=$("$cli" network inspect pi-locked 2>/dev/null); then
-      if printf '%s\n' "$inspect" | grep -q '"internal"[[:space:]]*:[[:space:]]*false'; then
-        echo "run.sh: pi-locked exists but is not internal; delete it first" >&2
-        exit 1
-      fi
-    else
-      echo "run.sh: warning: could not inspect pi-locked; assuming it is internal" >&2
+  if printf '%s\n' "$names" | grep -qx "$network_name"; then
+    if ! inspect=$("$cli" network inspect "$network_name" 2>/dev/null); then
+      echo "run.sh: cannot inspect $network_name; refusing to assume it is internal" >&2
+      exit 1
+    fi
+    if printf '%s\n' "$inspect" | grep -Eq '"internal"[[:space:]]*:[[:space:]]*"?false"?'; then
+      echo "run.sh: $network_name exists but is not internal; delete it first" >&2
+      exit 1
+    fi
+    if ! printf '%s\n' "$inspect" | grep -Eq '"internal"[[:space:]]*:[[:space:]]*"?true"?'; then
+      echo "run.sh: cannot verify that $network_name is internal; delete it and retry" >&2
+      exit 1
+    fi
+    if ! printf '%s\n' "$inspect" | grep -qF "$locked_subnet"; then
+      echo "run.sh: $network_name does not use $locked_subnet; delete it or set PI_LOCKED_SUBNET to match" >&2
+      exit 1
     fi
     return
   fi
-  "$cli" network create --internal pi-locked --subnet 172.30.240.0/24
+  "$cli" network create --internal "$network_name" --subnet "$locked_subnet"
 }
 
 # A file keeps the key out of `container inspect pi-proxy`.
@@ -279,8 +301,8 @@ write_proxy_env() {
     rm -f "$tmp"
   else
     mv "$tmp" "$proxy_env"
-    chmod 600 "$proxy_env"
   fi
+  chmod 600 "$proxy_env"
   rm -f "$cfg/proxy.env" # old location
 }
 
@@ -306,8 +328,8 @@ write_pi_env() {
     rm -f "$tmp"
   else
     mv "$tmp" "$cfg/pi.env"
-    chmod 600 "$cfg/pi.env"
   fi
+  chmod 600 "$cfg/pi.env"
 }
 
 ensure_nvim_mounts() {
@@ -318,14 +340,27 @@ ensure_nvim_mounts() {
   fi
 }
 
+# Read the Pi version recorded at image build time. Older images without the
+# label fall back to the Dockerfile default.
+image_pi_version() {
+  local image=${PI_IMAGE:-pi-agent:local} json
+  json=$("$cli" image inspect "$image" 2>/dev/null) || return 1
+  printf '%s\n' "$json" |
+    sed -n 's/.*"pi-container\.pi-version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' |
+    head -n 1
+}
+
 # Pi reads this file directly; edits on the Mac apply on the next launch.
 # The file is mounted read-only, so Pi cannot change settings, packages, or
 # resource paths. Seed lastChangelogVersion so Pi does not try to write it.
 ensure_settings() {
   mkdir -p "$(dirname "$settings_file")"
   [ -f "$settings_file" ] && return
-  pi_version=$(sed -n 's/^ARG PI_VERSION=\(.*\)$/\1/p' "$here/Dockerfile" | head -n 1)
-  [ -n "$pi_version" ] || { echo "run.sh: cannot read PI_VERSION from $here/Dockerfile" >&2; exit 1; }
+  pi_version=$(image_pi_version || true)
+  if [ -z "$pi_version" ]; then
+    pi_version=$(sed -n 's/^ARG PI_VERSION=\(.*\)$/\1/p' "$here/Dockerfile" | head -n 1)
+  fi
+  [ -n "$pi_version" ] || { echo "run.sh: cannot determine the Pi version for $settings_file" >&2; exit 1; }
   (
     umask 077
     cat > "$settings_file" <<EOF
@@ -350,8 +385,8 @@ guard_mount() {
     exit 1
   fi
   for secret in .ssh .aws .gnupg .kube Library/Keychains; do
-    if path_within "$home_phys/$secret" "$pwd_phys"; then
-      echo "run.sh: refusing to mount $pwd_phys; it looks like a secrets directory" >&2
+    if path_within "$home_phys/$secret" "$pwd_phys" || path_within "$pwd_phys" "$home_phys/$secret"; then
+      echo "run.sh: refusing to mount $pwd_phys; it overlaps secrets at $home_phys/$secret" >&2
       exit 1
     fi
   done
@@ -388,13 +423,20 @@ hash_files() {
   pi_sha256 "$@" | pi_sha256 | awk '{print $1}'
 }
 
+add_zig_cache_args() { # project path
+  local source=$1 key
+  key=$(printf '%s' "$source" | pi_sha256 | cut -c1-16)
+  args+=(-e "ZIG_GLOBAL_CACHE_DIR=/root/.cache/zig"
+    -e "ZIG_LOCAL_CACHE_DIR=/root/.cache/zig-local/$key")
+}
+
 ensure_proxy() {
   mkdir -p "$cfg/certs" "$cfg/private"
   chmod 700 "$cfg/private"
   write_proxy_env
   stamp="$cfg/proxy.stamp"
   image_hash=$(hash_files "$here/proxy.py" "$here/Dockerfile.proxy")
-  config_hash=$( { cat "$proxy_env" 2>/dev/null || true; printf '%s\n' "$port"; } | pi_sha256 | awk '{print $1}' )
+  config_hash=$( { cat "$proxy_env" 2>/dev/null || true; printf '%s\n' "$port" "$locked_subnet" "$network_name" "$proxy_image"; } | pi_sha256 | awk '{print $1}' )
   old_image=""
   old_config=""
   if [ -f "$stamp" ]; then read -r old_image old_config < "$stamp" || true; fi
@@ -430,8 +472,9 @@ ensure_proxy() {
   rm -f "$(addr_file)"
   "$cli" run -d --name "$proxy_name" --init \
     --cpus 1 --memory 1G \
-    --network default --network pi-locked \
+    --network default --network "$network_name" \
     -e "PI_PROXY_PORT=$port" \
+    -e "PI_PROXY_LOCKED_CIDR=$locked_subnet" \
     -e PI_ENV_FILE=/private/proxy.env \
     -v "$cfg/private:/private" -v "$cfg/certs:/certs" \
     "$proxy_image" >/dev/null
@@ -465,9 +508,9 @@ proxy_ip() {
     sleep 1
   done
   if valid_ip "${ip:-}"; then
-    echo "run.sh: pi-proxy is listening on ${ip}:${port} but did not answer from inside the container. Run: $cli logs $proxy_name" >&2
+    echo "run.sh: $proxy_name is listening on ${ip}:${port} but did not answer from inside the container. Run: $cli logs $proxy_name" >&2
   else
-    echo "run.sh: pi-proxy did not report an address. Run: $cli logs $proxy_name" >&2
+    echo "run.sh: $proxy_name did not report an address. Run: $cli logs $proxy_name" >&2
   fi
   exit 1
 }
@@ -487,7 +530,24 @@ if [ "${1:-}" = proxy-stop ]; then
   exit 0
 fi
 
+# Runs before the clone boot script in normal mode and, when pi.env is
+# available, in manual clone mode. Keep GIT_AUTHOR_* sufficient for both
+# identities so the documented env file works for commits.
+read -r -d '' prep <<'EOF' || true
+if [ -n "${HTTPS_PROXY:-}" ]; then
+  git config --global http.proxy "$HTTPS_PROXY"
+  git config --global https.proxy "$HTTPS_PROXY"
+fi
+name="${GIT_AUTHOR_NAME:-${GIT_COMMITTER_NAME:-}}"
+email="${GIT_AUTHOR_EMAIL:-${GIT_COMMITTER_EMAIL:-}}"
+[ -z "$name" ] || git config --global user.name "$name"
+[ -z "$email" ] || git config --global user.email "$email"
+exec "$@"
+EOF
+
 if [ "$manual" = 1 ]; then
+  [ -n "$clone" ] || guard_mount
+  acquire_host_lock
   require_agent_image
   ensure_nvim_mounts
   [ $# -gt 0 ] || set -- bash
@@ -500,35 +560,40 @@ if [ "$manual" = 1 ]; then
     -v "$nvim_state:/root/.local/state/nvim"
     -v "$nvim_cache:/root/.cache/nvim")
   if [ -n "$clone" ]; then
-    clone_vol=$(pi_clone_volume "$instance" "$clone")
+    clone_vol=$(pi_clone_volume "$instance" "$clone" "$cfg")
     ensure_volume "$clone_vol" clone "$clone"
     echo "run.sh: clone volume: $clone_vol" >&2
     boot=$(clone_boot_script)
     args+=(-v "$clone_vol:/work" -w /work -e "PI_CLONE=$clone")
-    if [ -f "$cfg/pi.env" ]; then args+=(--env-file "$cfg/pi.env"); fi
+    manual_pi_env=0
+    if [ -f "$cfg/pi.env" ]; then
+      manual_pi_env=1
+      args+=(--env-file "$cfg/pi.env")
+    fi
     set -- bash -c "$boot" boot "$@"
+    if [ "$manual_pi_env" = 1 ]; then
+      set -- bash -c "$prep" prep "$@"
+    fi
   else
-    guard_mount
     args+=(-v "$PWD:$PWD" -w "$PWD")
   fi
   # Project mounts can be slow; keep Zig's local cache in the container and use
   # the image's prewarmed global cache.
   if [ -n "$clone" ]; then
-    zig_cache_source="/work/${clone#*/}"
+    add_zig_cache_args "/work/${clone#*/}"
   else
-    zig_cache_source=$PWD
+    add_zig_cache_args "$PWD"
   fi
-  zig_cache_key=$(printf '%s' "$zig_cache_source" | pi_sha256 | cut -c1-16)
-  args+=(-e "ZIG_GLOBAL_CACHE_DIR=/root/.cache/zig"
-    -e "ZIG_LOCAL_CACHE_DIR=/root/.cache/zig-local/$zig_cache_key")
+  if [ -n "${TZ:-}" ]; then args+=(-e "TZ=$TZ"); fi
   if [ -n "${COLORTERM:-}" ]; then args+=(-e "COLORTERM=$COLORTERM"); fi
   if [ -t 0 ] && [ -t 1 ]; then args+=(-t); fi
+  release_host_lock
   exec "$cli" "${args[@]}" "${PI_IMAGE:-pi-agent:local}" "$@"
 fi
 
 case "${1:-}" in
   check|proxy) ;;
-  *) [ -n "$clone" ] || guard_config ;;
+  *) if [ -n "$clone" ]; then :; else guard_mount; fi ;;
 esac
 require_env
 if [ "${1:-}" != proxy ]; then require_agent_image; fi
@@ -536,7 +601,8 @@ acquire_host_lock
 write_pi_env
 ensure_settings
 if [ "${PI_SKIP_HOST_SETUP:-}" = 1 ]; then
-  proxy_ip_value="172.30.240.2"
+  proxy_ip_value="${PI_SKIP_PROXY_IP:-${locked_subnet%/*}}"
+  proxy_ip_value="${proxy_ip_value%.*}.2"
 else
   ensure_network
   ensure_proxy
@@ -549,9 +615,9 @@ fi
 release_host_lock
 proxy_url="http://${proxy_ip_value}:${port}"
 if [ "${1:-}" != proxy ]; then ensure_volume "$agent_volume" agent; fi
-[ -f "$ca_file" ] || { echo "run.sh: missing $ca_file; start pi-proxy or unset PI_SKIP_HOST_SETUP" >&2; exit 1; }
+[ -f "$ca_file" ] || { echo "run.sh: missing $ca_file; start the proxy or unset PI_SKIP_HOST_SETUP" >&2; exit 1; }
 
-args=(run --rm -i --init --network pi-locked
+args=(run --rm -i --init --network "$network_name"
   --env-file "$cfg/pi.env"
   --cpus "${PI_CPUS:-4}" --memory "${PI_MEMORY:-4G}"
   -e "TERM=${TERM:-xterm-256color}"
@@ -569,6 +635,11 @@ args=(run --rm -i --init --network pi-locked
   -v "$ca_file:/etc/pi-proxy-ca/ca.pem:ro"
   -v "$agent_volume:/root/.pi/agent"
   -v "$settings_file:/root/.pi/agent/settings.json:ro")
+if [ -n "$clone" ]; then
+  add_zig_cache_args "/work/${clone#*/}"
+else
+  add_zig_cache_args "$PWD"
+fi
 if [ -n "${TZ:-}" ]; then args+=(-e "TZ=$TZ"); fi
 if [ -n "${COLORTERM:-}" ]; then args+=(-e "COLORTERM=$COLORTERM"); fi
 if [ -t 0 ] && [ -t 1 ]; then args+=(-t); fi
@@ -578,30 +649,37 @@ case "${1:-}" in
   -*) echo "run.sh: unknown option '$1' (try --help)" >&2; exit 2 ;;
 esac
 
-read -r -d '' prep <<'EOF' || true
-git config --global http.proxy "$HTTPS_PROXY"
-git config --global https.proxy "$HTTPS_PROXY"
-# Make GIT_AUTHOR_* enough for both identities.
-name="${GIT_AUTHOR_NAME:-${GIT_COMMITTER_NAME:-}}"
-email="${GIT_AUTHOR_EMAIL:-${GIT_COMMITTER_EMAIL:-}}"
-[ -z "$name" ] || git config --global user.name "$name"
-[ -z "$email" ] || git config --global user.email "$email"
-exec "$@"
-EOF
-
 if [ "$1" = check ]; then
+  check_repo=${2:-$clone}
+  case $check_repo in
+    *.git) check_repo=${check_repo%.git} ;;
+  esac
   read -r -d '' script <<'EOF' || true
 s=0
 echo "== OpenRouter key"
 if [ "$OPENROUTER_API_KEY" = "sk-or-v1-placeholder" ]; then echo "Pi has the placeholder"
 else echo "FAIL: the real OpenRouter key is in the Pi container"; s=1; fi
+echo "== settings"
+if [ -f /root/.pi/agent/settings.json ]; then
+  want=$(sed -n 's/.*"lastChangelogVersion"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' /root/.pi/agent/settings.json | head -n 1)
+  have=$(pi --version 2>/dev/null || true)
+  if [ -z "$want" ]; then
+    echo "WARN: settings.json has no lastChangelogVersion"
+  elif [ "$want" != "$have" ]; then
+    echo "WARN: settings lastChangelogVersion=$want but pi is ${have:-unknown}; update the host settings file"
+  else
+    echo "settings lastChangelogVersion is current"
+  fi
+else
+  echo "WARN: settings.json is not mounted"
+fi
 echo "== OpenRouter"
 if r=$(curl -fsS -m 20 --cacert /etc/pi-proxy-ca/ca.pem https://openrouter.ai/api/v1/key); then
   printf '%s\n' "$r" | jq '.data | {label: .label, limit: .limit, remaining: .limit_remaining, usage: .usage}' || s=1
   limit=$(printf '%s\n' "$r" | jq -r '.data.limit // "null"' 2>/dev/null || echo null)
   if [ "$limit" = null ]; then echo "WARN: the OpenRouter key has no credit limit"; fi
 else
-  echo "FAIL: OpenRouter. See: container logs pi-proxy"
+  echo "FAIL: OpenRouter. See: run.sh proxy"
   s=1
 fi
 echo "== GitHub"
@@ -633,6 +711,12 @@ code=$(env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
 if [ "$code" != 000 ]; then
   echo "FAIL: the container reached the internet directly (HTTP $code)"; s=1
 else echo "direct connection failed"; fi
+code6=$(env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
+    -u ALL_PROXY -u all_proxy \
+    curl -sS --noproxy '*' -m 5 -o /dev/null -w '%{http_code}' 'http://[2606:4700:4700::1111]/' || true)
+if [ "$code6" != 000 ]; then
+  echo "FAIL: the container reached the internet directly over IPv6 (HTTP $code6)"; s=1
+else echo "direct IPv6 connection failed"; fi
 code443=$(env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
     -u ALL_PROXY -u all_proxy \
     curl -sSk --noproxy '*' -m 5 -o /dev/null -w '%{http_code}' https://1.1.1.1/ || true)
@@ -641,17 +725,16 @@ if [ "$code443" != 000 ]; then
 else echo "direct TLS connection failed"; fi
 exit $s
 EOF
-  set -- bash -c "$script" check "${2:-$clone}"
+  set -- bash -c "$script" check "$check_repo"
   args+=(-w /tmp)
 elif [ -n "$clone" ]; then
   boot=$(clone_boot_script)
-  vol=$(pi_clone_volume "$instance" "$clone")
+  vol=$(pi_clone_volume "$instance" "$clone" "$cfg")
   ensure_volume "$vol" clone "$clone"
   echo "run.sh: clone volume: $vol" >&2
   args+=(-v "$vol:/work" -w /work -e "PI_CLONE=$clone")
   set -- bash -c "$boot" boot "$@"
 else
-  guard_mount
   args+=(-v "$PWD:$PWD" -w "$PWD")
 fi
 

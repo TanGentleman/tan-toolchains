@@ -57,7 +57,7 @@ jobs:
             bash -n "$f"
           done
 
-      - name: Instance naming
+      - name: Instance and profile naming
         run: bash pi-container/test-names.sh
 
       - name: Python syntax

@@ -27,7 +27,7 @@ container build -t pi-agent:local -f Dockerfile ..
 
 The image builds `../zigpeek` from source, so the lookup tool and the Zig it
 documents are the same version. `./run.sh --instance NAME` runs Pi in several
-terminal windows with isolated sessions behind one shared proxy.
+terminal windows with isolated sessions behind one shared proxy per profile.
 `./run.sh --manual` opens a local Neovim/ZLS shell without Pi. See
 [pi-container/README.md](pi-container/README.md).
 

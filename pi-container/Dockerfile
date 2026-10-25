@@ -7,6 +7,11 @@ ARG NVIM_SHA256=8f1f64a0bdb97247034038c3823c6cbad5bdf9ecd5751b85494b71c3ee04c815
 ARG ZLS_VERSION=0.17.0
 ARG ZLS_SHA256=0d314f3cab30da770328e1b8c84ab89bb308e56dbc26a85ac82429ff02b44873
 
+LABEL pi-container.pi-version="${PI_VERSION}" \
+      pi-container.zig-version="${ZIG_VERSION}" \
+      pi-container.zls-version="${ZLS_VERSION}" \
+      pi-container.nvim-version="${NVIM_VERSION}"
+
 RUN [ "$(uname -m)" = aarch64 ] || (echo "this image currently pins aarch64 only" >&2; exit 1)
 
 RUN apt-get update \

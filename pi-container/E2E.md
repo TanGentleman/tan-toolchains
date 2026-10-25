@@ -3,14 +3,15 @@
 Run on macOS before calling a branch stable. A failure is a blocker; fix it on
 the branch, not `main`.
 
-**This test deletes** the E2E agent volume, the shared proxy, network, images,
-and builder cache, plus E2E clone volumes during the scoped clone cleanup
-below. Other instances' agent volumes stay. Quit all Pi processes first and
-save sessions (`./clear.sh save --instance e2e`). The agent volume holds Pi's
-`auth.json`, models store, and user-installed skills/extensions; save custom
-skills too. Host config, the Neovim paths under `$PI_CONFIG_DIR`, and project
-files stay. Everything else rebuilds except the agent image, which you rebuild
-by hand in Build and keys.
+**This test deletes** the E2E agent volume, the E2E profile's proxy and network,
+the E2E proxy image, the shared agent image, and the builder cache, plus E2E
+clone volumes during the scoped clone cleanup below. Other profiles'
+proxy/network resources and other instances' agent volumes stay. Quit all Pi
+processes first and save sessions (`./clear.sh save --instance e2e`). The agent
+volume holds Pi's `auth.json`, models store, and user-installed
+skills/extensions; save custom skills too. Host config, the Neovim paths under
+`$PI_CONFIG_DIR`, and project files stay. Everything else rebuilds except the
+agent image, which you rebuild by hand in Build and keys.
 
 ## Setup
 
@@ -32,6 +33,7 @@ export PI_BACKUP_DIR="$(mktemp -d)"
 export PI_INSTANCE=e2e
 unset PI_AGENT_VOLUME PI_SETTINGS_FILE PI_CLONE
 unset PI_NVIM_CONFIG PI_NVIM_DATA PI_NVIM_STATE PI_NVIM_CACHE
+unset PI_PROXY_NAME PI_NETWORK_NAME PI_PROXY_IMAGE PI_LOCKED_SUBNET
 cp ~/.config/pi-container/env "$PI_ENV_FILE"
 # edit "$PI_ENV_FILE": set GITHUB_TOKEN to the test token
 chmod 600 "$PI_ENV_FILE"
@@ -52,9 +54,14 @@ Run these from `pi-container/` unless noted.
       reports Neovim 0.12.6 and ZLS 0.17.0.
 
 ### First check
-- [ ] `./run.sh check "$owner/tan-toolchains-e2e"` builds `pi-proxy` and reports no failure.
+- [ ] `./run.sh check "$owner/tan-toolchains-e2e"` builds the E2E profile's
+      proxy and reports no failure.
 - [ ] It reports the Zig toolchain and zigpeek's docs source.
-- [ ] Direct internet is blocked; GitHub and OpenRouter reachable; `example.com` refused.
+- [ ] It reports `lastChangelogVersion` as current.
+- [ ] Direct internet is blocked (IPv4 and IPv6); GitHub and OpenRouter
+      reachable; `example.com` refused.
+- [ ] The default profile's `pi-proxy`/`pi-locked` are untouched by this
+      profile's `run.sh check`.
 
 ### Pi and instances
 - [ ] `./run.sh` starts Pi; `/model` works; `/quit` exits.
@@ -63,23 +70,29 @@ Run these from `pi-container/` unless noted.
 - [ ] Start a second terminal with `PI_INSTANCE=other ./run.sh` while the E2E
       instance runs; both work through the one proxy.
 - [ ] `./clear.sh list` shows `e2e` and `other`, separate agent volumes, the
-      shared settings path, and session sizes.
+      profile settings path, and session sizes.
 - [ ] Sessions and `auth.json` do not cross between `e2e` and `other`.
 - [ ] Both instances read the same `settings.json`.
 - [ ] `settings.json` is read-only: record its hash, change a preference through
       `/settings`, save a model with `Ctrl+S`, save thinking with `Ctrl+S`, and
       save scoped models with `Ctrl+S`; after quitting, the hash is unchanged.
 - [ ] An edit to the host `settings.json` applies on the next launch.
-- [ ] `./clear.sh nuke agent --instance other --yes` deletes only
-      `pi-agent-other`; `pi-agent-e2e`, the proxy, and the shared settings file
-      remain.
+- [ ] `./clear.sh nuke agent --instance other --yes` deletes only the E2E
+      profile's `other` agent volume; the E2E default agent volume, proxy, and
+      profile settings file remain.
 
 ### Mounts and clone
 - [ ] Default mount edits land on the Mac.
 - [ ] `run.sh` refuses `~`, `/`, ancestors, secrets dirs, and config overlaps.
+- [ ] `run.sh` refuses `~/Library` because it contains `Library/Keychains`.
+- [ ] With a custom `PI_CONFIG_DIR`, `run.sh` still refuses a project that
+      overlaps the default `~/.config/pi-container` directory.
 - [ ] `./run.sh --clone "$owner/tan-toolchains-e2e"` creates a clone volume.
-- [ ] The clone volume is named for the instance and labelled with the instance
-      and repo; it appears under `e2e` in `./clear.sh list`.
+- [ ] `./run.sh --clone "$owner/tan-toolchains-e2e.git"` reuses that clone
+      volume instead of trying to clone `.git.git`.
+- [ ] The clone volume is named for the profile and instance and labelled
+      with the profile, instance, and repo; it appears under `e2e` in
+      `./clear.sh list`.
 - [ ] Uncommitted changes stay in the volume until pushed.
 - [ ] `git push` works through `gh`.
 
@@ -91,9 +104,13 @@ Run these from `pi-container/` unless noted.
       existing `init.lua` or `init.vim` is never overwritten.
 - [ ] `PI_CLONE="$owner/tan-toolchains-e2e" ./run.sh --manual` starts in
       `/work/tan-toolchains-e2e`; ZLS attaches there and `./clear.sh list`
-      shows the shared clone volume.
+      shows the profile clone volume.
 - [ ] Manual clone authenticates the private E2E repo from
       `$PI_CONFIG_DIR/pi.env`; a public clone still works without that file.
+- [ ] In a manual clone with only `GIT_AUTHOR_NAME`/`GIT_AUTHOR_EMAIL`, a
+      commit succeeds and uses the configured author/committer.
+- [ ] `./run.sh --manual sh -c 'date +%Z'` reports the host time zone when
+      `TZ` is set.
 - [ ] `zig build` after editing `src/main.zig` stays fast and leaves no
       `.zig-cache` in the mounted or cloned project.
 - [ ] Write a marker under `$PI_CONFIG_DIR/nvim-state`, relaunch manual mode,
@@ -127,14 +144,13 @@ The product path: build in the container, run on the Mac.
 ### Cleanup
 - [ ] `./clear.sh save` writes a session backup for the E2E instance.
 - [ ] `./clear.sh nuke agent` deletes the E2E agent volume after saving; the
-      shared settings file remains.
+      profile settings file remains.
 - [ ] Create a throwaway clone, then `./clear.sh nuke clones --instance e2e
       --yes` deletes only that instance's clone volumes.
-- [ ] `./clear.sh nuke clones --legacy --yes` selects only unlabelled old clone
-      volumes. Skip it unless you deliberately created a legacy test volume.
-- [ ] `./clear.sh nuke all` deletes the E2E agent volume plus proxy, network,
-      images, and builder cache. It keeps other agent volumes and all clone
-      volumes.
+- [ ] `./clear.sh nuke all` deletes the E2E agent volume plus the E2E profile's
+      proxy and network, the E2E proxy image, the shared agent image, and
+      builder cache. It keeps other profiles' proxy/network resources, other
+      agent volumes, and all clone volumes.
 - [ ] `./clear.sh list` still shows any retained non-E2E instances.
 - [ ] After `nuke all`, `./run.sh` reports the missing image instead of pulling
       from Docker Hub. Then rebuild and `./run.sh check` again:

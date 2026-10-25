@@ -5,16 +5,17 @@ binaries run on macOS and do not use its network.
 
 ## Security
 
-- The proxy does not identify clients. Every Pi instance on `pi-locked` can spend
-  the one OpenRouter key. Authenticate proxy clients if untrusted containers join
-  that network.
+- The proxy does not identify clients. Every Pi instance on a profile's network
+  can spend that profile's OpenRouter key. Authenticate proxy clients if
+  untrusted containers join the network.
 - The proxy still mounts `$cfg/private` read-write. That directory holds the
   OpenRouter key, CA private key, and leaf key. Generate certificates outside
   the long-running proxy, mount only the public certificate into Pi, and mount
   runtime certificates read-only into the proxy.
-- Separate keys need a later `--profile DIR` feature: its own config directory,
-  network, proxy, port offset, and subnet. One proxy owns one key, so profiles
-  stay one-proxy-per-key.
+- Separate keys work by running with a different `PI_CONFIG_DIR`: the proxy,
+  network, subnet, proxy image, agent volumes, and clone volumes are derived
+  from it. The agent image and builder cache remain shared, so `nuke all` in
+  one profile still deletes them for every profile.
 
 ## Local development
 
@@ -25,10 +26,11 @@ binaries run on macOS and do not use its network.
   downloads fail. Bake tools or widen the allowlist deliberately.
 - Treesitter is not included. Enabling it needs `gcc`/`make` at runtime or
   prebuilt parsers.
-- Neovim config/state is shared by all instances. Make it per-instance if
-  parallel editors contend.
+- Neovim config/state is shared by all instances in a profile. Make it
+  per-instance if parallel editors contend.
 - Zig's local cache is container-local and disappears with the container. Add a
-  persistent cache volume if rebuilds matter.
+  persistent cache volume if rebuilds matter. Both normal and manual modes
+  redirect it out of the project mount.
 - inotify does not reliably cross the macOS bind mount; ZLS may miss saves made
   on the host. Edit inside the container.
 - The first `build.zig`-aware ZLS request may fetch project dependencies. The
@@ -41,7 +43,7 @@ binaries run on macOS and do not use its network.
 ## Quality
 
 - Add smoke tests for `run.sh check` and `clear.sh save`; run them manually on
-  macOS. CI checks syntax and instance/volume naming only.
+  macOS. CI checks syntax and instance/volume/profile naming only.
 - Add CI checks for the Neovim/ZLS pins and for `ZLS_VERSION == ZIG_VERSION`
   after the local-development flow settles.
 - Run the [E2E checklist](E2E.md) on macOS before calling a branch stable. This
