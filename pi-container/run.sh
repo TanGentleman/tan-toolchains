@@ -211,8 +211,8 @@ ensure_network() {
       echo "run.sh: cannot inspect $network_name; refusing to assume it is host-only" >&2
       exit 1
     fi
-    # The JSON quirks (escaped slashes, hostOnly mode) live in lib/inspect.sh
-    # and are pinned by fixtures; keep only the messages here.
+    # The JSON details (subnet fields, hostOnly mode, old slash escaping) live
+    # in lib/inspect.sh and are pinned by fixtures; keep only the messages here.
     case $(printf '%s\n' "$inspect" | pi_network_host_only_verdict) in
       ok) ;;
       not-host-only)

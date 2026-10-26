@@ -57,8 +57,11 @@ explicitly that `run.sh check` and the E2E checklist were not run.
 
 ## `container` JSON contract
 
+- The observed contract is Apple `container` 1.6.1. Since 1.4.1, JSON output
+  uses plain `/`; older captures may use `\/`. Keep `jq`, which decodes both.
 - Capture real shapes on a Mac with `scripts/container-discovery.sh` or refresh
-  fixtures with `pi-container/test/record-fixtures.sh`.
+  fixtures with `pi-container/test/record-fixtures.sh`. Both check the expected
+  paths after capture.
 - Parse the observed JSON paths with `jq` in `pi-container/lib/inspect.sh`. Do
   not add whole-document `grep`/`sed`/`awk` extraction or accept unobserved
   shapes. A new shape needs a fixture and a test.

@@ -4,10 +4,15 @@ Every JSON file here models a payload from Apple's `container` CLI that
 `pi-container/lib/inspect.sh` parses. A test fails when the parser and a fixture
 disagree, so a shape change shows up in CI instead of during a run.
 
-The recorded fixtures use the observed `macOS 26` shapes: arrays, proxy state at
-`[0].status.state`, network subnets at `[0].configuration.ipv4Subnet` /
-`[0].status.ipv4Subnet`, image config at `[0].variants[0].config.config`, and
-volume labels at `[0].configuration.labels`.
+The recorded fixtures use the observed `container` 1.6.1 (`macOS 26`) shapes:
+arrays, proxy state at `[0].status.state`, network subnets at
+`[0].configuration.ipv4Subnet` / `[0].status.ipv4Subnet`, image config at
+`[0].variants[0].config.config`, and volume labels at
+`[0].configuration.labels`.
+
+Since `container` 1.4.1, JSON output does not escape forward slashes. The
+hand-built escaped fixtures keep older captures covered because the parsers use
+`jq`, which decodes both forms.
 
 ## Provenance
 
@@ -22,8 +27,10 @@ git diff test/fixtures/container   # review what the CLI actually emits
 `record-fixtures.sh` writes each capture to a temporary file and replaces a
 fixture only after the output parses as JSON. A failed capture leaves the old
 fixture in place and reports `kept`; it also rewrites `provenance.txt` with the
-date, CLI version, and commands it ran. Run it after upgrading Apple
-`container`, and after any change to the Dockerfile that alters image metadata.
+date, CLI version, and commands it ran. After capturing, it checks that the
+paths the parsers use are still present and exits non-zero on a changed shape.
+Run it after upgrading Apple `container`, then run `./test/run-tests.sh` and
+review the diff.
 
 The recorder refreshes `network/host-only.json`, `image/inspect.json`,
 `inspect/proxy-running.json`, and `volume/labelled.json`. The other files are
@@ -36,7 +43,7 @@ re-recording cannot rewrite expectations.
 | Fixture | Command that produces it | Pins |
 | --- | --- | --- |
 | `network/host-only.json` | `container network inspect <pi-locked>` | observed `mode: hostOnly`, `ipv4Subnet` in configuration and status |
-| `network/host-only-escaped.json` | hand-built | slashes escaped as `\/` in the subnet |
+| `network/host-only-escaped.json` | hand-built | older capture with slashes escaped as `\/` in the subnet |
 | `network/nat.json` | hand-built | a non-host-only `mode` |
 | `network/no-mode.json` | hand-built | no `mode` |
 | `image/inspect.json` | `container image inspect pi-agent:local` | the observed raw image shape (`variants[0].config.config`) |
@@ -45,7 +52,7 @@ re-recording cannot rewrite expectations.
 | `image/history-version.json` | hand-built | version only in `variants[0].config.history[].created_by` |
 | `image/no-version.json` | hand-built | no version anywhere |
 | `volume/labelled.json` | `container volume inspect <pi-agent-…>` | `pi.*` labels at `configuration.labels` |
-| `volume/escaped-labels.json` | hand-built | `\/` inside label values |
+| `volume/escaped-labels.json` | hand-built | older capture with `\/` inside label values |
 | `inspect/proxy-running.json` | `container inspect <pi-proxy>` | observed `status.state: running` |
 | `inspect/proxy-stopped.json` | hand-built | `status.state: stopped` |
 | `inspect/proxy-paused.json` | hand-built | `status.state: paused` |

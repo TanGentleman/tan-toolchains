@@ -15,7 +15,8 @@
 #     [0].variants[0].config.history
 #   * `container volume inspect <name>` is an array; labels are at
 #     [0].configuration.labels
-#   * jq decodes JSON's `\/` escapes, so no textual unescaping pass is needed
+#   * container 1.4.1+ emits plain `/`; older captures may use `\/`, and jq
+#     decodes both, so no textual unescaping pass is needed
 #
 # Fixtures live in pi-container/test/fixtures/container/ and are exercised by
 # test/test-inspect.sh. Refresh recorded captures on a Mac with

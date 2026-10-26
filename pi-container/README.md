@@ -95,6 +95,7 @@ The default mode mounts the current folder. Use it only for repos you trust; use
 - [Operations](docs/operations.md): profiles, instances, and cleanup.
 - [Manual mode](docs/manual.md): local Neovim/ZLS, clone mode, and caches.
 - [Testing](docs/testing.md): CI suite and fixture recording.
+- [INSTRUCTIONS.md](../INSTRUCTIONS.md): post-upgrade checks after updating Apple `container`.
 - [ASSUMPTIONS.md](ASSUMPTIONS.md): Apple `container` JSON contract.
 - [E2E.md](E2E.md): manual macOS checklist.
 - [UPGRADES.md](UPGRADES.md): open work.

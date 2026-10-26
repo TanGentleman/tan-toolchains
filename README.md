@@ -30,6 +30,7 @@ container build -t pi-agent:local -f Dockerfile ..
 - [enforcer/README.md](enforcer/README.md): the Pi prompt hook, policy, and safety rules.
 - [pi-container/README.md](pi-container/README.md): setup, use, limits, and links to the configuration and operations docs.
 - [scripts/README.md](scripts/README.md): local Apple `container` discovery.
+- [INSTRUCTIONS.md](INSTRUCTIONS.md): post-upgrade checks after updating Apple `container`.
 - [pi-container/E2E.md](pi-container/E2E.md): manual macOS checklist.
 - [AGENTS.md](AGENTS.md): development rules, toolchain policy, and version pins.
 

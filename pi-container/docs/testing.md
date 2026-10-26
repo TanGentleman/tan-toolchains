@@ -24,7 +24,8 @@ integration job does not replace them.
 The output shapes the scripts assume are listed in
 [ASSUMPTIONS.md](../ASSUMPTIONS.md) and pinned by files under
 [`test/fixtures/container/`](../test/fixtures/container/). On a Mac, refresh the
-recorded captures from the real CLI:
+recorded captures from the real CLI. The recorder checks the expected paths
+after capturing and reports `SHAPE CHANGED` if Apple moved one:
 
 ```bash
 ./test/record-fixtures.sh
@@ -32,6 +33,10 @@ recorded captures from the real CLI:
 ../scripts/container-discovery.sh
 git diff test/fixtures/container   # a changed shape is what the tests catch
 ```
+
+The discovery helper also prints `contract ... ok` or `MISMATCH` for every path
+and reports whether the capture escapes `/`. Since `container` 1.4.1, captures
+use plain slashes; older escaped fixtures still pin that form.
 
 `run.sh check`, real volume creation, and the Neovim/ZLS paths still need the
 [E2E checklist](../E2E.md) on macOS; Apple `container` is not available in CI.

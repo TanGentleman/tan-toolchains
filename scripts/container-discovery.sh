@@ -50,6 +50,7 @@ need() { # command, install hint
 }
 need jq 'install jq (brew install jq)'
 need "$cli" "install Apple container and run 'container system start'"
+cli_version=$("$cli" --version 2>&1 | head -n 1 || true)
 
 if [ -n "${1:-}" ]; then
   out=$1
@@ -62,7 +63,7 @@ out=$(CDPATH= cd -- "$out" && pwd -P)
 {
   printf 'captured_at=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   printf 'cli=%s\n' "$cli"
-  "$cli" --version 2>&1 | head -n 1 || true
+  printf 'cli_version=%s\n' "$cli_version"
   printf 'jq=%s\n' "$(jq --version)"
   printf 'profile=%s\n' "$cfg"
   printf 'network=%s\n' "$network"
@@ -86,6 +87,21 @@ capture() { # name, command...
   fi
   rm -f "$file"
   printf 'skipped  %-18s %s\n' "$name" "$(sed -n '1p' "$err" 2>/dev/null || true)" >&2
+  return 1
+}
+
+slash_state() { # file
+  if grep -Fq '\/' "$1"; then printf 'escaped'; else printf 'plain'; fi
+}
+
+contract() { # name, jq filter, description
+  local file="$out/$1.json" filter=$2 desc=$3
+  [ -f "$file" ] || return 0
+  if jq -e "$filter" "$file" >/dev/null 2>&1; then
+    printf 'contract %-18s ok  (%s)\n' "$1" "$desc"
+    return 0
+  fi
+  printf 'contract %-18s MISMATCH (%s)\n' "$1" "$desc" >&2
   return 1
 }
 
@@ -143,12 +159,12 @@ fi
 printf '\n== jq summary\n'
 if compgen -G "$out/*.json" >/dev/null; then
   for f in "$out"/*.json; do
-    printf '\n=== %s\n' "${f##*/}"
+    printf '\n=== %s (%s slashes)\n' "${f##*/}" "$(slash_state "$f")"
     jq -c 'if type == "array" then .[0] else error("expected an array") end |
       {top_keys: keys,
        config_keys: ((.configuration // {}) | keys),
        status: (.status // null),
-       configuration: ((.configuration // {}) | {name, mode, ipv4Subnet}),
+       configuration: ((.configuration // {}) | {name, mode, ipv4Subnet, labels}),
        variants: ((.variants // []) | map({
          env: (.config.config.Env // null),
          labels: (.config.config.Labels // null),
@@ -160,7 +176,17 @@ else
   status=1
 fi
 
-printf '\ncaptures: %s\n' "$out"
+printf '\n== contract paths\n'
+contract network '.[0].configuration.mode | type == "string"' 'configuration.mode' || status=1
+contract network '.[0].status.ipv4Subnet | type == "string"' 'status.ipv4Subnet' || status=1
+contract image '.[0].variants[0].config.config | type == "object"' 'variants[0].config.config' || status=1
+contract image '.[0].variants[0].config.history | type == "array"' 'variants[0].config.history' || status=1
+contract proxy '.[0].status.state | type == "string"' 'status.state' || status=1
+contract volume-agent '.[0].configuration.labels | has("pi.managed") and has("pi.profile") and has("pi.config") and has("pi.settings") and has("pi.instance") and has("pi.kind")' 'pi.* labels' || status=1
+contract volume-clone '.[0].configuration.labels | has("pi.managed") and has("pi.profile") and has("pi.config") and has("pi.settings") and has("pi.instance") and has("pi.kind") and has("pi.repo")' 'pi.* labels' || status=1
+
+printf '\ncli: %s\n' "$cli_version"
+printf 'captures: %s\n' "$out"
 if ! "$cli" image inspect "$image" >/dev/null 2>&1; then
   printf '%s\n' \
     "note: image inspect failed for $image. This can mean the image is missing" \

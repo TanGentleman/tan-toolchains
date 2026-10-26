@@ -27,6 +27,7 @@ proxy=${PI_PROXY_NAME:-$(pi_proxy_name "$cfg")}
 provenance="$out/provenance.txt"
 vol=""
 tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/pi-fixtures.XXXXXX")
+status=0
 
 cleanup() {
   if [ -n "$vol" ]; then
@@ -83,6 +84,17 @@ say "## Proxy container"
 capture inspect/proxy-running.json "$cli" inspect "$proxy"
 say ""
 
+expect() { # relative-file, jq filter, description
+  local file=$1 filter=$2 desc=$3
+  [ -f "$out/$file" ] || return 0
+  if jq -e "$filter" "$out/$file" >/dev/null 2>&1; then
+    say "shape ok $file  ($desc)"
+  else
+    say "SHAPE CHANGED $file  ($desc); update lib/inspect.sh, ASSUMPTIONS.md, and tests"
+    status=1
+  fi
+}
+
 say "## Volume labels"
 vol="pi-fixture-$$"
 if "$cli" volume create \
@@ -103,4 +115,15 @@ else
 fi
 say ""
 
+say "## Shapes"
+expect network/host-only.json '.[0].configuration.mode | type == "string"' 'configuration.mode'
+expect network/host-only.json '.[0].status.ipv4Subnet | type == "string"' 'status.ipv4Subnet'
+expect image/inspect.json '.[0].variants[0].config.config | type == "object"' 'variants[0].config.config'
+expect image/inspect.json '.[0].variants[0].config.history | type == "array"' 'variants[0].config.history'
+expect inspect/proxy-running.json '.[0].status.state | type == "string"' 'status.state'
+expect volume/labelled.json '.[0].configuration.labels | has("pi.managed") and has("pi.profile") and has("pi.config") and has("pi.settings") and has("pi.instance") and has("pi.kind")' 'pi.* labels'
+say ""
+
 say "Done. If a capture was skipped, check 'container system start' and the resource names."
+say "Next: ./test/run-tests.sh"
+exit "$status"
