@@ -1,0 +1,1 @@
+[{"id":"pi-proxy","configuration":{"name":"pi-proxy","image":"pi-proxy:local"},"status":{"state":"running","networks":[{"ipv4Address":"172.30.240.2/24"}]}}]

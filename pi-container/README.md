@@ -228,6 +228,33 @@ the Neovim host paths under `$PI_CONFIG_DIR` (default
 container build -t pi-agent:local -f Dockerfile ..
 ```
 
+## Tests
+
+CI runs the whole suite without Apple `container` or a network:
+
+```bash
+./test/run-tests.sh
+```
+
+It covers naming and validation, the mount guard's path algebra, the JSON
+parsers in `lib/inspect.sh`, and the orchestration in `run.sh`/`clear.sh`
+driven against `test/fake-container.sh`. The fake CLI serves inspect payloads
+and captures the exact `container` argv the scripts build.
+
+The output shapes the scripts assume are listed in
+[ASSUMPTIONS.md](ASSUMPTIONS.md) and pinned by files under
+[`test/fixtures/container/`](test/fixtures/container/). The committed fixtures
+start synthetic. On a Mac, refresh the primary captures from the real CLI
+(alternate shapes stay hand-built; see ASSUMPTIONS.md):
+
+```bash
+./test/record-fixtures.sh
+git diff test/fixtures/container   # a changed shape is what the tests catch
+```
+
+`run.sh check`, real volume creation, and the Neovim/ZLS paths still need the
+[E2E checklist](E2E.md) on macOS; Apple `container` is not available in CI.
+
 ## Limits
 
 - Normal Pi mode allows GitHub hosts, `openrouter.ai`, and its subdomains. Everything else is refused.

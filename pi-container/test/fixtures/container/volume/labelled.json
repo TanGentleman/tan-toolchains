@@ -1,0 +1,16 @@
+[
+  {
+    "id": "pi-agent-home",
+    "configuration": {
+      "name": "pi-agent-home",
+      "labels": {
+        "pi.managed": "true",
+        "pi.profile": "default",
+        "pi.config": "/Users/tan/.config/pi-container",
+        "pi.settings": "/Users/tan/.config/pi-container/settings.json",
+        "pi.instance": "default",
+        "pi.kind": "agent"
+      }
+    }
+  }
+]

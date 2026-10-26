@@ -42,8 +42,18 @@ binaries run on macOS and do not use its network.
 
 ## Quality
 
-- Add smoke tests for `run.sh check` and `clear.sh save`; run them manually on
-  macOS. CI checks syntax and instance/volume/profile naming only.
+- CI runs `test/run-tests.sh`: naming, validation, path guards, the JSON
+  parsers in `lib/inspect.sh`, and `run.sh`/`clear.sh` against a fake
+  `container` CLI. This covers orchestration decisions without Apple
+  `container`. Real volume/network/proxy behaviour and `run.sh check` still
+  need the [E2E checklist](E2E.md) on macOS.
+- Primary fixtures under `test/fixtures/container/` start synthetic. Run
+  `test/record-fixtures.sh` on a Mac to capture the real shapes; alternate
+  shapes stay hand-built. Exact expectations are inline, so re-recording does
+  not rewrite them, and a changed shape should fail a smoke test instead of a
+  run.
+- Add a shellcheck step once the existing warnings are triaged; it is not
+  wired up yet.
 - Add CI checks for the Neovim/ZLS pins and for `ZLS_VERSION == ZIG_VERSION`
   after the local-development flow settles.
 - Run the [E2E checklist](E2E.md) on macOS before calling a branch stable. This

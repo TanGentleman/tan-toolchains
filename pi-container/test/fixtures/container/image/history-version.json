@@ -1,0 +1,1 @@
+[{"id":"sha256:0ldbabe","configuration":{"descriptor":{"digest":"sha256:0ldbabe"}},"history":[{"created_by":"RUN /bin/sh -c npm install -g @earendil-works/pi-coding-agent@1.4.0 # buildkit"},{"created_by":"RUN /bin/sh -c PI_VERSION=1.4.0 zig build # buildkit"}]}]

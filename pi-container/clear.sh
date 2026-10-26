@@ -11,6 +11,7 @@ set -euo pipefail
 
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 . "$here/names.sh"
+. "$here/lib/inspect.sh"
 cli="${CONTAINER_CLI:-container}"
 pi_image="${PI_IMAGE:-pi-agent:local}"
 cfg="${PI_CONFIG_DIR:-$(pi_default_config_dir)}"
@@ -141,12 +142,10 @@ all_volumes() {
   "$cli" volume list -q 2>/dev/null || true
 }
 
-# Labels live on the volume, so no separate manifest can go stale.
+# Labels live on the volume, so no separate manifest can go stale. The parser
+# (including Apple's \/ escaping) lives in lib/inspect.sh and is unit-tested.
 volume_label() { # volume, key
-  # Apple volume inspect may escape slashes as \/ in label values.
-  "$cli" volume inspect "$1" 2>/dev/null |
-    sed -n 's|\\/|/|g; s/.*"'"$2"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' |
-    head -n 1
+  "$cli" volume inspect "$1" 2>/dev/null | pi_volume_label_from_json "$2"
 }
 
 volume_kind() {

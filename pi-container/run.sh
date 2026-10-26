@@ -14,6 +14,9 @@ set -euo pipefail
 
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 . "$here/names.sh"
+. "$here/lib/paths.sh"
+. "$here/lib/inspect.sh"
+. "$here/lib/validate.sh"
 cfg="${PI_CONFIG_DIR:-$(pi_default_config_dir)}"
 env_file="${PI_ENV_FILE:-$cfg/env}"
 settings_file="${PI_SETTINGS_FILE:-$cfg/settings.json}"
@@ -69,25 +72,18 @@ if ! pi_instance_valid "$instance"; then
 fi
 agent_volume="${PI_AGENT_VOLUME:-$(pi_agent_volume "$instance" "$cfg")}"
 if [ -n "$clone" ]; then
-  case $clone in
-    *.git) clone=${clone%.git} ;;
-  esac
-  owner=${clone%%/*}
-  repo=${clone#*/}
-  if [ "$owner" = "$clone" ] || [ -z "$owner" ] || [ -z "$repo" ] \
-     || ! [[ "$owner" =~ ^[A-Za-z0-9][A-Za-z0-9-]*$ ]] \
-     || ! [[ "$repo" =~ ^[A-Za-z0-9._-]+$ ]] \
-     || [ "$repo" = . ] || [ "$repo" = .. ] || [ "${repo#-}" != "$repo" ]; then
+  clone=$(pi_repo_normalize "$clone")
+  if ! pi_repo_valid "$clone"; then
     echo "run.sh: bad repo '$clone'" >&2
     exit 2
   fi
 fi
 
-case $port in
-  ''|*[!0-9]*) echo "run.sh: PI_PROXY_PORT must be a number" >&2; exit 2 ;;
-esac
-if [ "$port" -lt 1 ] || [ "$port" -gt 65535 ]; then
-  echo "run.sh: PI_PROXY_PORT must be between 1 and 65535" >&2
+if ! pi_port_valid "$port"; then
+  case $port in
+    ''|*[!0-9]*) echo "run.sh: PI_PROXY_PORT must be a number" >&2 ;;
+    *) echo "run.sh: PI_PROXY_PORT must be between 1 and 65535" >&2 ;;
+  esac
   exit 2
 fi
 
@@ -96,41 +92,8 @@ if [ "${1:-}" = --help ] || [ "${1:-}" = -h ] || [ "${1:-}" = help ]; then
   exit 0
 fi
 
-file_mode() {
-  # Check the target, not a 777 symlink.
-  if stat -Lc %a "$1" >/dev/null 2>&1; then stat -Lc %a "$1"; else stat -Lf %Lp "$1"; fi
-}
-
-physical_dir() {
-  (CDPATH= cd -- "$1" 2>/dev/null && pwd -P)
-}
-
-# realpath when available; otherwise resolve the parent.
-physical_path() {
-  local p=$1 d t
-  [ -e "$p" ] || [ -L "$p" ] || { printf '%s\n' "$p"; return 0; }
-  if command -v realpath >/dev/null 2>&1; then realpath "$p" 2>/dev/null || printf '%s\n' "$p"; return 0; fi
-  while [ -L "$p" ]; do
-    t=$(readlink "$p") || break
-    case $t in
-      /*) p=$t ;;
-      *) p=$(dirname "$p")/$t ;;
-    esac
-  done
-  d=$(physical_dir "$(dirname "$p")") || { printf '%s\n' "$p"; return 0; }
-  printf '%s/%s\n' "${d%/}" "$(basename "$p")"
-}
-
-path_within() { # $1 parent, $2 child
-  # Compare case-folded: macOS volumes are usually case-insensitive, and the
-  # guard should fail closed if the user types a different case.
-  local parent child
-  parent=$(printf '%s' "$1" | tr '[:upper:]' '[:lower:]')
-  child=$(printf '%s' "$2" | tr '[:upper:]' '[:lower:]')
-  [ "$parent" = / ] && return 0
-  case $child in "$parent"|"$parent"/*) return 0 ;; esac
-  return 1
-}
+# Path and permission helpers live in lib/paths.sh so the mount guard can be
+# tested without a container runtime.
 
 require_cli() {
   command -v "$cli" >/dev/null 2>&1 && return 0
@@ -221,7 +184,7 @@ release_host_lock() {
 require_env() {
   [ -f "$env_file" ] || { echo "run.sh: missing $env_file (see README)" >&2; exit 1; }
   [ -r "$env_file" ] || { echo "run.sh: cannot read $env_file" >&2; exit 1; }
-  case $(file_mode "$env_file") in
+  case $(pi_file_mode "$env_file") in
     600|400) ;;
     *) echo "run.sh: $env_file must be mode 600 (chmod 600)" >&2; exit 1 ;;
   esac
@@ -240,14 +203,14 @@ require_env() {
 # parent. Used for project mounts.
 refuse_config_overlap() { # $1 project dir, physical
   local cfg_phys env_phys default_phys settings_phys
-  cfg_phys=$(physical_path "$cfg")
-  env_phys=$(physical_path "$env_file")
-  default_phys=$(physical_path "$(pi_default_config_dir)")
-  settings_phys=$(physical_path "$settings_file")
-  if path_within "$1" "$cfg_phys" || path_within "$cfg_phys" "$1" || \
-     path_within "$1" "$default_phys" || path_within "$default_phys" "$1" || \
-     path_within "$1" "$env_phys" || path_within "$1" "$settings_phys" || \
-     path_within "$settings_phys" "$1"; then
+  cfg_phys=$(pi_physical_path "$cfg")
+  env_phys=$(pi_physical_path "$env_file")
+  default_phys=$(pi_physical_path "$(pi_default_config_dir)")
+  settings_phys=$(pi_physical_path "$settings_file")
+  if pi_path_within "$1" "$cfg_phys" || pi_path_within "$cfg_phys" "$1" || \
+     pi_path_within "$1" "$default_phys" || pi_path_within "$default_phys" "$1" || \
+     pi_path_within "$1" "$env_phys" || pi_path_within "$1" "$settings_phys" || \
+     pi_path_within "$settings_phys" "$1"; then
     echo "run.sh: $1 must not overlap $cfg, $(pi_default_config_dir), $env_file, or $settings_file" >&2
     exit 1
   fi
@@ -261,24 +224,24 @@ ensure_network() {
       echo "run.sh: cannot inspect $network_name; refusing to assume it is host-only" >&2
       exit 1
     fi
-    # Apple's raw JSON may escape slashes as \/; jq only hides that.
-    inspect=$(printf '%s\n' "$inspect" | sed 's|\\/|/|g')
-    if printf '%s\n' "$inspect" | grep -Eq '"internal"[[:space:]]*:[[:space:]]*"?false"?'; then
-      echo "run.sh: $network_name exists but is not host-only/internal; delete it first" >&2
-      exit 1
-    fi
-    # Apple container reports an internal network as mode=hostOnly.
-    if printf '%s\n' "$inspect" | grep -Eq '"mode"[[:space:]]*:[[:space:]]*"' && \
-       ! printf '%s\n' "$inspect" | grep -Eq '"mode"[[:space:]]*:[[:space:]]*"(hostOnly|host-only)"'; then
-      echo "run.sh: $network_name is not in host-only mode; delete it first" >&2
-      exit 1
-    fi
-    if ! printf '%s\n' "$inspect" | grep -Eq '"internal"[[:space:]]*:[[:space:]]*"?true"?' && \
-       ! printf '%s\n' "$inspect" | grep -Eq '"mode"[[:space:]]*:[[:space:]]*"(hostOnly|host-only)"'; then
-      echo "run.sh: cannot verify that $network_name is host-only/internal; delete it and retry" >&2
-      exit 1
-    fi
-    if ! printf '%s\n' "$inspect" | grep -qF "$locked_subnet"; then
+    # The JSON quirks (escaped slashes, hostOnly vs internal) live in
+    # lib/inspect.sh and are pinned by fixtures; keep only the messages here.
+    case $(printf '%s\n' "$inspect" | pi_network_host_only_verdict) in
+      ok) ;;
+      internal-false)
+        echo "run.sh: $network_name exists but is not host-only/internal; delete it first" >&2
+        exit 1
+        ;;
+      mode-not-host-only)
+        echo "run.sh: $network_name is not in host-only mode; delete it first" >&2
+        exit 1
+        ;;
+      *)
+        echo "run.sh: cannot verify that $network_name is host-only/internal; delete it and retry" >&2
+        exit 1
+        ;;
+    esac
+    if ! printf '%s\n' "$inspect" | pi_network_has_subnet "$locked_subnet"; then
       echo "run.sh: $network_name does not use $locked_subnet; delete it or set PI_LOCKED_SUBNET to match" >&2
       exit 1
     fi
@@ -349,27 +312,12 @@ ensure_nvim_mounts() {
   fi
 }
 
-# Read the Pi version recorded at image build time. Apple's image inspect
-# exposes config Env but not labels, so prefer the stamped environment value;
-# keep the label and Dockerfile fallbacks for other runtimes and old images.
+# Read the Pi version recorded at image build time. The three fallbacks live in
+# lib/inspect.sh and are pinned by fixtures.
 image_pi_version() {
-  local image=${PI_IMAGE:-pi-agent:local} json version
+  local image=${PI_IMAGE:-pi-agent:local} json
   json=$("$cli" image inspect "$image" 2>/dev/null) || return 1
-  version=$(printf '%s\n' "$json" |
-    sed -n 's/.*PI_CONTAINER_PI_VERSION=\([^"\\]*\).*/\1/p' |
-    head -n 1)
-  if [ -z "$version" ]; then
-    version=$(printf '%s\n' "$json" |
-      sed -n 's/.*"pi-container\.pi-version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' |
-      head -n 1)
-  fi
-  if [ -z "$version" ]; then
-    # Older images only record build args in their history.
-    version=$(printf '%s\n' "$json" |
-      sed -n 's/.*RUN[^"]*[[:space:]]PI_VERSION=\([^ ]*\).*/\1/p' |
-      head -n 1)
-  fi
-  [ -z "$version" ] || printf '%s\n' "$version"
+  printf '%s\n' "$json" | pi_image_version_from_json
 }
 
 # Pi reads this file directly; edits on the Mac apply on the next launch.
@@ -399,15 +347,15 @@ EOF
 # Refuse project mounts that expose secrets.
 guard_mount() {
   local pwd_phys home_phys secret
-  pwd_phys=$(physical_dir "$PWD") || { echo "run.sh: cannot resolve $PWD" >&2; exit 1; }
+  pwd_phys=$(pi_physical_dir "$PWD") || { echo "run.sh: cannot resolve $PWD" >&2; exit 1; }
   refuse_config_overlap "$pwd_phys"
-  home_phys=$(physical_dir "$HOME") || home_phys=$HOME
-  if [ "$pwd_phys" = / ] || path_within "$pwd_phys" "$home_phys"; then
+  home_phys=$(pi_physical_dir "$HOME") || home_phys=$HOME
+  if [ "$pwd_phys" = / ] || pi_path_within "$pwd_phys" "$home_phys"; then
     echo "run.sh: refusing to mount $pwd_phys; choose a project below $home_phys" >&2
     exit 1
   fi
   for secret in .ssh .aws .gnupg .kube Library/Keychains; do
-    if path_within "$home_phys/$secret" "$pwd_phys" || path_within "$pwd_phys" "$home_phys/$secret"; then
+    if pi_path_within "$home_phys/$secret" "$pwd_phys" || pi_path_within "$pwd_phys" "$home_phys/$secret"; then
       echo "run.sh: refusing to mount $pwd_phys; it overlaps secrets at $home_phys/$secret" >&2
       exit 1
     fi
@@ -416,19 +364,11 @@ guard_mount() {
 
 addr_file() { printf '%s\n' "$cfg/private/proxy.addr"; }
 
-# Accept both nested and top-level state shapes from `container inspect`.
+# Read the proxy container's state. The shape handling lives in lib/inspect.sh.
 proxy_state() {
+  local json
   json=$("$cli" inspect "$proxy_name" 2>/dev/null) || { printf '\n'; return; }
-  printf '%s\n' "$json" | awk '
-    BEGIN { RS = "}" }
-    /"state"[[:space:]]*:[[:space:]]*"/ || /"status"[[:space:]]*:[[:space:]]*"/ {
-      s = $0
-      sub(/.*"(state|status)"[[:space:]]*:[[:space:]]*"/, "", s)
-      sub(/".*/, "", s)
-      if (s ~ /^(running|stopped|stopping|exited|created|paused|unknown)$/) state = s
-    }
-    END { print state }
-  '
+  printf '%s\n' "$json" | pi_proxy_state_from_json
 }
 
 valid_ip() {

@@ -1,0 +1,16 @@
+[
+  {
+    "id": "sha256:deadbeef",
+    "configuration": {
+      "descriptor": {
+        "digest": "sha256:deadbeef",
+        "annotations": {"org.opencontainers.image.title": "pi-agent"}
+      },
+      "env": [
+        "PATH=/usr/local/bin:/usr/bin:/bin",
+        "PI_CONTAINER_PI_VERSION=1.4.0",
+        "PI_SKIP_VERSION_CHECK=1"
+      ]
+    }
+  }
+]
