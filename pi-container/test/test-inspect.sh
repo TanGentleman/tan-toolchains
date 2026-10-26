@@ -23,23 +23,20 @@ subnet_check_json() { # want, label, subnet, json
 }
 
 network_fixture_subnet() { # fixture
-  jq -r '(if type == "array" then .[0] else . end)
-    | (.configuration.ipv4Subnet // .status.ipv4Subnet
-       // .configuration.subnet // empty)' "$1" |
+  jq -r '.[0] | (.configuration.ipv4Subnet // .status.ipv4Subnet // empty)' "$1" |
     head -n 1
 }
 
 # --- proxy state -----------------------------------------------------------
 proxy_running_json='[{"id":"pi-proxy","configuration":{"name":"pi-proxy"},"status":{"state":"running","startedDate":"2026-10-26T00:10:21Z"}}]'
-eq running "$(printf '%s' "$proxy_running_json" | pi_proxy_state_from_json)" "nested status.state"
-eq stopped "$(printf '%s' '{"status":"stopped"}' | pi_proxy_state_from_json)" "top-level status string"
-eq paused "$(printf '%s' '{"state":"paused"}' | pi_proxy_state_from_json)" "top-level state"
-eq "" "$(printf '%s' '{"id":"x"}' | pi_proxy_state_from_json)" "no state"
+eq running "$(printf '%s' "$proxy_running_json" | pi_proxy_state_from_json)" "status.state"
+eq unknown "$(printf '%s' '[{"status":{"state":"unknown"}}]' | pi_proxy_state_from_json)" "unknown state is preserved"
+eq "" "$(printf '%s' '[{"id":"x"}]' | pi_proxy_state_from_json)" "no state"
 eq "" "$(printf '%s' '' | pi_proxy_state_from_json)" "empty payload"
-eq running "$(printf '%s' '{"status":{"state":"running"},"state":"stopped"}' | pi_proxy_state_from_json)" "nested state wins over top-level state"
-eq stopped "$(printf '%s' '{"status":"stopped","state":"running"}' | pi_proxy_state_from_json)" "status string wins over top-level state"
+eq "" "$(printf '%s' '{"status":{"state":"running"}}' | pi_proxy_state_from_json)" "top-level object is ignored"
+eq "" "$(printf '%s' '[{"status":"stopped"}]' | pi_proxy_state_from_json)" "status string is ignored"
+eq "" "$(printf '%s' '[{"state":"paused"}]' | pi_proxy_state_from_json)" "top-level state is ignored"
 eq running "$(printf '%s' '[{"status":{"state":"running"},"configuration":{"labels":{"state":"stopped"}}}]' | pi_proxy_state_from_json)" "label named state does not override status.state"
-eq unknown "$(printf '%s' '{"status":{"state":"unknown"}}' | pi_proxy_state_from_json)" "unknown state is preserved"
 
 # --- image version ---------------------------------------------------------
 image_json() { # env/labels/history fragments
@@ -51,9 +48,10 @@ eq 1.4.0 "$(printf '%s' "$(image_json '' '{"created_by":"RUN apk add curl && PI_
 # A command that ends exactly at the version must not capture the JSON quote.
 eq 9.9.9 "$(printf '%s' "$(image_json '' '{"created_by":"RUN PI_VERSION=9.9.9"}')" | pi_image_version_from_json)" "version at end of history entry"
 eq "" "$(printf '%s' "$(image_json '"Env":["PATH=/usr/bin"]' '{"created_by":"RUN true"}')" | pi_image_version_from_json)" "no version present"
-eq 2.0.0 "$(printf '%s' '{"configuration":{"env":["PI_CONTAINER_PI_VERSION=2.0.0"]}}' | pi_image_version_from_json)" "top-level config Env fallback"
-eq 3.0.0 "$(printf '%s' '{"configuration":{"labels":{"pi-container.pi-version":"3.0.0"}}}' | pi_image_version_from_json)" "top-level label fallback"
-eq 4.0.0 "$(printf '%s' '{"history":[{"created_by":"RUN PI_VERSION=4.0.0 zig build"}]}' | pi_image_version_from_json)" "top-level history fallback"
+eq "" "$(printf '%s' '{"configuration":{"env":["PI_CONTAINER_PI_VERSION=2.0.0"]}}' | pi_image_version_from_json)" "top-level Env is ignored"
+eq "" "$(printf '%s' '{"configuration":{"labels":{"pi-container.pi-version":"3.0.0"}}}' | pi_image_version_from_json)" "top-level label is ignored"
+eq "" "$(printf '%s' '{"history":[{"created_by":"RUN PI_VERSION=4.0.0 zig build"}]}' | pi_image_version_from_json)" "top-level history is ignored"
+eq "" "$(printf '%s' '[{"variants":[{"config":{"config":{}}},{"config":{"config":{"Env":["PI_CONTAINER_PI_VERSION=2.0.0"]}}}]}]' | pi_image_version_from_json)" "only the first variant is read"
 eq 2.0.0 "$(printf '%s' "$(image_json '"Env":["PI_CONTAINER_PI_VERSION=2.0.0"],"Labels":{"pi-container.pi-version":"1.0.0"}' '')" | pi_image_version_from_json)" "env precedence over label"
 eq 1.4.0 "$(printf '%s' "$(image_json '"Labels":{"pi-container.pi-version":"1.4.0"}' '{"created_by":"RUN PI_VERSION=0.0.0 zig build"}')" | pi_image_version_from_json)" "label precedence over history"
 eq 1.4.0 "$(printf '%s' "$(image_json '"Labels":{"pi-container.pi-version":"1.4.0"}' '{"created_by":"RUN echo PI_CONTAINER_PI_VERSION=0.0.0"}')" | pi_image_version_from_json)" "history decoy does not look like Env"
@@ -63,24 +61,22 @@ network_host_only_json='[{"configuration":{"name":"pi-locked","mode":"hostOnly",
 network_host_only_escaped_json='[{"configuration":{"name":"pi-locked","mode":"hostOnly","ipv4Subnet":"172.30.240.0\/24"},"status":{"ipv4Subnet":"172.30.240.0\/24"}}]'
 eq ok "$(printf '%s' "$network_host_only_json" | pi_network_host_only_verdict)" "observed hostOnly network"
 eq ok "$(printf '%s' "$network_host_only_escaped_json" | pi_network_host_only_verdict)" "escaped slashes still ok"
-eq ok "$(printf '%s' '{"configuration":{"internal":true}}' | pi_network_host_only_verdict)" "internal true without mode"
-eq internal-false "$(printf '%s' '{"configuration":{"internal":false}}' | pi_network_host_only_verdict)" "internal false"
-eq mode-not-host-only "$(printf '%s' '{"configuration":{"mode":"bridge"}}' | pi_network_host_only_verdict)" "bridge mode"
-eq unverified "$(printf '%s' '{"id":"x"}' | pi_network_host_only_verdict)" "no markers"
-eq internal-false "$(printf '%s' '{"configuration":{"internal":false,"mode":"hostOnly"}}' | pi_network_host_only_verdict)" "internal false wins"
-eq ok "$(printf '%s' '{"configuration":{"internal":"true"}}' | pi_network_host_only_verdict)" "quoted internal true"
-eq internal-false "$(printf '%s' '{"configuration":{"internal":"false"}}' | pi_network_host_only_verdict)" "quoted internal false"
-eq ok "$(printf '%s' '{"configuration":{"mode":"host-only"}}' | pi_network_host_only_verdict)" "host-only spelling"
+eq not-host-only "$(printf '%s' '[{"configuration":{"mode":"bridge"}}]' | pi_network_host_only_verdict)" "bridge mode"
+eq not-host-only "$(printf '%s' '[{"configuration":{"mode":"host-only"}}]' | pi_network_host_only_verdict)" "host-only spelling is not accepted"
+eq unverified "$(printf '%s' '[{"id":"x"}]' | pi_network_host_only_verdict)" "no mode"
+eq unverified "$(printf '%s' '[{"configuration":{"internal":true}}]' | pi_network_host_only_verdict)" "internal is ignored"
+eq unverified "$(printf '%s' '{"configuration":{"mode":"hostOnly"}}' | pi_network_host_only_verdict)" "top-level object is ignored"
 eq ok "$(printf '%s' '[{"configuration":{"mode":"hostOnly"},"status":{"internal":false}}]' | pi_network_host_only_verdict)" "status decoy does not override configuration.mode"
 
 # --- subnet matching -------------------------------------------------------
 subnet_check_json 0 "plain subnet matches" 172.30.240.0/24 "$network_host_only_json"
 subnet_check_json 0 "escaped subnet matches via jq" 172.30.240.0/24 "$network_host_only_escaped_json"
 subnet_check_json 1 "different subnet does not match" 172.30.241.0/24 "$network_host_only_json"
-subnet_check_json 0 "older configuration.subnet shape" 172.30.240.0/24 '{"configuration":{"subnet":"172.30.240.0/24"}}'
-subnet_check_json 1 "subnet in another field does not match" 172.30.240.0/24 '{"configuration":{"name":"172.30.240.0/24","ipv4Subnet":"10.0.0.0/8"}}'
+subnet_check_json 1 "configuration.subnet is ignored" 172.30.240.0/24 '[{"configuration":{"subnet":"172.30.240.0/24"}}]'
+subnet_check_json 1 "status.subnet is ignored" 172.30.240.0/24 '[{"status":{"subnet":"172.30.240.0/24"}}]'
+subnet_check_json 1 "subnet in another field does not match" 172.30.240.0/24 '[{"configuration":{"name":"172.30.240.0/24","ipv4Subnet":"10.0.0.0/8"}}]'
 subnet_check_json 1 "config and status subnet must agree" 172.30.240.0/24 '[{"configuration":{"ipv4Subnet":"172.30.240.0/24"},"status":{"ipv4Subnet":"172.30.241.0/24"}}]'
-subnet_check_json 1 "no subnet field" 172.30.240.0/24 '{"configuration":{"name":"pi-locked"}}'
+subnet_check_json 1 "no subnet field" 172.30.240.0/24 '[{"configuration":{"name":"pi-locked"}}]'
 contains '172.30.240.0\/24' "$network_host_only_escaped_json" "escaped fixture still contains a backslash"
 
 # --- volume labels ---------------------------------------------------------
@@ -96,6 +92,7 @@ eq owner/repo "$(printf '%s' "$volume_escaped_json" | pi_volume_label_from_json 
 eq work "$(printf '%s' "$volume_escaped_json" | pi_volume_label_from_json pi.instance)" "instance label"
 eq agent "$(printf '%s' '[{"configuration":{"labels":{"pi.kind":"agent"},"annotations":{"pi.kind":"clone"}}}]' | pi_volume_label_from_json pi.kind)" "annotation decoy is ignored"
 eq agent "$(printf '%s' '[{"configuration":{"labels":{"pi_kind":"clone","pi.kind":"agent"}}}]' | pi_volume_label_from_json pi.kind)" "label key is literal"
+eq "" "$(printf '%s' '{"configuration":{"labels":{"pi.kind":"agent"}}}' | pi_volume_label_from_json pi.kind)" "top-level object is ignored"
 
 # --- committed fixtures: smoke tests ---------------------------------------
 # These only assert the category the code depends on. Re-record them on macOS
@@ -113,9 +110,7 @@ jq -e '.[0].variants[0].config.config' "$fixtures/image/inspect.json" >/dev/null
 
 eq ok "$(pi_network_host_only_verdict < "$fixtures/network/host-only.json")" "fixture host-only"
 eq ok "$(pi_network_host_only_verdict < "$fixtures/network/host-only-escaped.json")" "fixture escaped host-only"
-eq ok "$(pi_network_host_only_verdict < "$fixtures/network/internal-true.json")" "fixture internal-true"
-eq internal-false "$(pi_network_host_only_verdict < "$fixtures/network/nat.json")" "fixture nat"
-eq mode-not-host-only "$(pi_network_host_only_verdict < "$fixtures/network/mode-bridge.json")" "fixture bridge"
+eq not-host-only "$(pi_network_host_only_verdict < "$fixtures/network/nat.json")" "fixture nat"
 eq unverified "$(pi_network_host_only_verdict < "$fixtures/network/no-mode.json")" "fixture no-mode"
 
 for f in host-only.json host-only-escaped.json; do

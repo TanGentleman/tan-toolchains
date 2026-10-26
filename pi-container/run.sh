@@ -211,20 +211,16 @@ ensure_network() {
       echo "run.sh: cannot inspect $network_name; refusing to assume it is host-only" >&2
       exit 1
     fi
-    # The JSON quirks (escaped slashes, hostOnly vs internal) live in
-    # lib/inspect.sh and are pinned by fixtures; keep only the messages here.
+    # The JSON quirks (escaped slashes, hostOnly mode) live in lib/inspect.sh
+    # and are pinned by fixtures; keep only the messages here.
     case $(printf '%s\n' "$inspect" | pi_network_host_only_verdict) in
       ok) ;;
-      internal-false)
-        echo "run.sh: $network_name exists but is not host-only/internal; delete it first" >&2
-        exit 1
-        ;;
-      mode-not-host-only)
+      not-host-only)
         echo "run.sh: $network_name is not in host-only mode; delete it first" >&2
         exit 1
         ;;
       *)
-        echo "run.sh: cannot verify that $network_name is host-only/internal; delete it and retry" >&2
+        echo "run.sh: cannot verify that $network_name is host-only; delete it and retry" >&2
         exit 1
         ;;
     esac
@@ -301,8 +297,8 @@ ensure_nvim_mounts() {
   fi
 }
 
-# Read the Pi version recorded at image build time. The three fallbacks live in
-# lib/inspect.sh and are pinned by fixtures.
+# Read the Pi version recorded at image build time. The sources and precedence
+# live in lib/inspect.sh and are pinned by fixtures.
 image_pi_version() {
   local image=${PI_IMAGE:-pi-agent:local} json
   json=$("$cli" image inspect "$image" 2>/dev/null) || return 1

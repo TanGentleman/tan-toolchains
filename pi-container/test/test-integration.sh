@@ -105,11 +105,10 @@ image_json() { # version
   printf '[{"id":"sha256:test","configuration":{"descriptor":{"digest":"sha256:test"},"name":"pi-agent:local"},"variants":[{"config":{"config":{"Env":["PI_CONTAINER_PI_VERSION=%s"]},"history":[]}}]}]' "$1"
 }
 
-network_json() { # subnet [mode] [internal]
-  local subnet=$1 mode=${2:-hostOnly} internal=${3:-} internal_field=""
-  [ -z "$internal" ] || internal_field=",\"internal\":$internal"
-  printf '[{"configuration":{"name":"pi-locked","mode":"%s","ipv4Subnet":"%s"%s},"id":"pi-locked","status":{"ipv4Gateway":"172.30.240.1","ipv4Subnet":"%s"}}]' \
-    "$mode" "$subnet" "$internal_field" "$subnet"
+network_json() { # subnet [mode]
+  local subnet=$1 mode=${2:-hostOnly}
+  printf '[{"configuration":{"name":"pi-locked","mode":"%s","ipv4Subnet":"%s"},"id":"pi-locked","status":{"ipv4Gateway":"172.30.240.1","ipv4Subnet":"%s"}}]' \
+    "$mode" "$subnet" "$subnet"
 }
 
 proxy_running_json() {
@@ -170,14 +169,14 @@ case_normal_run() {
 case_network_nat_refused() {
   new_case nat
   image_json 1.4.0 > "$world/images/pi-agent_local.json"
-  network_json "192.168.64.0/24" nat false > "$world/networks/pi-locked.json"
+  network_json "192.168.64.0/24" nat > "$world/networks/pi-locked.json"
   printf 'pi-locked\n' > "$world/networks.list"
   (
     cd "$t/project" || exit 1
     pi "$run_sh" pi
   )
   expect_status 1 "NAT network is refused"
-  contains 'not host-only/internal' "$(e)" "refusal names the reason"
+  contains 'not in host-only mode' "$(e)" "refusal names the reason"
   log_lacks "run --rm" "no container run after refusal"
 }
 

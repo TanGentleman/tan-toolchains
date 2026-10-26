@@ -1,5 +1,4 @@
-These fixtures use observed Apple container shapes, with synthetic variants for
-branches a live CLI does not emit on demand. Run ../../record-fixtures.sh on
-macOS to refresh the primary captures; it writes each fixture only after the
-output parses as JSON. Recorded captures replace this file with the date, CLI
-version, and commands used.
+These fixtures use observed Apple container shapes. Run ../../record-fixtures.sh
+on macOS to refresh the recorded captures; it writes each fixture only after the
+output parses as JSON. A recorded run replaces this file with the date, CLI
+version, and commands used. See README.md for which files are hand-built.

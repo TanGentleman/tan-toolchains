@@ -28,32 +28,15 @@ It captures:
 Temporary volumes are removed on exit. Missing resources are reported as
 `skipped`; the script is still useful when only some resources exist.
 
-### States we should keep distinct
+### States to distinguish
 
-| State | How it looks now | Useful next step |
+| State | Symptom | Next step |
 | --- | --- | --- |
 | Runtime not started | Every inspect fails; the error text may mention the CLI, not the system | `container system start` |
 | Runtime up, image missing | Image inspect fails while network inspect may work | Build the image from the repo root context |
 | Runtime up, network/proxy missing | Only those captures are skipped | Start a normal run/check to create them |
 | Resource exists, unexpected shape | Capture succeeds; the jq summary shows unexpected keys | Update the parser contract and its tests |
 | Proxy exists but is stopped/paused | `proxy.json` capture may show a non-running state | Optionally capture again while running |
-
-### Parser confidence
-
-The parsers in `pi-container/lib/inspect.sh` now use exact `jq` paths for the
-observed Apple shapes, so confidence is **high** for:
-
-- `[0].status.state`
-- `[0].configuration.mode` and `ipv4Subnet`
-- `[0].status.ipv4Subnet`
-- `[0].variants[0].config.config.Env` / `.Labels`
-- `[0].variants[0].config.history`
-- `[0].configuration.labels`
-
-Confidence is **medium** for the legacy fallbacks kept for older captures:
-top-level proxy `status`/`state`, network `configuration.internal` /
-`configuration.subnet`, and image top-level `configuration.env` / `.labels`.
-Those fallbacks are covered by synthetic fixtures.
 
 Do not copy captures containing host paths or secrets into the repo without
 reviewing them first.

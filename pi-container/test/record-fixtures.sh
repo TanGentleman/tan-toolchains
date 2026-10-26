@@ -10,11 +10,8 @@
 #   ./test/record-fixtures.sh
 #
 # Captures are written to a temporary file and moved into place only after they
-# parse as JSON. A failed capture leaves the existing fixture untouched.
-#
-# It cannot synthesise every variant the tests cover. Files it does not touch
-# stay synthetic: alternate network modes, the label/history/env image shapes,
-# and the stopped/paused proxy states. See fixtures/container/README.md.
+# parse as JSON. A failed capture leaves the existing fixture untouched. Files
+# this script does not record are hand-built; see fixtures/container/README.md.
 set -euo pipefail
 
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
@@ -76,13 +73,10 @@ capture() { # relative-file, command...
 
 say "## Networks"
 capture network/host-only.json "$cli" network inspect "$network"
-say "kept network/host-only-escaped.json  (synthetic: forces the \\/ decode path)"
 say ""
 
 say "## Images"
 capture image/inspect.json "$cli" image inspect "$image"
-say "kept image/env-version.json, image/label-version.json, and image/history-version.json"
-say "     (synthetic: alternate image metadata shapes)"
 say ""
 
 say "## Proxy container"
@@ -110,5 +104,3 @@ fi
 say ""
 
 say "Done. If a capture was skipped, check 'container system start' and the resource names."
-say "Alternate shapes (NAT/bridge networks, env/label/history image versions,"
-say "stopped/paused proxy states) stay synthetic; see fixtures/container/README.md."

@@ -53,17 +53,17 @@ explicitly that `run.sh check` and the E2E checklist were not run.
 
 - Capture real shapes on a Mac with `scripts/container-discovery.sh` or refresh
   fixtures with `pi-container/test/record-fixtures.sh`.
-- Parse exact JSON paths with `jq` in `pi-container/lib/inspect.sh`. Do not add
-  whole-document `grep`/`sed`/`awk` extraction; keep legacy fallbacks only when
-  a fixture and test cover them.
+- Parse the observed JSON paths with `jq` in `pi-container/lib/inspect.sh`. Do
+  not add whole-document `grep`/`sed`/`awk` extraction or accept unobserved
+  shapes. A new shape needs a fixture and a test.
 - Update `ASSUMPTIONS.md`, fixture docs, `test/test-inspect.sh`, and, for
   orchestration changes, `test/test-integration.sh` in the same commit.
 - An absent source is not an existing source with an unknown state. An absent
   proxy may be created; an unknown-state proxy must be recreated, not reused.
 - `jq` is a hard dependency on parsing paths. Fail early with an install hint;
   do not add another parser.
-- Observed fixtures are recorder-owned. Do not hand-edit them to pass a test;
-  keep expectations inline so re-recording cannot rewrite them.
+- Recorded fixtures are recorder-owned. Do not hand-edit a capture to pass a
+  test; keep expectations inline so re-recording cannot rewrite them.
 
 ## Security invariants
 

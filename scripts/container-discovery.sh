@@ -2,9 +2,8 @@
 # Capture real Apple `container` inspect output for pi-container.
 #
 # This is a local discovery tool, not part of the shipped image or the test
-# suite. It writes raw captures plus a jq summary to a temporary directory so we
-# can replace parser heuristics with exact JSON paths. It never edits the
-# committed fixtures.
+# suite. It writes raw captures plus a jq summary of the paths the parsers use
+# to a temporary directory. It never edits the committed fixtures.
 #
 # Usage:
 #   ./scripts/container-discovery.sh [OUT_DIR]
@@ -145,13 +144,11 @@ printf '\n== jq summary\n'
 if compgen -G "$out/*.json" >/dev/null; then
   for f in "$out"/*.json; do
     printf '\n=== %s\n' "${f##*/}"
-    jq -c '(if type == "array" then .[0] else . end) |
+    jq -c 'if type == "array" then .[0] else error("expected an array") end |
       {top_keys: keys,
        config_keys: ((.configuration // {}) | keys),
        status: (.status // null),
-       state: (.state // null),
-       configuration: ((.configuration // {}) |
-         {name, mode, internal, subnet, ipv4Subnet, env, labels}),
+       configuration: ((.configuration // {}) | {name, mode, ipv4Subnet}),
        variants: ((.variants // []) | map({
          env: (.config.config.Env // null),
          labels: (.config.config.Labels // null),
