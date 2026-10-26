@@ -1,4 +1,6 @@
-# zigpeek build artifacts
+# build artifacts
 zigpeek/.zig-cache/
 zigpeek/zig-out/
 zigpeek/dist/
+enforcer/.zig-cache/
+enforcer/zig-out/
