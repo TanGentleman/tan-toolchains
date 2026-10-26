@@ -65,3 +65,35 @@ binaries run on macOS and do not use its network.
   stays manual because Apple `container` is not available on GitHub Actions.
 - Base images are pinned to multi-arch digests; keep tool versions pinned via
   `ARG`.
+
+## Review follow-ups
+
+Known, non-blocking gaps from the parser/test change. Documenting them is
+intentional; fix only when the behavior or test value justifies the churn.
+
+- `lib/paths.sh: pi_physical_path` still returns unresolved text when the leaf
+  is missing under a symlinked parent or the symlink depth cap is hit. The mount
+  guard is meant to fail closed; add tests and make unresolved paths a refusal.
+  Medium confidence; this is security-sensitive path algebra, so change it with
+  focused tests rather than as part of a parser cleanup.
+- `run.sh` checks unknown leading options after environment/network/proxy setup,
+  so `run.sh --bogus` can create resources before failing. Reject unknown
+  options and handle `--help` before side effects; replace the header line-range
+  extraction with a `usage()` function.
+- `run.sh` and `clear.sh` still duplicate lock acquisition and CLI existence
+  helpers. Extracting them is reasonable once the lock behavior has direct
+  tests; current coverage is indirect.
+- `clear.sh nuke clones` scopes by profile and instance but not
+  `pi.managed=true`. Add the managed check before deleting clone volumes.
+- `lib/*.sh` are tracked executable but are sourced and have no shebang. Set
+  them to mode `100644`.
+- The image version Env branch is unit-tested, but the image captured for this
+  change had no `PI_CONTAINER_PI_VERSION` in `Env`, so the live path used the
+  label/history/Dockerfile fallback instead. Rebuild the image, re-run
+  `test/record-fixtures.sh`, and check that `run.sh check` seeds the expected
+  `lastChangelogVersion`.
+- `test/record-fixtures.sh` and `scripts/container-discovery.sh` are
+  syntax-checked but not behavior-tested. They are local Mac tools; add tests
+  only if they start changing often or grow more logic.
+- `scripts/` is intentionally temporary. Fold it into `pi-container/test/` or
+  remove it if discovery stops being a recurring workflow.
