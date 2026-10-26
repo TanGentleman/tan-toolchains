@@ -24,8 +24,9 @@ cd zigpeek && zig build test
 cd zigpeek && zig build --release=small
 cd enforcer && zig build check
 cd enforcer && zig build --release=small
+cd enforcer && bash test/pi-integration.sh ./zig-out/bin/enforcer  # pi required
 
-for f in pi-container/*.sh pi-container/lib/*.sh pi-container/test/*.sh scripts/*.sh; do
+for f in pi-container/*.sh pi-container/lib/*.sh pi-container/test/*.sh enforcer/test/*.sh scripts/*.sh; do
   bash -n "$f"
 done
 python3 -m py_compile pi-container/proxy.py
@@ -96,8 +97,8 @@ explicitly that `run.sh check` and the E2E checklist were not run.
 - Pin versions explicitly; CI checks the Zig pins, and the image build checks
   the installed tool versions.
 - Each tool owns its build and test story: `zig build test` for zigpeek, `zig
-  build check` for enforcer, CI for the source, `run.sh check` for the
-  container.
+  build check` for enforcer plus the headless Pi integration script, CI for the
+  source, `run.sh check` for the container.
 
 ## Version pins
 

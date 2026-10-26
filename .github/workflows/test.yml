@@ -54,7 +54,7 @@ jobs:
       - name: Shell syntax
         run: |
           set -euo pipefail
-          for f in pi-container/*.sh pi-container/lib/*.sh pi-container/test/*.sh scripts/*.sh; do
+          for f in pi-container/*.sh pi-container/lib/*.sh pi-container/test/*.sh enforcer/test/*.sh scripts/*.sh; do
             bash -n "$f"
           done
 
@@ -105,6 +105,34 @@ jobs:
           HOME="$tmp" ./zig-out/bin/enforcer on
           HOME="$tmp" ./zig-out/bin/enforcer off
           test -f "$tmp/.pi/agent/.enforcer.lock"
+
+  enforcer-pi:
+    name: enforcer pi integration
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: enforcer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Install the image's Pi version
+        run: |
+          set -euo pipefail
+          pi_version=$(sed -n 's/^ARG PI_VERSION=\(.*\)$/\1/p' ../pi-container/Dockerfile)
+          [ -n "$pi_version" ]
+          npm install -g --prefix "$RUNNER_TEMP/pi" --ignore-scripts \
+            "@earendil-works/pi-coding-agent@${pi_version}"
+          echo "$RUNNER_TEMP/pi/bin" >> "$GITHUB_PATH"
+
+      - name: Build
+        run: zig build --release=small
+
+      - name: Headless prompt integration
+        run: bash test/pi-integration.sh ./zig-out/bin/enforcer
 
   zigpeek:
     name: zigpeek (${{ matrix.os }})

@@ -87,7 +87,14 @@ cd enforcer
 zig build test          # unit and CLI tests
 zig build check         # zig fmt --check plus tests
 zig build --release=small
+bash test/pi-integration.sh ./zig-out/bin/enforcer   # needs pi on PATH
 ```
+
+The integration script installs the hook with `enforcer on`, then runs the real
+`pi -p` headless with an empty environment. It asserts a `ghp_` prompt is
+consumed before the missing-auth check, a clean prompt reaches that check, and
+`enforcer off` restores the old behavior. CI runs it against the Pi version in
+`pi-container/Dockerfile`.
 
 The Pi container builds the aarch64 static binary from this directory. There is
 no checked-in binary.
