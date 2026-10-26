@@ -1,3 +1,5 @@
-These fixtures are synthetic. Run ../record-fixtures.sh on macOS to replace them
-with captures from the real Apple container CLI. Recorded captures replace this
-file with the date, CLI version, and commands used.
+These fixtures use observed Apple container shapes, with synthetic variants for
+branches a live CLI does not emit on demand. Run ../../record-fixtures.sh on
+macOS to refresh the primary captures; it writes each fixture only after the
+output parses as JSON. Recorded captures replace this file with the date, CLI
+version, and commands used.

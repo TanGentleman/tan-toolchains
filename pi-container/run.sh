@@ -101,12 +101,20 @@ require_cli() {
   exit 1
 }
 
+require_jq() {
+  command -v jq >/dev/null 2>&1 && return 0
+  echo "run.sh: jq not found; install it (brew install jq)" >&2
+  exit 1
+}
+
 require_agent_image() {
   local image=${PI_IMAGE:-pi-agent:local}
   "$cli" image inspect "$image" >/dev/null 2>&1 && return 0
-  # Without a local image, `container run` would pull docker.io/library/pi-agent.
-  echo "run.sh: missing image $image" >&2
-  echo "run.sh: build it from the repo root context, because the image compiles ../zigpeek:" >&2
+  # Image inspect fails both when the image is missing and when the container
+  # system is not running. Mention both instead of claiming the image is absent.
+  echo "run.sh: cannot inspect image $image" >&2
+  echo "run.sh: if 'container system start' has not run yet, start it first" >&2
+  echo "run.sh: otherwise build it from the repo root context, because the image compiles ../zigpeek:" >&2
   echo "  $cli build -t $image -f $here/Dockerfile $here/.." >&2
   exit 1
 }
@@ -365,10 +373,16 @@ guard_mount() {
 addr_file() { printf '%s\n' "$cfg/private/proxy.addr"; }
 
 # Read the proxy container's state. The shape handling lives in lib/inspect.sh.
+# Return "absent" only when inspect itself failed; an existing container whose
+# state we cannot parse is "unknown" and must be recreated, not reused.
 proxy_state() {
-  local json
-  json=$("$cli" inspect "$proxy_name" 2>/dev/null) || { printf '\n'; return; }
-  printf '%s\n' "$json" | pi_proxy_state_from_json
+  local json state
+  if ! json=$("$cli" inspect "$proxy_name" 2>/dev/null); then
+    printf 'absent\n'
+    return 0
+  fi
+  state=$(printf '%s\n' "$json" | pi_proxy_state_from_json)
+  printf '%s\n' "${state:-unknown}"
 }
 
 valid_ip() {
@@ -423,10 +437,10 @@ ensure_proxy() {
       rm -f "$(addr_file)"
       "$cli" start "$proxy_name"
       return ;;
-    '')
+    absent)
       ;;
     *)
-      # Unknown state: recreate to avoid a name collision.
+      # Unknown/unparseable state: recreate to avoid a name collision.
       "$cli" delete --force "$proxy_name" >/dev/null 2>&1 || true
       ;;
   esac
@@ -552,6 +566,8 @@ if [ "$manual" = 1 ]; then
   release_host_lock
   exec "$cli" "${args[@]}" "${PI_IMAGE:-pi-agent:local}" "$@"
 fi
+
+require_jq
 
 case "${1:-}" in
   check|proxy) ;;

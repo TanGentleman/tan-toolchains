@@ -91,6 +91,11 @@ require_cli() {
   die "'$cli' not found; install Apple container and run 'container system start'"
 }
 
+require_jq() {
+  command -v jq >/dev/null 2>&1 && return 0
+  die "jq not found; install it (brew install jq)"
+}
+
 acquire_lock() {
   local pid waited=0 limit=${PI_LOCK_WAIT:-120} lock_parent
   lock_parent=$(dirname "$lock_dir")
@@ -134,7 +139,10 @@ build_hint() {
 }
 
 require_image() {
-  image_exists "$pi_image" || die "missing image $pi_image; build it with: $(build_hint)"
+  if image_exists "$pi_image"; then return 0; fi
+  # Image inspect fails both when the image is missing and when the container
+  # system is not running. Mention both instead of claiming the image is absent.
+  die "cannot inspect image $pi_image; start the container system with 'container system start' or build it with: $(build_hint)"
 }
 require_agent_volume() { volume_exists "$agent_volume" || die "missing volume $agent_volume"; }
 
@@ -388,9 +396,9 @@ cmd=${1:-help}
 shift || true
 trap release_lock EXIT
 case $cmd in
-  list) require_cli; cmd_list "$@" ;;
+  list) require_cli; require_jq; cmd_list "$@" ;;
   save) require_cli; acquire_lock; cmd_save "$@" ;;
-  nuke) require_cli; acquire_lock; cmd_nuke "$@" ;;
+  nuke) require_cli; require_jq; acquire_lock; cmd_nuke "$@" ;;
   help | -h | --help) usage ;;
   *) usage >&2; die "unknown command: $cmd" ;;
 esac

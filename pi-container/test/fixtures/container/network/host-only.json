@@ -1,11 +1,19 @@
 [
   {
-    "id": "pi-locked",
     "configuration": {
-      "name": "pi-locked",
+      "creationDate": "2026-10-26T00:00:00Z",
+      "ipv4Subnet": "172.30.240.0/24",
+      "labels": {},
       "mode": "hostOnly",
-      "subnet": "172.30.240.0/24",
-      "internal": true
+      "name": "pi-locked",
+      "options": {},
+      "plugin": "container-network-vmnet"
+    },
+    "id": "pi-locked",
+    "status": {
+      "ipv4Gateway": "172.30.240.1",
+      "ipv4Subnet": "172.30.240.0/24",
+      "ipv6Subnet": "fd06:e6ac:b2a8:275b::/64"
     }
   }
 ]

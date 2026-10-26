@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Run every pi-container test. No Apple container, Docker, or network needed.
+# Requires jq.
 #
 #   ./test/run-tests.sh
 #
@@ -11,13 +12,16 @@ root=$(CDPATH= cd -- "$here/.." && pwd -P)
 
 fail=0
 
+command -v jq >/dev/null 2>&1 || {
+  printf 'run-tests.sh: jq is required (install with: brew install jq)\n' >&2
+  exit 1
+}
+
 # Fixtures must stay parseable; a broken JSON file would make a parser test
 # fail for the wrong reason.
-if command -v jq >/dev/null 2>&1; then
-  while IFS= read -r f; do
-    jq -e . "$f" >/dev/null 2>&1 || { printf 'FAIL: invalid JSON fixture: %s\n' "$f" >&2; fail=1; }
-  done < <(find "$here/fixtures/container" -name '*.json' -type f)
-fi
+while IFS= read -r f; do
+  jq -e . "$f" >/dev/null 2>&1 || { printf 'FAIL: invalid JSON fixture: %s\n' "$f" >&2; fail=1; }
+done < <(find "$here/fixtures/container" -name '*.json' -type f)
 
 for f in "$here"/test-*.sh; do
   printf '== %s\n' "${f##*/}"

@@ -24,7 +24,9 @@ chmod +x "$fake" "$run_sh" "$clear_sh"
 # set what they need explicitly.
 unset PI_INSTANCE PI_CLONE PI_PROXY_PORT PI_PROXY_NAME PI_NETWORK_NAME \
   PI_PROXY_IMAGE PI_LOCKED_SUBNET PI_AGENT_VOLUME PI_SETTINGS_FILE \
-  PI_SKIP_HOST_SETUP PI_SKIP_PROXY_IP PI_BACKUP_DIR PI_CONFIG_DIR PI_ENV_FILE
+  PI_SKIP_HOST_SETUP PI_SKIP_PROXY_IP PI_BACKUP_DIR PI_CONFIG_DIR PI_ENV_FILE \
+  PI_IMAGE PI_NVIM_CONFIG PI_NVIM_DATA PI_NVIM_STATE PI_NVIM_CACHE \
+  PI_CPUS PI_MEMORY PI_PROXY_WAIT PI_LOCK_WAIT PI_SOURCE_ONLY TZ COLORTERM
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -100,13 +102,14 @@ vol_json() { # name kind instance config settings [repo] [profile]
 # depend on a recorded fixture's version or subnet: re-recording fixtures must
 # not rewrite expectations.
 image_json() { # version
-  printf '[{"id":"sha256:test","configuration":{"descriptor":{"digest":"sha256:test"},"env":["PI_CONTAINER_PI_VERSION=%s"]}}]' "$1"
+  printf '[{"id":"sha256:test","configuration":{"descriptor":{"digest":"sha256:test"},"name":"pi-agent:local"},"variants":[{"config":{"config":{"Env":["PI_CONTAINER_PI_VERSION=%s"]},"history":[]}}]}]' "$1"
 }
 
 network_json() { # subnet [mode] [internal]
-  local subnet=$1 mode=${2:-hostOnly} internal=${3:-true}
-  printf '[{"id":"pi-locked","configuration":{"name":"pi-locked","mode":"%s","subnet":"%s","internal":%s}}]' \
-    "$mode" "$subnet" "$internal"
+  local subnet=$1 mode=${2:-hostOnly} internal=${3:-} internal_field=""
+  [ -z "$internal" ] || internal_field=",\"internal\":$internal"
+  printf '[{"configuration":{"name":"pi-locked","mode":"%s","ipv4Subnet":"%s"%s},"id":"pi-locked","status":{"ipv4Gateway":"172.30.240.1","ipv4Subnet":"%s"}}]' \
+    "$mode" "$subnet" "$internal_field" "$subnet"
 }
 
 proxy_running_json() {
@@ -154,6 +157,12 @@ case_normal_run() {
   [ -f "$cfg/private/proxy.env" ] && pass || fail "proxy.env was not written"
   [ -f "$cfg/pi.env" ] && pass || fail "pi.env was not written"
   eq 600 "$(stat -Lc %a "$cfg/pi.env" 2>/dev/null || stat -Lf %Lp "$cfg/pi.env")" "pi.env is mode 600"
+  eq 600 "$(stat -Lc %a "$cfg/private/proxy.env" 2>/dev/null || stat -Lf %Lp "$cfg/private/proxy.env")" "proxy.env is mode 600"
+  contains "OPENROUTER_API_KEY=sk-or-v1-real" "$(cat "$cfg/private/proxy.env")" "proxy.env has the real OpenRouter key"
+  not_contains OPENROUTER_API_KEY "$(cat "$cfg/pi.env")" "pi.env omits the OpenRouter key"
+  contains "GITHUB_TOKEN=ghp_test" "$(cat "$cfg/pi.env")" "pi.env has the GitHub token"
+  log_has "pi.kind=agent" "agent volume carries the kind label"
+  log_has "pi.instance=default" "agent volume carries the instance label"
   log_lacks "OPENROUTER_API_KEY=sk-or-v1-real" "real key never appears in argv"
 }
 
@@ -318,9 +327,40 @@ case_mount_guards() {
   contains 'missing' "$(e)" "env file error proves the guard passed"
 }
 
+# --------------------------------------------- proxy container unknown state
+case_proxy_unknown_state() {
+  new_case proxyunknown
+  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  image_json 1.4.0 > "$world/images/pi-proxy_local.json"
+  network_json "172.30.240.0/24" > "$world/networks/pi-locked.json"
+  printf 'pi-locked\n' > "$world/networks.list"
+  proxy_running_json > "$world/containers/pi-proxy.json"
+  printf '172.30.240.2\n' > "$cfg/private/proxy.addr"
+  (
+    cd "$t/project" || exit 1
+    pi "$run_sh" pi
+  )
+  expect_status 0 "first run establishes the proxy stamp"
+
+  # The container still exists, but inspect no longer exposes a state. That is
+  # "unknown", not "absent": run.sh must delete it before creating a new one.
+  printf '[{"id":"pi-proxy","configuration":{"name":"pi-proxy"}}]' \
+    > "$world/containers/pi-proxy.json"
+  : > "$logfile"
+  export PI_PROXY_WAIT=0
+  (
+    cd "$t/project" || exit 1
+    pi "$run_sh" pi
+  )
+  unset PI_PROXY_WAIT
+  expect_status 1 "unknown proxy state does not reuse the container"
+  log_has "delete --force pi-proxy" "unknown proxy state is recreated"
+  contains 'did not report an address' "$(e)" "failure is the address wait, not a name collision"
+}
+
 # ------------------------------------------------------------------- drivers
 for c in case_normal_run case_network_nat_refused case_network_escaped_subnet \
-         case_manual_clone case_clear_list case_nuke_agent case_nuke_clones_scoped \
+         case_proxy_unknown_state case_manual_clone case_clear_list case_nuke_agent case_nuke_clones_scoped \
          case_mount_guards; do
   "$c"
 done

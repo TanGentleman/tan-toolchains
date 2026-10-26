@@ -1,1 +1,33 @@
-[{"id":"sha256:0ldbabe","configuration":{"descriptor":{"digest":"sha256:0ldbabe"}},"history":[{"created_by":"RUN /bin/sh -c npm install -g @earendil-works/pi-coding-agent@1.4.0 # buildkit"},{"created_by":"RUN /bin/sh -c PI_VERSION=1.4.0 zig build # buildkit"}]}]
+[
+  {
+    "id": "sha256:0ldbabe",
+    "configuration": {
+      "creationDate": "2026-10-26T00:00:00Z",
+      "descriptor": {
+        "digest": "sha256:0ldbabe",
+        "annotations": {"org.opencontainers.image.title": "pi-agent"}
+      },
+      "name": "pi-agent:local"
+    },
+    "variants": [
+      {
+        "config": {
+          "architecture": "arm64",
+          "config": {
+            "Env": ["PATH=/usr/local/bin:/usr/bin:/bin"]
+          },
+          "created": "2026-10-26T00:00:00Z",
+          "history": [
+            {"created_by": "RUN /bin/sh -c npm install -g @earendil-works/pi-coding-agent@1.4.0 # buildkit"},
+            {"created_by": "RUN /bin/sh -c PI_VERSION=1.4.0 zig build # buildkit"}
+          ],
+          "os": "linux",
+          "rootfs": {"type": "layers", "diff_ids": ["sha256:0ldbabe"]}
+        },
+        "digest": "sha256:0ldbabe",
+        "platform": {"architecture": "arm64", "os": "linux"},
+        "size": 123
+      }
+    ]
+  }
+]

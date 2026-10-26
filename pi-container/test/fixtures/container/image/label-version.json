@@ -1,1 +1,33 @@
-[{"id":"sha256:cafebabe","configuration":{"descriptor":{"digest":"sha256:cafebabe"},"labels":{"pi-container.pi-version":"1.4.0","pi-container.zig-version":"0.17.0"}}}]
+[
+  {
+    "id": "sha256:cafebabe",
+    "configuration": {
+      "creationDate": "2026-10-26T00:00:00Z",
+      "descriptor": {
+        "digest": "sha256:cafebabe",
+        "annotations": {"org.opencontainers.image.title": "pi-agent"}
+      },
+      "name": "pi-agent:local"
+    },
+    "variants": [
+      {
+        "config": {
+          "architecture": "arm64",
+          "config": {
+            "Labels": {
+              "pi-container.pi-version": "1.4.0",
+              "pi-container.zig-version": "0.17.0"
+            }
+          },
+          "created": "2026-10-26T00:00:00Z",
+          "history": [],
+          "os": "linux",
+          "rootfs": {"type": "layers", "diff_ids": ["sha256:cafebabe"]}
+        },
+        "digest": "sha256:cafebabe",
+        "platform": {"architecture": "arm64", "os": "linux"},
+        "size": 123
+      }
+    ]
+  }
+]

@@ -1,15 +1,20 @@
 #!/usr/bin/env bash
 # Unit tests for lib/inspect.sh.
 #
-# Exact-value assertions use inline JSON so refreshing a recorded fixture does
-# not rewrite expectations. The committed fixtures get a smoke test each: they
-# must still parse into the category the code depends on. That split is what
-# makes `test/record-fixtures.sh` safe to run.
+# Exact-value assertions use inline JSON shaped like real Apple `container`
+# output, so refreshing a recorded fixture does not rewrite expectations. The
+# committed fixtures get a smoke test each: they must still parse into the
+# category the code depends on.
 set -uo pipefail
 
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 . "$here/lib.sh"
 . "$here/../lib/inspect.sh"
+
+command -v jq >/dev/null 2>&1 || {
+  printf 'test-inspect.sh: jq is required\n' >&2
+  exit 1
+}
 
 subnet_check_json() { # want, label, subnet, json
   local want=$1 label=$2 subnet=$3 json=$4 got=1
@@ -18,64 +23,79 @@ subnet_check_json() { # want, label, subnet, json
 }
 
 network_fixture_subnet() { # fixture
-  pi_json_unescape_slashes < "$1" |
-    sed -n 's|.*"subnet"[[:space:]]*:[[:space:]]*"\([^"]*\)".*|\1|p' |
+  jq -r '(if type == "array" then .[0] else . end)
+    | (.configuration.ipv4Subnet // .status.ipv4Subnet
+       // .configuration.subnet // empty)' "$1" |
     head -n 1
 }
 
 # --- proxy state -----------------------------------------------------------
-proxy_running_json='[{"id":"pi-proxy","configuration":{"name":"pi-proxy"},"status":{"state":"running"}}]'
+proxy_running_json='[{"id":"pi-proxy","configuration":{"name":"pi-proxy"},"status":{"state":"running","startedDate":"2026-10-26T00:10:21Z"}}]'
 eq running "$(printf '%s' "$proxy_running_json" | pi_proxy_state_from_json)" "nested status.state"
 eq stopped "$(printf '%s' '{"status":"stopped"}' | pi_proxy_state_from_json)" "top-level status string"
 eq paused "$(printf '%s' '{"state":"paused"}' | pi_proxy_state_from_json)" "top-level state"
 eq "" "$(printf '%s' '{"id":"x"}' | pi_proxy_state_from_json)" "no state"
 eq "" "$(printf '%s' '' | pi_proxy_state_from_json)" "empty payload"
-eq stopped "$(printf '%s' '{"status":{"state":"running"},"state":"stopped"}' | pi_proxy_state_from_json)" "later match wins"
+eq running "$(printf '%s' '{"status":{"state":"running"},"state":"stopped"}' | pi_proxy_state_from_json)" "nested state wins over top-level state"
+eq stopped "$(printf '%s' '{"status":"stopped","state":"running"}' | pi_proxy_state_from_json)" "status string wins over top-level state"
+eq running "$(printf '%s' '[{"status":{"state":"running"},"configuration":{"labels":{"state":"stopped"}}}]' | pi_proxy_state_from_json)" "label named state does not override status.state"
+eq unknown "$(printf '%s' '{"status":{"state":"unknown"}}' | pi_proxy_state_from_json)" "unknown state is preserved"
 
 # --- image version ---------------------------------------------------------
-eq 1.4.0 "$(printf '%s' '{"configuration":{"env":["PI_CONTAINER_PI_VERSION=1.4.0","X=1"]}}' | pi_image_version_from_json)" "version from config Env"
-eq 1.4.0 "$(printf '%s' '{"configuration":{"labels":{"pi-container.pi-version":"1.4.0"}}}' | pi_image_version_from_json)" "version from image label"
-eq 1.4.0 "$(printf '%s' '{"history":[{"created_by":"RUN apk add curl && PI_VERSION=1.4.0 zig build"}]}' | pi_image_version_from_json)" "version from build history"
+image_json() { # env/labels/history fragments
+  printf '[{"id":"sha256:test","configuration":{"name":"pi-agent:local"},"variants":[{"config":{"config":{%s},"history":[%s]}}]}]' "$1" "$2"
+}
+eq 1.4.0 "$(printf '%s' "$(image_json '"Env":["PATH=/usr/bin","PI_CONTAINER_PI_VERSION=1.4.0"]' '')" | pi_image_version_from_json)" "version from nested Env"
+eq 1.4.0 "$(printf '%s' "$(image_json '"Labels":{"pi-container.pi-version":"1.4.0"}' '')" | pi_image_version_from_json)" "version from nested label"
+eq 1.4.0 "$(printf '%s' "$(image_json '' '{"created_by":"RUN apk add curl && PI_VERSION=1.4.0 zig build"}')" | pi_image_version_from_json)" "version from nested build history"
 # A command that ends exactly at the version must not capture the JSON quote.
-eq 9.9.9 "$(printf '%s' '{"history":[{"created_by":"RUN PI_VERSION=9.9.9"}]}' | pi_image_version_from_json)" "version at end of history entry"
-eq "" "$(printf '%s' '{"configuration":{"env":["X=1"]},"history":[{"created_by":"RUN true"}]}' | pi_image_version_from_json)" "no version present"
-eq 2.0.0 "$(printf '%s' '{"env":["PI_CONTAINER_PI_VERSION=2.0.0","X=1"]}' | pi_image_version_from_json)" "env value read"
-eq 2.0.0 "$(printf '%s' '{"env":["PI_CONTAINER_PI_VERSION=2.0.0"],"labels":{"pi-container.pi-version":"1.0.0"}}' | pi_image_version_from_json)" "env precedence over label"
+eq 9.9.9 "$(printf '%s' "$(image_json '' '{"created_by":"RUN PI_VERSION=9.9.9"}')" | pi_image_version_from_json)" "version at end of history entry"
+eq "" "$(printf '%s' "$(image_json '"Env":["PATH=/usr/bin"]' '{"created_by":"RUN true"}')" | pi_image_version_from_json)" "no version present"
+eq 2.0.0 "$(printf '%s' '{"configuration":{"env":["PI_CONTAINER_PI_VERSION=2.0.0"]}}' | pi_image_version_from_json)" "top-level config Env fallback"
+eq 3.0.0 "$(printf '%s' '{"configuration":{"labels":{"pi-container.pi-version":"3.0.0"}}}' | pi_image_version_from_json)" "top-level label fallback"
+eq 4.0.0 "$(printf '%s' '{"history":[{"created_by":"RUN PI_VERSION=4.0.0 zig build"}]}' | pi_image_version_from_json)" "top-level history fallback"
+eq 2.0.0 "$(printf '%s' "$(image_json '"Env":["PI_CONTAINER_PI_VERSION=2.0.0"],"Labels":{"pi-container.pi-version":"1.0.0"}' '')" | pi_image_version_from_json)" "env precedence over label"
+eq 1.4.0 "$(printf '%s' "$(image_json '"Labels":{"pi-container.pi-version":"1.4.0"}' '{"created_by":"RUN PI_VERSION=0.0.0 zig build"}')" | pi_image_version_from_json)" "label precedence over history"
+eq 1.4.0 "$(printf '%s' "$(image_json '"Labels":{"pi-container.pi-version":"1.4.0"}' '{"created_by":"RUN echo PI_CONTAINER_PI_VERSION=0.0.0"}')" | pi_image_version_from_json)" "history decoy does not look like Env"
 
 # --- network verdict -------------------------------------------------------
-network_host_only_json='[{"id":"pi-locked","configuration":{"name":"pi-locked","mode":"hostOnly","subnet":"172.30.240.0/24","internal":true}}]'
-network_host_only_escaped_json='[{"id":"pi-locked","configuration":{"name":"pi-locked","mode":"hostOnly","subnet":"172.30.240.0\/24","internal":true}}]'
-eq ok "$(printf '%s' "$network_host_only_json" | pi_network_host_only_verdict)" "hostOnly + internal true"
+network_host_only_json='[{"configuration":{"name":"pi-locked","mode":"hostOnly","ipv4Subnet":"172.30.240.0/24","labels":{}},"status":{"ipv4Subnet":"172.30.240.0/24","ipv4Gateway":"172.30.240.1"}}]'
+network_host_only_escaped_json='[{"configuration":{"name":"pi-locked","mode":"hostOnly","ipv4Subnet":"172.30.240.0\/24"},"status":{"ipv4Subnet":"172.30.240.0\/24"}}]'
+eq ok "$(printf '%s' "$network_host_only_json" | pi_network_host_only_verdict)" "observed hostOnly network"
 eq ok "$(printf '%s' "$network_host_only_escaped_json" | pi_network_host_only_verdict)" "escaped slashes still ok"
-eq ok "$(printf '%s' '{"internal":true}' | pi_network_host_only_verdict)" "internal true without mode"
-eq internal-false "$(printf '%s' '{"internal":false}' | pi_network_host_only_verdict)" "internal false"
-eq mode-not-host-only "$(printf '%s' '{"mode":"bridge"}' | pi_network_host_only_verdict)" "bridge mode"
+eq ok "$(printf '%s' '{"configuration":{"internal":true}}' | pi_network_host_only_verdict)" "internal true without mode"
+eq internal-false "$(printf '%s' '{"configuration":{"internal":false}}' | pi_network_host_only_verdict)" "internal false"
+eq mode-not-host-only "$(printf '%s' '{"configuration":{"mode":"bridge"}}' | pi_network_host_only_verdict)" "bridge mode"
 eq unverified "$(printf '%s' '{"id":"x"}' | pi_network_host_only_verdict)" "no markers"
-eq internal-false "$(printf '%s' '{"internal":false,"mode":"hostOnly"}' | pi_network_host_only_verdict)" "internal false wins"
-eq ok "$(printf '%s' '{"internal":"true"}' | pi_network_host_only_verdict)" "quoted internal true"
-eq internal-false "$(printf '%s' '{"internal":"false"}' | pi_network_host_only_verdict)" "quoted internal false"
-eq ok "$(printf '%s' '{"mode":"host-only"}' | pi_network_host_only_verdict)" "host-only spelling"
-eq ok "$(printf '%s' '{"mode":"hostOnly"}' | pi_network_host_only_verdict)" "hostOnly spelling"
+eq internal-false "$(printf '%s' '{"configuration":{"internal":false,"mode":"hostOnly"}}' | pi_network_host_only_verdict)" "internal false wins"
+eq ok "$(printf '%s' '{"configuration":{"internal":"true"}}' | pi_network_host_only_verdict)" "quoted internal true"
+eq internal-false "$(printf '%s' '{"configuration":{"internal":"false"}}' | pi_network_host_only_verdict)" "quoted internal false"
+eq ok "$(printf '%s' '{"configuration":{"mode":"host-only"}}' | pi_network_host_only_verdict)" "host-only spelling"
+eq ok "$(printf '%s' '[{"configuration":{"mode":"hostOnly"},"status":{"internal":false}}]' | pi_network_host_only_verdict)" "status decoy does not override configuration.mode"
 
-# --- subnet matching (the escaped-slash regression) ------------------------
+# --- subnet matching -------------------------------------------------------
 subnet_check_json 0 "plain subnet matches" 172.30.240.0/24 "$network_host_only_json"
-subnet_check_json 0 "escaped subnet matches after unescape" 172.30.240.0/24 "$network_host_only_escaped_json"
+subnet_check_json 0 "escaped subnet matches via jq" 172.30.240.0/24 "$network_host_only_escaped_json"
 subnet_check_json 1 "different subnet does not match" 172.30.241.0/24 "$network_host_only_json"
-contains '172.30.240.0\/24' "$network_host_only_escaped_json" "raw escaped fixture has a backslash"
-contains '172.30.240.0/24' "$(printf '%s' "$network_host_only_escaped_json" | pi_json_unescape_slashes)" "unescape removes the backslash"
-not_contains '\/' "$(printf '%s' "$network_host_only_escaped_json" | pi_json_unescape_slashes)" "unescape leaves no escaped slash"
+subnet_check_json 0 "older configuration.subnet shape" 172.30.240.0/24 '{"configuration":{"subnet":"172.30.240.0/24"}}'
+subnet_check_json 1 "subnet in another field does not match" 172.30.240.0/24 '{"configuration":{"name":"172.30.240.0/24","ipv4Subnet":"10.0.0.0/8"}}'
+subnet_check_json 1 "config and status subnet must agree" 172.30.240.0/24 '[{"configuration":{"ipv4Subnet":"172.30.240.0/24"},"status":{"ipv4Subnet":"172.30.241.0/24"}}]'
+subnet_check_json 1 "no subnet field" 172.30.240.0/24 '{"configuration":{"name":"pi-locked"}}'
+contains '172.30.240.0\/24' "$network_host_only_escaped_json" "escaped fixture still contains a backslash"
 
 # --- volume labels ---------------------------------------------------------
-volume_labelled_json='[{"id":"pi-agent-home","configuration":{"labels":{"pi.managed":"true","pi.kind":"agent","pi.profile":"default","pi.config":"/Users/tan/.config/pi-container"}}}]'
-volume_escaped_json='[{"id":"pi-clone_work_owner-repo-12345678","configuration":{"labels":{"pi.kind":"clone","pi.settings":"\/Users\/tan\/.config\/pi-container\/settings.json","pi.repo":"owner\/repo","pi.instance":"work"}}}]'
+volume_labelled_json='[{"id":"pi-agent-home","configuration":{"name":"pi-agent-home","labels":{"pi.managed":"true","pi.kind":"agent","pi.profile":"default","pi.config":"/Users/dev/.config/pi-container"}}}]'
+volume_escaped_json='[{"id":"pi-clone_work_owner-repo-12345678","configuration":{"name":"pi-clone_work_owner-repo-12345678","labels":{"pi.kind":"clone","pi.settings":"\/Users\/dev\/.config\/pi-container\/settings.json","pi.repo":"owner\/repo","pi.instance":"work"}}}]'
 eq agent "$(printf '%s' "$volume_labelled_json" | pi_volume_label_from_json pi.kind)" "kind label"
 eq default "$(printf '%s' "$volume_labelled_json" | pi_volume_label_from_json pi.profile)" "profile label"
-eq /Users/tan/.config/pi-container "$(printf '%s' "$volume_labelled_json" | pi_volume_label_from_json pi.config)" "config label"
+eq /Users/dev/.config/pi-container "$(printf '%s' "$volume_labelled_json" | pi_volume_label_from_json pi.config)" "config label"
 eq "" "$(printf '%s' "$volume_labelled_json" | pi_volume_label_from_json pi.missing)" "missing label"
 eq clone "$(printf '%s' "$volume_escaped_json" | pi_volume_label_from_json pi.kind)" "escaped kind"
-eq /Users/tan/.config/pi-container/settings.json "$(printf '%s' "$volume_escaped_json" | pi_volume_label_from_json pi.settings)" "escaped settings path"
+eq /Users/dev/.config/pi-container/settings.json "$(printf '%s' "$volume_escaped_json" | pi_volume_label_from_json pi.settings)" "escaped settings path"
 eq owner/repo "$(printf '%s' "$volume_escaped_json" | pi_volume_label_from_json pi.repo)" "repo label"
 eq work "$(printf '%s' "$volume_escaped_json" | pi_volume_label_from_json pi.instance)" "instance label"
+eq agent "$(printf '%s' '[{"configuration":{"labels":{"pi.kind":"agent"},"annotations":{"pi.kind":"clone"}}}]' | pi_volume_label_from_json pi.kind)" "annotation decoy is ignored"
+eq agent "$(printf '%s' '[{"configuration":{"labels":{"pi_kind":"clone","pi.kind":"agent"}}}]' | pi_volume_label_from_json pi.kind)" "label key is literal"
 
 # --- committed fixtures: smoke tests ---------------------------------------
 # These only assert the category the code depends on. Re-record them on macOS
@@ -88,6 +108,8 @@ neq "" "$(pi_image_version_from_json < "$fixtures/image/env-version.json")" "fix
 neq "" "$(pi_image_version_from_json < "$fixtures/image/label-version.json")" "fixture label version present"
 neq "" "$(pi_image_version_from_json < "$fixtures/image/history-version.json")" "fixture history version present"
 eq "" "$(pi_image_version_from_json < "$fixtures/image/no-version.json")" "fixture no-version stays empty"
+jq -e '.[0].variants[0].config.config' "$fixtures/image/inspect.json" >/dev/null 2>&1 \
+  && pass || fail "fixture image/inspect has the observed variants shape"
 
 eq ok "$(pi_network_host_only_verdict < "$fixtures/network/host-only.json")" "fixture host-only"
 eq ok "$(pi_network_host_only_verdict < "$fixtures/network/host-only-escaped.json")" "fixture escaped host-only"

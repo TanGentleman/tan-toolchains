@@ -42,16 +42,21 @@ binaries run on macOS and do not use its network.
 
 ## Quality
 
-- CI runs `test/run-tests.sh`: naming, validation, path guards, the JSON
-  parsers in `lib/inspect.sh`, and `run.sh`/`clear.sh` against a fake
+- CI runs `test/run-tests.sh`: naming, validation, path guards, the jq-based
+  JSON parsers in `lib/inspect.sh`, and `run.sh`/`clear.sh` against a fake
   `container` CLI. This covers orchestration decisions without Apple
   `container`. Real volume/network/proxy behaviour and `run.sh check` still
   need the [E2E checklist](E2E.md) on macOS.
-- Primary fixtures under `test/fixtures/container/` start synthetic. Run
-  `test/record-fixtures.sh` on a Mac to capture the real shapes; alternate
-  shapes stay hand-built. Exact expectations are inline, so re-recording does
-  not rewrite them, and a changed shape should fail a smoke test instead of a
-  run.
+- `jq` is a hard dependency for `run.sh` normal/check/proxy, `clear.sh`
+  list/nuke, and the test suite. Those paths fail early with an install hint
+  when it is missing.
+- The primary fixtures under `test/fixtures/container/` use observed Apple
+  shapes; alternate branches stay hand-built. Run `test/record-fixtures.sh` on
+  a Mac to refresh captures; it only replaces a fixture after the output parses
+  as JSON. Exact expectations are inline, so re-recording does not rewrite
+  them, and a changed shape should fail a smoke test instead of a run.
+- `scripts/container-discovery.sh` captures raw shapes and a jq summary without
+  touching the fixtures. Use it when iterating on a new Apple CLI version.
 - Add a shellcheck step once the existing warnings are triaged; it is not
   wired up yet.
 - Add CI checks for the Neovim/ZLS pins and for `ZLS_VERSION == ZIG_VERSION`

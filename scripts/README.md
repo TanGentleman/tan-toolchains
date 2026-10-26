@@ -38,10 +38,22 @@ Temporary volumes are removed on exit. Missing resources are reported as
 | Resource exists, unexpected shape | Capture succeeds; the jq summary shows unexpected keys | Update the parser contract and its tests |
 | Proxy exists but is stopped/paused | `proxy.json` capture may show a non-running state | Optionally capture again while running |
 
-The current shell parsers are a **medium-confidence** approximation: they
-search whole JSON documents with `sed`/`grep`/`awk`. Once we have real captures
-from a few machines, the target is **high confidence**: exact `jq` paths for
-each field, with the captures copied deliberately into the test fixtures.
+### Parser confidence
+
+The parsers in `pi-container/lib/inspect.sh` now use exact `jq` paths for the
+observed Apple shapes, so confidence is **high** for:
+
+- `[0].status.state`
+- `[0].configuration.mode` and `ipv4Subnet`
+- `[0].status.ipv4Subnet`
+- `[0].variants[0].config.config.Env` / `.Labels`
+- `[0].variants[0].config.history`
+- `[0].configuration.labels`
+
+Confidence is **medium** for the legacy fallbacks kept for older captures:
+top-level proxy `status`/`state`, network `configuration.internal` /
+`configuration.subnet`, and image top-level `configuration.env` / `.labels`.
+Those fallbacks are covered by synthetic fixtures.
 
 Do not copy captures containing host paths or secrets into the repo without
 reviewing them first.

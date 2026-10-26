@@ -2,15 +2,33 @@
   {
     "id": "sha256:deadbeef",
     "configuration": {
+      "creationDate": "2026-10-26T00:00:00Z",
       "descriptor": {
         "digest": "sha256:deadbeef",
         "annotations": {"org.opencontainers.image.title": "pi-agent"}
       },
-      "env": [
-        "PATH=/usr/local/bin:/usr/bin:/bin",
-        "PI_CONTAINER_PI_VERSION=1.4.0",
-        "PI_SKIP_VERSION_CHECK=1"
-      ]
-    }
+      "name": "pi-agent:local"
+    },
+    "variants": [
+      {
+        "config": {
+          "architecture": "arm64",
+          "config": {
+            "Env": [
+              "PATH=/usr/local/bin:/usr/bin:/bin",
+              "PI_CONTAINER_PI_VERSION=1.4.0",
+              "PI_SKIP_VERSION_CHECK=1"
+            ]
+          },
+          "created": "2026-10-26T00:00:00Z",
+          "history": [],
+          "os": "linux",
+          "rootfs": {"type": "layers", "diff_ids": ["sha256:deadbeef"]}
+        },
+        "digest": "sha256:deadbeef",
+        "platform": {"architecture": "arm64", "os": "linux"},
+        "size": 123
+      }
+    ]
   }
 ]

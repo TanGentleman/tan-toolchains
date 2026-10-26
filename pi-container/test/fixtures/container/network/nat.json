@@ -1,1 +1,1 @@
-[{"id":"pi-locked","configuration":{"name":"pi-locked","internal":false,"mode":"nat","subnet":"192.168.64.0/24"}}]
+[{"configuration":{"internal":false,"ipv4Subnet":"192.168.64.0/24","mode":"nat","name":"default"},"id":"default","status":{"ipv4Gateway":"192.168.64.1","ipv4Subnet":"192.168.64.0/24"}}]

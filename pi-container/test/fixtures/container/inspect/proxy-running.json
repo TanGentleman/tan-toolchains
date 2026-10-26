@@ -1,1 +1,1 @@
-[{"id":"pi-proxy","configuration":{"name":"pi-proxy","image":"pi-proxy:local"},"status":{"state":"running","networks":[{"ipv4Address":"172.30.240.2/24"}]}}]
+[{"configuration":{"name":"pi-proxy","image":"pi-proxy:local","labels":{}},"id":"pi-proxy","status":{"networks":[{"hostname":"pi-proxy","ipv4Address":"172.30.240.4/24","ipv4Gateway":"172.30.240.1","network":"pi-locked","variant":"reserved"}],"startedDate":"2026-10-26T00:10:21Z","state":"running"}}]

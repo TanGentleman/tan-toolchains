@@ -151,7 +151,12 @@ if compgen -G "$out/*.json" >/dev/null; then
        status: (.status // null),
        state: (.state // null),
        configuration: ((.configuration // {}) |
-         {name, mode, internal, subnet, env, labels})}' "$f" || status=1
+         {name, mode, internal, subnet, ipv4Subnet, env, labels}),
+       variants: ((.variants // []) | map({
+         env: (.config.config.Env // null),
+         labels: (.config.config.Labels // null),
+         history: [.config.history[]?.created_by]
+       }))}' "$f" || status=1
   done
 else
   printf 'no JSON captured\n'

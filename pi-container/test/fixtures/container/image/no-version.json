@@ -1,1 +1,30 @@
-[{"id":"sha256:none","configuration":{"descriptor":{"digest":"sha256:none"},"env":["PATH=/usr/bin"]}}]
+[
+  {
+    "id": "sha256:none",
+    "configuration": {
+      "creationDate": "2026-10-26T00:00:00Z",
+      "descriptor": {
+        "digest": "sha256:none",
+        "annotations": {"org.opencontainers.image.title": "pi-agent"}
+      },
+      "name": "pi-agent:local"
+    },
+    "variants": [
+      {
+        "config": {
+          "architecture": "arm64",
+          "config": {
+            "Env": ["PATH=/usr/bin"]
+          },
+          "created": "2026-10-26T00:00:00Z",
+          "history": [{"created_by": "RUN true"}],
+          "os": "linux",
+          "rootfs": {"type": "layers", "diff_ids": ["sha256:none"]}
+        },
+        "digest": "sha256:none",
+        "platform": {"architecture": "arm64", "os": "linux"},
+        "size": 123
+      }
+    ]
+  }
+]

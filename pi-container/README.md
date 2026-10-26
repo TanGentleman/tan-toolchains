@@ -11,10 +11,10 @@ skill file tells Pi to use it. See [../zigpeek/README.md](../zigpeek/README.md).
 
 ## Setup
 
-Requires macOS 26, Apple silicon, and `container`.
+Requires macOS 26, Apple silicon, `container`, and `jq`.
 
 ```bash
-brew install container
+brew install container jq
 container system start
 
 mkdir -p ~/.config/pi-container
@@ -230,9 +230,11 @@ container build -t pi-agent:local -f Dockerfile ..
 
 ## Tests
 
-CI runs the whole suite without Apple `container` or a network:
+CI runs the whole suite without Apple `container` or a network. It requires
+`jq`:
 
 ```bash
+brew install jq   # or your package manager
 ./test/run-tests.sh
 ```
 
@@ -243,12 +245,14 @@ and captures the exact `container` argv the scripts build.
 
 The output shapes the scripts assume are listed in
 [ASSUMPTIONS.md](ASSUMPTIONS.md) and pinned by files under
-[`test/fixtures/container/`](test/fixtures/container/). The committed fixtures
-start synthetic. On a Mac, refresh the primary captures from the real CLI
-(alternate shapes stay hand-built; see ASSUMPTIONS.md):
+[`test/fixtures/container/`](test/fixtures/container/). The primary fixtures
+use observed Apple shapes; alternate branches stay synthetic. On a Mac, refresh
+the primary captures from the real CLI:
 
 ```bash
 ./test/record-fixtures.sh
+# or, for a non-destructive discovery run:
+../scripts/container-discovery.sh
 git diff test/fixtures/container   # a changed shape is what the tests catch
 ```
 

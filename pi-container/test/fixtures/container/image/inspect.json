@@ -1,0 +1,37 @@
+[
+  {
+    "id": "sha256:capture",
+    "configuration": {
+      "creationDate": "2026-10-26T00:00:00Z",
+      "descriptor": {
+        "digest": "sha256:capture",
+        "annotations": {"org.opencontainers.image.title": "pi-agent"}
+      },
+      "name": "pi-agent:local"
+    },
+    "variants": [
+      {
+        "config": {
+          "architecture": "arm64",
+          "config": {
+            "Env": [
+              "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+              "NODE_VERSION=24.22.1",
+              "YARN_VERSION=1.22.22",
+              "PI_SKIP_VERSION_CHECK=1",
+              "GH_NO_UPDATE_NOTIFIER=1",
+              "GIT_TERMINAL_PROMPT=0"
+            ]
+          },
+          "created": "2026-10-26T00:00:00Z",
+          "history": [],
+          "os": "linux",
+          "rootfs": {"type": "layers", "diff_ids": ["sha256:capture"]}
+        },
+        "digest": "sha256:capture",
+        "platform": {"architecture": "arm64", "os": "linux"},
+        "size": 123
+      }
+    ]
+  }
+]

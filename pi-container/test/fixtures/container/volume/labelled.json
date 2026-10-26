@@ -1,16 +1,22 @@
 [
   {
-    "id": "pi-agent-home",
     "configuration": {
-      "name": "pi-agent-home",
+      "creationDate": "2026-10-26T00:00:00Z",
+      "driver": "local",
+      "format": "ext4",
       "labels": {
         "pi.managed": "true",
         "pi.profile": "default",
-        "pi.config": "/Users/tan/.config/pi-container",
-        "pi.settings": "/Users/tan/.config/pi-container/settings.json",
+        "pi.config": "/Users/dev/.config/pi-container",
+        "pi.settings": "/Users/dev/.config/pi-container/settings.json",
         "pi.instance": "default",
         "pi.kind": "agent"
-      }
-    }
+      },
+      "name": "pi-agent-home",
+      "options": {},
+      "sizeInBytes": 123,
+      "source": "/tmp/pi-agent-home"
+    },
+    "id": "pi-agent-home"
   }
 ]

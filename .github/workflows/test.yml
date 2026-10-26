@@ -57,6 +57,9 @@ jobs:
             bash -n "$f"
           done
 
+      - name: Ensure jq
+        run: command -v jq >/dev/null || { sudo apt-get update && sudo apt-get install -y jq; }
+
       - name: pi-container tests
         run: bash pi-container/test/run-tests.sh
 
