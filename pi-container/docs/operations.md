@@ -1,20 +1,20 @@
 # Operations
 
-Profiles, instances, keys, settings, and cleanup. Run commands from
-`pi-container/`.
+Profiles, instances, and cleanup. Run commands from `pi-container/`. Keys,
+settings, flags, environment variables, and build arguments are in
+[Configuration](configuration.md).
 
-## Multiple instances
+## Profiles and instances
 
 Use an instance per terminal window. Within a profile, each instance gets its
 own agent volume (the default profile uses `pi-agent-<name>`), so sessions,
 `auth.json`, and installed extensions do not collide. The settings file, proxy,
 network, port, and OpenRouter key stay shared.
 
-`PI_CONFIG_DIR` selects a profile. The default is
-`~/.config/pi-container`; another directory gets its own settings, env file,
-proxy, host-only network, subnet, proxy image, agent volumes, and clone
-volumes. The agent image and builder cache stay machine-wide. To share a key
-between profiles, point `PI_ENV_FILE` at the same env file.
+`PI_CONFIG_DIR` selects a profile. The default is `~/.config/pi-container`;
+another directory gets its own settings, env file, proxy, host-only network,
+subnet, proxy image, agent volumes, and clone volumes. The agent image and
+builder cache stay machine-wide.
 
 ```bash
 alias pic=/path/to/pi-container/run.sh
@@ -37,52 +37,6 @@ Run one Pi process per instance. Default-mode instances share the host working
 tree; use `--clone` when each window needs its own checkout. Manual-mode
 instances also share the Neovim paths in [Manual mode](manual.md); use the
 `PI_NVIM_*` overrides if parallel editors need separate state.
-
-## Keys
-
-The env file stays on the Mac, mode 600 or 400. `run.sh` writes two filtered
-copies:
-
-- `private/proxy.env`: OpenRouter key, mounted only into `pi-proxy`.
-- `pi.env`: GitHub token and commit identity, passed only to Pi.
-
-- **OpenRouter:** Pi gets `sk-or-v1-placeholder`. The proxy adds the real key. Set a credit limit.
-- **GitHub:** use a fine-grained, one-repo token with Contents and Pull requests: Read and write. Keep Workflows off.
-- **Push:** no `git config` or `gh auth login` needed. `gh` supplies the token, and SSH remotes are rewritten to HTTPS.
-- **Commits:** set `GIT_AUTHOR_NAME` and `GIT_AUTHOR_EMAIL`. Add `GIT_COMMITTER_*` only if the committer differs.
-
-Pi's install ping and `gh` telemetry are off.
-
-## Config
-
-`run.sh` creates `$PI_CONFIG_DIR/settings.json` (by default
-`~/.config/pi-container/settings.json`) if missing and mounts it read-only at
-`/root/.pi/agent/settings.json`. The file is shared by every instance in that
-profile. Edit it on the Mac; changes apply on the next launch. The default is
-`openrouter` / `deepseek/deepseek-v4.1-flash-1017`.
-
-A new file also records `lastChangelogVersion` from the image's
-`PI_CONTAINER_PI_VERSION` environment value, or the Dockerfile version when the
-image records none, so Pi does not try to update it. If you rebuild with another
-`PI_VERSION`, update an existing host settings file; `run.sh check` warns when
-it is stale.
-
-Because settings are read-only, Pi cannot persist preference changes. These
-still work for the current session where applicable, but do not survive a
-restart:
-
-- `/settings`
-- `/model` then `Ctrl+S` (plain `/model` still changes the current session)
-- `/thinking` then `Ctrl+S`
-- `/scoped-models` then `Ctrl+S`
-- `pi install`, `pi remove`, and `pi config` resource changes
-
-Use a one-off flag for temporary changes, and edit the host file for permanent
-ones:
-
-```bash
-pic pi --model openrouter/<model>:high
-```
 
 ## Manage
 

@@ -131,6 +131,9 @@ Move these together:
 - Docs must be concise and literal: no slogans, stale metrics, or repeated
   claims. Root `README.md` owns the network boundary; `UPGRADES.md` holds open
   work only; `modal-scratchpad.md` is speculative.
+- `pi-container/docs/configuration.md` is the source of truth for user-facing
+  flags, environment variables, generated config files, and build arguments.
+  Update it with the code and `--help` text.
 - Update docs in the same commit as behavior changes and delete stale text
   instead of appending corrections.
 - Prefer a clear helper over duplicated blocks, but do not churn working code

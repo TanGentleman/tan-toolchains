@@ -11,7 +11,8 @@ skill file tells Pi to use it. See [../zigpeek/README.md](../zigpeek/README.md).
 
 ## Setup
 
-Requires macOS 26, Apple silicon, `container`, and `jq`.
+Run these commands from `pi-container/`. Requires macOS 26, Apple silicon,
+`container`, and `jq`.
 
 ```bash
 brew install container jq
@@ -74,7 +75,8 @@ The default mode mounts the current folder. Use it only for repos you trust; use
 
 ## Docs
 
-- [Operations](docs/operations.md): profiles, instances, keys, settings, and cleanup.
+- [Configuration](docs/configuration.md): env file, settings, flags, environment variables, and build arguments.
+- [Operations](docs/operations.md): profiles, instances, and cleanup.
 - [Manual mode](docs/manual.md): local Neovim/ZLS, clone mode, and caches.
 - [Testing](docs/testing.md): CI suite and fixture recording.
 - [ASSUMPTIONS.md](ASSUMPTIONS.md): Apple `container` JSON contract.
@@ -90,6 +92,3 @@ The default mode mounts the current folder. Use it only for repos you trust; use
 - Zig 0.17's `std.http.Client` mishandles HTTPS through a CONNECT proxy, so dev-time `zig fetch` inside the container can fail. This is a container limitation, not a reason to add network code to a shipped tool.
 - `run.sh` refuses to mount `~`, `/`, ancestors of `~`, secrets directories, or anything overlapping the current/default config directory or its env/settings files.
 - `--clone` keeps the repo in a volume until you `git push`; uncommitted changes stay outside. Clone volumes are named per profile and instance.
-- Advanced: `PI_CONFIG_DIR` selects a profile; `PI_AGENT_VOLUME` overrides the instance-derived agent volume, `PI_SETTINGS_FILE` overrides the settings path, `PI_ENV_FILE` overrides the env file, `PI_CLONE` defaults `--clone`, and the `PI_NVIM_*` variables override the Neovim paths. `PI_PROXY_NAME`, `PI_NETWORK_NAME`, `PI_PROXY_IMAGE`, and `PI_LOCKED_SUBNET` override the profile-derived proxy, network, image, and subnet. Prefer `PI_INSTANCE`; `clear.sh list` discovers labelled volumes.
-- `PI_PROXY_PORT` defaults to 8888. `PI_CPUS` defaults to 4. `PI_MEMORY` defaults to 4G.
-- Rebuild with `--build-arg PI_VERSION=…`, `ZIG_VERSION=…`, `NVIM_VERSION=…`, or `ZLS_VERSION=…`. Update the matching checksum when changing Neovim or ZLS; ZLS must match Zig.

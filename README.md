@@ -11,8 +11,8 @@ One tool per directory.
 
 ```sh
 # zigpeek
-cd zigpeek && zig build --release=small
-zigpeek search ArrayList
+(cd zigpeek && zig build --release=small)
+./zigpeek/zig-out/bin/zigpeek search ArrayList
 
 # pi-container
 cd pi-container
@@ -23,7 +23,7 @@ container build -t pi-agent:local -f Dockerfile ..
 ## Docs
 
 - [zigpeek/README.md](zigpeek/README.md): commands, build, and the stdlib index.
-- [pi-container/README.md](pi-container/README.md): setup, use, limits, and links to the operations docs.
+- [pi-container/README.md](pi-container/README.md): setup, use, limits, and links to the configuration and operations docs.
 - [scripts/README.md](scripts/README.md): local Apple `container` discovery.
 - [pi-container/E2E.md](pi-container/E2E.md): manual macOS checklist.
 - [AGENTS.md](AGENTS.md): development rules, toolchain policy, and version pins.
