@@ -18,18 +18,19 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      # The image compiles zigpeek against the Zig it documents, so these pins
-      # have to move in one change. If they drift, the image ships a parser that
-      # reads another version's sources.
+      # The image compiles zigpeek against the Zig it documents, and enforcer
+      # against the same toolchain, so these pins have to move in one change.
       - name: Zig version is pinned once
         run: |
           set -euo pipefail
           dockerfile=$(sed -n 's/^ARG ZIG_VERSION=\(.*\)$/\1/p' pi-container/Dockerfile)
           workflow=$(sed -n 's/^  ZIG_VERSION: \(.*\)$/\1/p' .github/workflows/test.yml)
           zon=$(sed -n 's/^ *\.minimum_zig_version = "\(.*\)",$/\1/p' zigpeek/build.zig.zon)
-          printf 'Dockerfile=%s\nworkflow=%s\nbuild.zig.zon=%s\n' "$dockerfile" "$workflow" "$zon"
-          [ -n "$dockerfile" ] && [ "$dockerfile" = "$workflow" ] && [ "$workflow" = "$zon" ] || {
-            echo "::error::Zig version pins disagree; update pi-container/Dockerfile, .github/workflows/test.yml and zigpeek/build.zig.zon together"
+          enforcer_zon=$(sed -n 's/^ *\.minimum_zig_version = "\(.*\)",$/\1/p' enforcer/build.zig.zon)
+          printf 'Dockerfile=%s\nworkflow=%s\nzigpeek/build.zig.zon=%s\nenforcer/build.zig.zon=%s\n' \
+            "$dockerfile" "$workflow" "$zon" "$enforcer_zon"
+          [ -n "$dockerfile" ] && [ "$dockerfile" = "$workflow" ] && [ "$workflow" = "$zon" ] && [ "$zon" = "$enforcer_zon" ] || {
+            echo "::error::Zig version pins disagree; update pi-container/Dockerfile, .github/workflows/test.yml, zigpeek/build.zig.zon and enforcer/build.zig.zon together"
             exit 1
           }
 
@@ -65,6 +66,45 @@ jobs:
 
       - name: Python syntax
         run: python3 -m py_compile pi-container/proxy.py
+
+  enforcer:
+    name: enforcer (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: enforcer
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: ${{ env.ZIG_VERSION }}
+
+      - name: Check
+        shell: bash
+        run: zig build check
+
+      - name: Release build
+        run: zig build --release=small
+
+      - name: Smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./zig-out/bin/enforcer --help >/dev/null
+          printf '{"prompt":"hello"}' | ./zig-out/bin/enforcer hook
+          code=0
+          printf '{"prompt":"ghp_abc"}' | ./zig-out/bin/enforcer hook 2>/dev/null || code=$?
+          [ "$code" = 2 ]
+          tmp=$(mktemp -d)
+          mkdir -p "$tmp/.pi/agent"
+          HOME="$tmp" ./zig-out/bin/enforcer on
+          HOME="$tmp" ./zig-out/bin/enforcer off
+          test -f "$tmp/.pi/agent/.enforcer.lock"
 
   zigpeek:
     name: zigpeek (${{ matrix.os }})
