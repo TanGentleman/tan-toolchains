@@ -26,7 +26,7 @@ zigpeek info                     # what this is, resolved binaries, docs source
 zigpeek search QUERY [--limit N] # declaration names; dotted queries match FQNs
 zigpeek get FQN [--source-file]  # docs, signature, members, source
 zigpeek builtins list            # every @-builtin, with signatures
-zigpeek builtins get QUERY       # by name, falling back to doc text
+zigpeek builtins get QUERY       # by name, then doc text
 zigpeek batch [-f FILE]          # many lookups in one process (index parsed once)
 ```
 

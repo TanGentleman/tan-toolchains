@@ -40,7 +40,7 @@ build `pi-agent:local` for you; it only rebuilds the profile's proxy image
 predates an edit to the `Dockerfile` or `zigpeek/`, so re-run the build command
 after changing either.
 
-The first `check` in a profile builds that profile's proxy image. It spends no OpenRouter credits.
+The first `check` in a profile builds that profile's proxy image and spends no OpenRouter credits.
 
 If an earlier try created `host.container.internal`, delete it so iCloud Private Relay keeps working:
 
@@ -107,9 +107,9 @@ The image's global cache is still prewarmed; the local cache is per container.
 Plugins are not baked in: manual mode has internet, but normal Pi mode is behind
 the proxy, so Git clones from `github.com` work while release-asset and tool
 downloads may fail. The image does not include a compiler for Treesitter
-parsers; use Neovim's builtin Zig syntax for now.
+parsers; use Neovim's built-in Zig syntax.
 
-Normal Pi mode does not mount the Neovim paths yet.
+Normal Pi mode does not mount the Neovim paths.
 
 ## Multiple instances
 
@@ -169,8 +169,8 @@ profile. Edit it on the Mac; changes apply on the next launch. The default is
 `openrouter` / `deepseek/deepseek-v4.1-flash-1017`.
 
 A new file also records `lastChangelogVersion` from the image's
-`PI_CONTAINER_PI_VERSION` environment value (falling back to the Dockerfile
-version), so Pi does not try to update it. If you rebuild with another
+`PI_CONTAINER_PI_VERSION` environment value, or the Dockerfile version when the
+image records none, so Pi does not try to update it. If you rebuild with another
 `PI_VERSION`, update an existing host settings file; `run.sh check` warns when
 it is stale.
 
@@ -245,9 +245,8 @@ and captures the exact `container` argv the scripts build.
 
 The output shapes the scripts assume are listed in
 [ASSUMPTIONS.md](ASSUMPTIONS.md) and pinned by files under
-[`test/fixtures/container/`](test/fixtures/container/). The primary fixtures
-use observed Apple shapes; alternate branches stay synthetic. On a Mac, refresh
-the primary captures from the real CLI:
+[`test/fixtures/container/`](test/fixtures/container/). On a Mac, refresh the
+recorded captures from the real CLI:
 
 ```bash
 ./test/record-fixtures.sh

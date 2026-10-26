@@ -50,11 +50,11 @@ binaries run on macOS and do not use its network.
 - `jq` is a hard dependency for `run.sh` normal/check/proxy, `clear.sh`
   list/nuke, and the test suite. Those paths fail early with an install hint
   when it is missing.
-- The primary fixtures under `test/fixtures/container/` use observed Apple
-  shapes; alternate branches stay hand-built. Run `test/record-fixtures.sh` on
-  a Mac to refresh captures; it only replaces a fixture after the output parses
-  as JSON. Exact expectations are inline, so re-recording does not rewrite
-  them, and a changed shape should fail a smoke test instead of a run.
+- The fixtures under `test/fixtures/container/` are either recorded from Apple
+  or hand-built to pin a parser branch. Run `test/record-fixtures.sh` on a Mac
+  to refresh captures; it only replaces a fixture after the output parses as
+  JSON. Exact expectations are inline, so re-recording does not rewrite them,
+  and a changed shape should fail a smoke test instead of a run.
 - `scripts/container-discovery.sh` captures raw shapes and a jq summary without
   touching the fixtures. Use it when iterating on a new Apple CLI version.
 - Add a shellcheck step once the existing warnings are triaged; it is not
@@ -68,23 +68,23 @@ binaries run on macOS and do not use its network.
 
 ## Review follow-ups
 
-Known, non-blocking gaps from the parser/test change. Documenting them is
-intentional; fix only when the behavior or test value justifies the churn.
+Known, non-blocking gaps from the parser/test change. Fix one only when the
+behavior or test value justifies the churn.
 
-- `lib/paths.sh: pi_physical_path` still returns unresolved text when the leaf
-  is missing under a symlinked parent or the symlink depth cap is hit. The mount
-  guard is meant to fail closed; add tests and make unresolved paths a refusal.
-  Medium confidence; this is security-sensitive path algebra, so change it with
-  focused tests rather than as part of a parser cleanup.
+- `lib/paths.sh: pi_physical_path` can return the input path unresolved when the
+  leaf is missing under a symlinked parent or the symlink depth cap is hit. The
+  mount guard must fail closed; add tests and make unresolved paths a refusal.
+  This is security-sensitive path algebra; change it with focused tests rather
+  than as part of a parser cleanup.
 - `run.sh` and `clear.sh` still duplicate the small `require_cli`/`require_jq`
   and volume/image existence helpers. Lock acquisition is now shared in
   `lib/lock.sh`; the remaining helpers are cheap enough to leave until they
   change.
 - `lib/*.sh` are tracked executable but are sourced and have no shebang. Set
   them to mode `100644`.
-- The image version Env branch is unit-tested, but the image captured for this
-  change had no `PI_CONTAINER_PI_VERSION` in `Env`, so the live path used the
-  label/history/Dockerfile fallback instead. Rebuild the image, re-run
+- The image version `Env` source is unit-tested, but the image captured for
+  this change had no `PI_CONTAINER_PI_VERSION` in `Env`, so the live path used
+  the label/history/Dockerfile version instead. Rebuild the image, re-run
   `test/record-fixtures.sh`, and check that `run.sh check` seeds the expected
   `lastChangelogVersion`.
 - `test/record-fixtures.sh` and `scripts/container-discovery.sh` are
