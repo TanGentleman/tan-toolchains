@@ -31,6 +31,10 @@ terminal windows with isolated sessions behind one shared proxy per profile.
 `./run.sh --manual` opens a local Neovim/ZLS shell without Pi. See
 [pi-container/README.md](pi-container/README.md).
 
+Local-only diagnostics live in [`scripts/`](scripts/), starting with
+`container-discovery.sh` for capturing real Apple `container` JSON shapes. See
+[scripts/README.md](scripts/README.md).
+
 ## Scope and network boundary
 
 - **Dev environment:** `pi-container/` runs Pi in an Apple `container` VM,

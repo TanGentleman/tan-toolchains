@@ -53,7 +53,7 @@ jobs:
       - name: Shell syntax
         run: |
           set -euo pipefail
-          for f in pi-container/*.sh pi-container/lib/*.sh pi-container/test/*.sh; do
+          for f in pi-container/*.sh pi-container/lib/*.sh pi-container/test/*.sh scripts/*.sh; do
             bash -n "$f"
           done
 
