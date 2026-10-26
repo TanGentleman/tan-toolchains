@@ -261,6 +261,8 @@ ensure_network() {
       echo "run.sh: cannot inspect $network_name; refusing to assume it is host-only" >&2
       exit 1
     fi
+    # Apple's raw JSON may escape slashes as \/; jq only hides that.
+    inspect=$(printf '%s\n' "$inspect" | sed 's|\\/|/|g')
     if printf '%s\n' "$inspect" | grep -Eq '"internal"[[:space:]]*:[[:space:]]*"?false"?'; then
       echo "run.sh: $network_name exists but is not host-only/internal; delete it first" >&2
       exit 1

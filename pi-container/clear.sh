@@ -143,8 +143,9 @@ all_volumes() {
 
 # Labels live on the volume, so no separate manifest can go stale.
 volume_label() { # volume, key
+  # Apple volume inspect may escape slashes as \/ in label values.
   "$cli" volume inspect "$1" 2>/dev/null |
-    sed -n 's/.*"'"$2"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' |
+    sed -n 's|\\/|/|g; s/.*"'"$2"'"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' |
     head -n 1
 }
 
