@@ -76,15 +76,10 @@ intentional; fix only when the behavior or test value justifies the churn.
   guard is meant to fail closed; add tests and make unresolved paths a refusal.
   Medium confidence; this is security-sensitive path algebra, so change it with
   focused tests rather than as part of a parser cleanup.
-- `run.sh` checks unknown leading options after environment/network/proxy setup,
-  so `run.sh --bogus` can create resources before failing. Reject unknown
-  options and handle `--help` before side effects; replace the header line-range
-  extraction with a `usage()` function.
-- `run.sh` and `clear.sh` still duplicate lock acquisition and CLI existence
-  helpers. Extracting them is reasonable once the lock behavior has direct
-  tests; current coverage is indirect.
-- `clear.sh nuke clones` scopes by profile and instance but not
-  `pi.managed=true`. Add the managed check before deleting clone volumes.
+- `run.sh` and `clear.sh` still duplicate the small `require_cli`/`require_jq`
+  and volume/image existence helpers. Lock acquisition is now shared in
+  `lib/lock.sh`; the remaining helpers are cheap enough to leave until they
+  change.
 - `lib/*.sh` are tracked executable but are sourced and have no shebang. Set
   them to mode `100644`.
 - The image version Env branch is unit-tested, but the image captured for this

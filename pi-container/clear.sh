@@ -12,6 +12,7 @@ set -euo pipefail
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 . "$here/names.sh"
 . "$here/lib/inspect.sh"
+. "$here/lib/lock.sh"
 cli="${CONTAINER_CLI:-container}"
 pi_image="${PI_IMAGE:-pi-agent:local}"
 cfg="${PI_CONFIG_DIR:-$(pi_default_config_dir)}"
@@ -22,7 +23,6 @@ profile=$(pi_profile_label "$cfg")
 settings_file="${PI_SETTINGS_FILE:-$(pi_settings_file "$cfg")}"
 backup_root="${PI_BACKUP_DIR:-$HOME/pi-backups}"
 lock_dir="$(pi_lock_dir)"
-lock_held=0
 stamp=$(date +%Y%m%d-%H%M%S)
 
 die() { printf 'clear.sh: %s\n' "$*" >&2; exit 1; }
@@ -47,7 +47,7 @@ while [ $# -gt 0 ]; do
       ;;
   esac
 done
-if [ ${#args[@]} -eq 0 ]; then set --; else set -- "${args[@]}"; fi
+set -- "${args[@]}"
 pi_instance_valid "$instance" || die "invalid instance '$instance'"
 agent_volume="${PI_AGENT_VOLUME:-$(pi_agent_volume "$instance" "$cfg")}"
 
@@ -96,42 +96,8 @@ require_jq() {
   die "jq not found; install it (brew install jq)"
 }
 
-acquire_lock() {
-  local pid waited=0 limit=${PI_LOCK_WAIT:-120} lock_parent
-  lock_parent=$(dirname "$lock_dir")
-  mkdir -p "$lock_parent"
-  chmod 700 "$lock_parent" 2>/dev/null || true
-  while ! mkdir "$lock_dir" 2>/dev/null; do
-    pid=""
-    [ -f "$lock_dir/pid" ] && pid=$(cat "$lock_dir/pid" 2>/dev/null || true)
-    if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
-      rm -rf "$lock_dir"
-      continue
-    fi
-    if [ -z "$pid" ] && [ "$waited" -ge 5 ]; then
-      rm -rf "$lock_dir"
-      continue
-    fi
-    if [ "$waited" -ge "$limit" ]; then
-      die "timed out waiting for another pi-container start; remove $lock_dir if it is stale"
-    fi
-    [ "$waited" -eq 0 ] && say "waiting for another pi-container start to finish"
-    sleep 1
-    waited=$((waited + 1))
-  done
-  if ! printf '%s\n' "$$" > "$lock_dir/pid"; then
-    rm -rf "$lock_dir"
-    die "cannot write $lock_dir/pid"
-  fi
-  lock_held=1
-}
-
-release_lock() {
-  if [ "${lock_held:-0}" = 1 ]; then
-    rm -rf "$lock_dir"
-    lock_held=0
-  fi
-}
+acquire_lock() { pi_acquire_lock "$lock_dir" clear.sh; }
+release_lock() { pi_release_lock "$lock_dir"; }
 
 build_hint() {
   # The image compiles ../zigpeek, so the context is the repo root.
@@ -183,11 +149,32 @@ clone_volumes() {
 scoped_clone_volumes() {
   local vol
   for vol in $(clone_volumes); do
-    [ "$(volume_label "$vol" pi.profile)" = "$profile" ] &&
+    [ "$(volume_label "$vol" pi.managed)" = true ] &&
+      [ "$(volume_label "$vol" pi.profile)" = "$profile" ] &&
       [ "$(volume_label "$vol" pi.instance)" = "$instance" ] &&
       printf '%s\n' "$vol"
   done
   return 0
+}
+
+# Set yes=1 in the caller's scope when --yes is present.
+parse_yes() {
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --yes) yes=1; shift ;;
+      *) die "unknown nuke option: $1" ;;
+    esac
+  done
+}
+
+# Caller has already checked volume_exists and require_image.
+backup_and_delete_agent_volume() { # volume
+  local vol=$1 dest
+  dest=$(new_backup_dir)
+  save_sessions "$vol" "$dest"
+  say "saved: $dest"
+  "$cli" volume delete "$vol" || die "cannot delete $vol; quit Pi first"
+  say "deleted: $vol"
 }
 
 new_backup_dir() {
@@ -288,31 +275,17 @@ cmd_save() {
 }
 
 cmd_nuke_agent() {
-  local dest yes=0
-  while [ $# -gt 0 ]; do
-    case $1 in
-      --yes) yes=1; shift ;;
-      *) die "unknown nuke agent option: $1" ;;
-    esac
-  done
+  local yes=0
+  parse_yes "$@"
   volume_exists "$agent_volume" || { say "no volume $agent_volume"; return; }
   require_image
   confirm "Delete $agent_volume after saving its sessions?"
-  dest=$(new_backup_dir)
-  save_sessions "$agent_volume" "$dest"
-  say "saved: $dest"
-  "$cli" volume delete "$agent_volume" || die "cannot delete $agent_volume; quit Pi first"
-  say "deleted: $agent_volume"
+  backup_and_delete_agent_volume "$agent_volume"
 }
 
 cmd_nuke_clones() {
   local yes=0 vol vols
-  while [ $# -gt 0 ]; do
-    case $1 in
-      --yes) yes=1; shift ;;
-      *) die "unknown nuke clones option: $1" ;;
-    esac
-  done
+  parse_yes "$@"
   vols=$(scoped_clone_volumes)
   [ -n "$vols" ] || { say "no matching clone volumes"; return; }
   say "clone volumes:"
@@ -325,22 +298,13 @@ cmd_nuke_clones() {
 }
 
 cmd_nuke_all() {
-  local dest yes=0 vol
-  while [ $# -gt 0 ]; do
-    case $1 in
-      --yes) yes=1; shift ;;
-      *) die "unknown nuke all option: $1" ;;
-    esac
-  done
+  local yes=0 vol
+  parse_yes "$@"
   confirm "Delete $agent_volume, proxy $proxy_name, network $network_name, this profile's proxy image, the shared agent image, and builder cache? Other profiles' proxy/network, clone volumes, and other agent volumes stay; other profiles will need an agent image rebuild."
 
   if volume_exists "$agent_volume"; then
     require_image
-    dest=$(new_backup_dir)
-    save_sessions "$agent_volume" "$dest"
-    say "saved: $dest"
-    "$cli" volume delete "$agent_volume" || die "cannot delete $agent_volume; quit Pi first"
-    say "deleted: $agent_volume"
+    backup_and_delete_agent_volume "$agent_volume"
   else
     say "no volume $agent_volume"
   fi
@@ -375,8 +339,11 @@ cmd_nuke_all() {
     fi
   done
 
-  "$cli" builder delete --force >/dev/null 2>&1 || true
-  say "deleted: builder cache"
+  if "$cli" builder delete --force >/dev/null 2>&1; then
+    say "deleted: builder cache"
+  else
+    say "builder cache: delete failed (continuing)"
+  fi
   say "kept: $cfg"
   say "rebuild the agent image before ./run.sh: $(build_hint)"
 }

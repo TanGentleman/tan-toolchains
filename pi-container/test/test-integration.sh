@@ -83,8 +83,8 @@ new_case() { # name
 }
 
 # Emit a volume inspect payload with slashes escaped the way Apple's CLI does.
-vol_json() { # name kind instance config settings [repo] [profile]
-  local name=$1 kind=$2 instance=$3 config=$4 settings=$5 repo=${6:-} profile=${7:-default}
+vol_json() { # name kind instance config settings [repo] [profile] [managed]
+  local name=$1 kind=$2 instance=$3 config=$4 settings=$5 repo=${6:-} profile=${7:-default} managed=${8:-true}
   local c s r repo_field
   c=${config//\//\\/}
   s=${settings//\//\\/}
@@ -94,8 +94,8 @@ vol_json() { # name kind instance config settings [repo] [profile]
   else
     repo_field=""
   fi
-  printf '[{"id":"%s","configuration":{"name":"%s","labels":{"pi.managed":"true","pi.profile":"%s","pi.config":"%s","pi.settings":"%s","pi.instance":"%s","pi.kind":"%s"%s}}}]' \
-    "$name" "$name" "$profile" "$c" "$s" "$instance" "$kind" "$repo_field"
+  printf '[{"id":"%s","configuration":{"name":"%s","labels":{"pi.managed":"%s","pi.profile":"%s","pi.config":"%s","pi.settings":"%s","pi.instance":"%s","pi.kind":"%s"%s}}}]' \
+    "$name" "$name" "$managed" "$profile" "$c" "$s" "$instance" "$kind" "$repo_field"
 }
 
 # Emit image/network/proxy inspect payloads inline. Integration tests must not
@@ -265,18 +265,22 @@ case_nuke_agent() {
 # ------------------------------------------------ clear.sh nuke clones scoped
 case_nuke_clones_scoped() {
   new_case nukeclones
-  printf 'pi-clone_work_owner-repo-abcdef12\npi-clone_other_owner-repo-12345678\n' > "$world/volumes.list"
+  printf 'pi-clone_work_owner-repo-abcdef12\npi-clone_other_owner-repo-12345678\npi-clone_unmanaged_owner-repo-abcdef12\n' > "$world/volumes.list"
   vol_json pi-clone_work_owner-repo-abcdef12 clone work "$cfg" "$cfg/settings.json" owner/repo \
     > "$world/volumes/pi-clone_work_owner-repo-abcdef12.json"
   vol_json pi-clone_other_owner-repo-12345678 clone other "$cfg" "$cfg/settings.json" owner/repo \
     > "$world/volumes/pi-clone_other_owner-repo-12345678.json"
+  vol_json pi-clone_unmanaged_owner-repo-abcdef12 clone work "$cfg" "$cfg/settings.json" owner/repo default false \
+    > "$world/volumes/pi-clone_unmanaged_owner-repo-abcdef12.json"
   run_it env -u PI_CONFIG_DIR HOME="$home" PI_CONFIG_DIR="$cfg" \
     CONTAINER_CLI="$fake" FAKE_CONTAINER_WORLD="$world" FAKE_CONTAINER_LOG="$logfile" \
     bash "$clear_sh" nuke clones --instance work --yes
   expect_status 0 "nuke clones succeeds"
   log_has "volume delete pi-clone_work" "work clone deleted"
   log_lacks "volume delete pi-clone_other" "other clone kept"
+  log_lacks "volume delete pi-clone_unmanaged" "unmanaged clone kept"
   not_contains 'pi-clone_other' "$(o)" "other clone not listed for deletion"
+  not_contains 'pi-clone_unmanaged' "$(o)" "unmanaged clone not listed for deletion"
 }
 
 # --------------------------------------------------------------- mount guards
@@ -358,10 +362,62 @@ case_proxy_unknown_state() {
   contains 'did not report an address' "$(e)" "failure is the address wait, not a name collision"
 }
 
+# ------------------------------------------------ option and help guards
+case_option_guards() {
+  new_case optionguards
+  (
+    cd "$t/project" || exit 1
+    pi "$run_sh" --bogus
+  )
+  expect_status 2 "unknown option rejected"
+  contains 'unknown option' "$(e)" "unknown option message"
+  log_lacks "network create" "unknown option has no side effects"
+  log_lacks "run --" "unknown option does not start a container"
+
+  (
+    cd "$t/project" || exit 1
+    pi "$run_sh" --manual --bogus
+  )
+  expect_status 2 "manual unknown option rejected"
+  log_lacks "run --" "manual unknown option does not start a container"
+
+  run_it env HOME="$home" PI_ENV_FILE="$cfg/env" PI_PROXY_PORT=abc PI_INSTANCE='Bad Name' \
+    CONTAINER_CLI="$fake" FAKE_CONTAINER_WORLD="$world" FAKE_CONTAINER_LOG="$logfile" \
+    bash "$run_sh" --help
+  expect_status 0 "help works before validation"
+  contains 'Run Pi inside' "$(o)" "help text shown"
+  log_lacks "network create" "help has no side effects"
+}
+
+# ---------------------------------------- nuke all with a failed builder delete
+case_nuke_all_builder_failure() {
+  new_case nukeall
+  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  image_json 1.4.0 > "$world/images/pi-proxy_local.json"
+  network_json "172.30.240.0/24" > "$world/networks/pi-locked.json"
+  printf 'pi-locked\n' > "$world/networks.list"
+  proxy_running_json > "$world/containers/pi-proxy.json"
+  printf 'pi-agent-home\n' > "$world/volumes.list"
+  vol_json pi-agent-home agent default "$cfg" "$cfg/settings.json" \
+    > "$world/volumes/pi-agent-home.json"
+  mkdir -p "$world/fail"; : > "$world/fail/builder"
+  mkdir -p "$t/stream/sessions"
+  printf '{"session":1}\n' > "$t/stream/sessions/a.jsonl"
+  tar -C "$t/stream" -cf "$t/stream.tar" sessions
+  cp "$t/stream.tar" "$world/run.stdout"
+  run_it env -u PI_CONFIG_DIR HOME="$home" PI_CONFIG_DIR="$cfg" PI_BACKUP_DIR="$t/backups" \
+    CONTAINER_CLI="$fake" FAKE_CONTAINER_WORLD="$world" FAKE_CONTAINER_LOG="$logfile" \
+    bash "$clear_sh" nuke all --yes
+  expect_status 0 "nuke all continues when builder delete fails"
+  contains 'builder cache: delete failed' "$(o)" "builder failure reported"
+  not_contains 'deleted: builder cache' "$(o)" "builder failure is not reported as deleted"
+  log_has "volume delete pi-agent-home" "agent volume deleted"
+}
+
 # ------------------------------------------------------------------- drivers
 for c in case_normal_run case_network_nat_refused case_network_escaped_subnet \
          case_proxy_unknown_state case_manual_clone case_clear_list case_nuke_agent case_nuke_clones_scoped \
-         case_mount_guards; do
+         case_option_guards case_nuke_all_builder_failure case_mount_guards; do
   "$c"
 done
 

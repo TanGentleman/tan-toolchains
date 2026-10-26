@@ -17,6 +17,7 @@ here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 . "$here/lib/paths.sh"
 . "$here/lib/inspect.sh"
 . "$here/lib/validate.sh"
+. "$here/lib/lock.sh"
 cfg="${PI_CONFIG_DIR:-$(pi_default_config_dir)}"
 env_file="${PI_ENV_FILE:-$cfg/env}"
 settings_file="${PI_SETTINGS_FILE:-$cfg/settings.json}"
@@ -34,7 +35,22 @@ network_name="${PI_NETWORK_NAME:-$(pi_network_name "$cfg")}"
 locked_subnet="${PI_LOCKED_SUBNET:-$(pi_locked_subnet "$cfg")}"
 proxy_image="${PI_PROXY_IMAGE:-$(pi_proxy_image "$cfg")}"
 lock_dir="$(pi_lock_dir)"
-host_lock_held=0
+
+usage() {
+  cat <<'EOF'
+Run Pi inside Apple's container, on a host-only network.
+  run.sh [--instance NAME]                Pi on the current folder (trusted repos only)
+  run.sh [--instance NAME] --clone O/R    Pi on a clone kept in a volume
+  run.sh [--instance NAME] [--clone O/R] --manual [CMD]
+                                             shell without Pi or proxy
+  run.sh [--instance NAME] check [O/R]    keys, GitHub, and the network lock
+  run.sh proxy                            follow the proxy container's logs
+  run.sh proxy-stop                       stop the proxy container
+  run.sh --help                           show this text
+  PI_INSTANCE=NAME                        default for --instance
+  PI_CLONE=O/R                            default for --clone
+EOF
+}
 
 instance=${PI_INSTANCE:-$pi_default_instance}
 manual=0
@@ -66,6 +82,10 @@ while [ $# -gt 0 ]; do
     *) break ;;
   esac
 done
+case "${1:-}" in
+  --help|-h|help) usage; exit 0 ;;
+  -*) echo "run.sh: unknown option '$1' (try --help)" >&2; exit 2 ;;
+esac
 if ! pi_instance_valid "$instance"; then
   echo "run.sh: invalid instance '$instance'; use lowercase letters, digits, and hyphens (max 24; not 'home')" >&2
   exit 2
@@ -85,11 +105,6 @@ if ! pi_port_valid "$port"; then
     *) echo "run.sh: PI_PROXY_PORT must be between 1 and 65535" >&2 ;;
   esac
   exit 2
-fi
-
-if [ "${1:-}" = --help ] || [ "${1:-}" = -h ] || [ "${1:-}" = help ]; then
-  sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'
-  exit 0
 fi
 
 # Path and permission helpers live in lib/paths.sh so the mount guard can be
@@ -150,44 +165,8 @@ cd "$d" && exec "$@"
 EOF
 }
 
-acquire_host_lock() {
-  local pid waited=0 limit=${PI_LOCK_WAIT:-120} lock_parent
-  lock_parent=$(dirname "$lock_dir")
-  mkdir -p "$lock_parent"
-  chmod 700 "$lock_parent" 2>/dev/null || true
-  while ! mkdir "$lock_dir" 2>/dev/null; do
-    pid=""
-    [ -f "$lock_dir/pid" ] && pid=$(cat "$lock_dir/pid" 2>/dev/null || true)
-    if [ -n "$pid" ] && ! kill -0 "$pid" 2>/dev/null; then
-      rm -rf "$lock_dir"
-      continue
-    fi
-    if [ -z "$pid" ] && [ "$waited" -ge 5 ]; then
-      rm -rf "$lock_dir"
-      continue
-    fi
-    if [ "$waited" -ge "$limit" ]; then
-      echo "run.sh: timed out waiting for another pi-container start; remove $lock_dir if it is stale" >&2
-      exit 1
-    fi
-    [ "$waited" -eq 0 ] && echo "run.sh: waiting for another pi-container start to finish" >&2
-    sleep 1
-    waited=$((waited + 1))
-  done
-  if ! printf '%s\n' "$$" > "$lock_dir/pid"; then
-    rm -rf "$lock_dir"
-    echo "run.sh: cannot write $lock_dir/pid" >&2
-    exit 1
-  fi
-  host_lock_held=1
-}
-
-release_host_lock() {
-  if [ "${host_lock_held:-0}" = 1 ]; then
-    rm -rf "$lock_dir"
-    host_lock_held=0
-  fi
-}
+acquire_host_lock() { pi_acquire_lock "$lock_dir" run.sh; }
+release_host_lock() { pi_release_lock "$lock_dir"; }
 
 require_env() {
   [ -f "$env_file" ] || { echo "run.sh: missing $env_file (see README)" >&2; exit 1; }
@@ -260,6 +239,7 @@ ensure_network() {
 
 # A file keeps the key out of `container inspect pi-proxy`.
 write_proxy_env() {
+  local old_umask tmp
   mkdir -p "$cfg/private"
   chmod 700 "$cfg/private"
   old_umask=$(umask)
@@ -288,6 +268,7 @@ write_proxy_env() {
 
 # Pi gets only the GitHub token and commit identity.
 write_pi_env() {
+  local old_umask tmp
   mkdir -p "$cfg"
   old_umask=$(umask)
   umask 077
@@ -332,6 +313,7 @@ image_pi_version() {
 # The file is mounted read-only, so Pi cannot change settings, packages, or
 # resource paths. Seed lastChangelogVersion so Pi does not try to write it.
 ensure_settings() {
+  local pi_version
   mkdir -p "$(dirname "$settings_file")"
   [ -f "$settings_file" ] && return
   pi_version=$(image_pi_version || true)
@@ -407,6 +389,7 @@ add_zig_cache_args() { # project path
 }
 
 ensure_proxy() {
+  local stamp image_hash config_hash old_image old_config image_stale config_stale state
   mkdir -p "$cfg/certs" "$cfg/private"
   chmod 700 "$cfg/private"
   write_proxy_env
@@ -467,6 +450,7 @@ raise SystemExit(0 if body == b"pi-container-proxy\n" else 1)' \
 }
 
 proxy_ip() {
+  local file ip i tries
   file=$(addr_file)
   ip=""
   i=0
@@ -623,9 +607,6 @@ if [ -n "${COLORTERM:-}" ]; then args+=(-e "COLORTERM=$COLORTERM"); fi
 if [ -t 0 ] && [ -t 1 ]; then args+=(-t); fi
 
 [ $# -gt 0 ] || set -- pi
-case "${1:-}" in
-  -*) echo "run.sh: unknown option '$1' (try --help)" >&2; exit 2 ;;
-esac
 
 if [ "$1" = check ]; then
   check_repo=${2:-$clone}
