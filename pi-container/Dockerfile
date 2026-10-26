@@ -12,6 +12,9 @@ LABEL pi-container.pi-version="${PI_VERSION}" \
       pi-container.zls-version="${ZLS_VERSION}" \
       pi-container.nvim-version="${NVIM_VERSION}"
 
+# Apple container currently exposes image config Env, but not image labels.
+ENV PI_CONTAINER_PI_VERSION="${PI_VERSION}"
+
 RUN [ "$(uname -m)" = aarch64 ] || (echo "this image currently pins aarch64 only" >&2; exit 1)
 
 RUN apt-get update \

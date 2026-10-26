@@ -258,15 +258,22 @@ ensure_network() {
   names=$("$cli" network list -q) || { echo "run.sh: container network list failed" >&2; exit 1; }
   if printf '%s\n' "$names" | grep -qx "$network_name"; then
     if ! inspect=$("$cli" network inspect "$network_name" 2>/dev/null); then
-      echo "run.sh: cannot inspect $network_name; refusing to assume it is internal" >&2
+      echo "run.sh: cannot inspect $network_name; refusing to assume it is host-only" >&2
       exit 1
     fi
     if printf '%s\n' "$inspect" | grep -Eq '"internal"[[:space:]]*:[[:space:]]*"?false"?'; then
-      echo "run.sh: $network_name exists but is not internal; delete it first" >&2
+      echo "run.sh: $network_name exists but is not host-only/internal; delete it first" >&2
       exit 1
     fi
-    if ! printf '%s\n' "$inspect" | grep -Eq '"internal"[[:space:]]*:[[:space:]]*"?true"?'; then
-      echo "run.sh: cannot verify that $network_name is internal; delete it and retry" >&2
+    # Apple container reports an internal network as mode=hostOnly.
+    if printf '%s\n' "$inspect" | grep -Eq '"mode"[[:space:]]*:[[:space:]]*"' && \
+       ! printf '%s\n' "$inspect" | grep -Eq '"mode"[[:space:]]*:[[:space:]]*"(hostOnly|host-only)"'; then
+      echo "run.sh: $network_name is not in host-only mode; delete it first" >&2
+      exit 1
+    fi
+    if ! printf '%s\n' "$inspect" | grep -Eq '"internal"[[:space:]]*:[[:space:]]*"?true"?' && \
+       ! printf '%s\n' "$inspect" | grep -Eq '"mode"[[:space:]]*:[[:space:]]*"(hostOnly|host-only)"'; then
+      echo "run.sh: cannot verify that $network_name is host-only/internal; delete it and retry" >&2
       exit 1
     fi
     if ! printf '%s\n' "$inspect" | grep -qF "$locked_subnet"; then
@@ -340,14 +347,27 @@ ensure_nvim_mounts() {
   fi
 }
 
-# Read the Pi version recorded at image build time. Older images without the
-# label fall back to the Dockerfile default.
+# Read the Pi version recorded at image build time. Apple's image inspect
+# exposes config Env but not labels, so prefer the stamped environment value;
+# keep the label and Dockerfile fallbacks for other runtimes and old images.
 image_pi_version() {
-  local image=${PI_IMAGE:-pi-agent:local} json
+  local image=${PI_IMAGE:-pi-agent:local} json version
   json=$("$cli" image inspect "$image" 2>/dev/null) || return 1
-  printf '%s\n' "$json" |
-    sed -n 's/.*"pi-container\.pi-version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' |
-    head -n 1
+  version=$(printf '%s\n' "$json" |
+    sed -n 's/.*PI_CONTAINER_PI_VERSION=\([^"\\]*\).*/\1/p' |
+    head -n 1)
+  if [ -z "$version" ]; then
+    version=$(printf '%s\n' "$json" |
+      sed -n 's/.*"pi-container\.pi-version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' |
+      head -n 1)
+  fi
+  if [ -z "$version" ]; then
+    # Older images only record build args in their history.
+    version=$(printf '%s\n' "$json" |
+      sed -n 's/.*RUN[^"]*[[:space:]]PI_VERSION=\([^ ]*\).*/\1/p' |
+      head -n 1)
+  fi
+  [ -z "$version" ] || printf '%s\n' "$version"
 }
 
 # Pi reads this file directly; edits on the Mac apply on the next launch.

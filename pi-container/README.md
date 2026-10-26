@@ -169,9 +169,10 @@ profile. Edit it on the Mac; changes apply on the next launch. The default is
 `openrouter` / `deepseek/deepseek-v4.1-flash-1017`.
 
 A new file also records `lastChangelogVersion` from the image's
-`pi-container.pi-version` label (falling back to the Dockerfile default), so Pi
-does not try to update it. If you rebuild with another `PI_VERSION`, update an
-existing host settings file; `run.sh check` warns when it is stale.
+`PI_CONTAINER_PI_VERSION` environment value (falling back to the Dockerfile
+version), so Pi does not try to update it. If you rebuild with another
+`PI_VERSION`, update an existing host settings file; `run.sh check` warns when
+it is stale.
 
 Because settings are read-only, Pi cannot persist preference changes. These
 still work for the current session where applicable, but do not survive a
