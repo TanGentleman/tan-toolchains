@@ -17,6 +17,17 @@ binaries run on macOS and do not use its network.
   from it. The agent image and builder cache remain shared, so `nuke all` in
   one profile still deletes them for every profile.
 
+## Enforcer
+
+- The image ships `enforcer` disabled. Run `enforcer on` in a normal container
+  to write the Pi extension into that instance's agent volume. Decide whether
+  new instances should auto-enable it or expose a `run.sh` flag.
+- Claude is detection-only. An `enforcer on` with only Claude configured exits
+  1 and points at `TanGentleman/enforcer`; add a settings mutator before
+  claiming Claude support.
+- The policy is one case-sensitive `ghp_` substring. More patterns or a rules
+  file are deliberate additions, not missing wiring.
+
 ## Local development
 
 - Normal `pic` mode does not mount the Neovim paths. Decide whether to promote

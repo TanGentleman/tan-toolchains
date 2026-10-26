@@ -5,7 +5,8 @@ One tool per directory.
 | Tool | What it is |
 | ---- | ---------- |
 | [`zigpeek/`](zigpeek/) | Zig stdlib + `@`-builtin docs from your installed compiler. No network. |
-| [`pi-container/`](pi-container/) | Pi in an Apple `container` VM behind an egress proxy, with Zig, Neovim, ZLS, and zigpeek. |
+| [`enforcer/`](enforcer/) | A Pi prompt hook that blocks a pasted GitHub token. No network. |
+| [`pi-container/`](pi-container/) | Pi in an Apple `container` VM behind an egress proxy, with Zig, Neovim, ZLS, zigpeek, and enforcer. |
 
 ## Quick start
 
@@ -13,6 +14,9 @@ One tool per directory.
 # zigpeek
 (cd zigpeek && zig build --release=small)
 ./zigpeek/zig-out/bin/zigpeek search ArrayList
+
+# enforcer
+(cd enforcer && zig build --release=small)
 
 # pi-container
 cd pi-container
@@ -23,6 +27,7 @@ container build -t pi-agent:local -f Dockerfile ..
 ## Docs
 
 - [zigpeek/README.md](zigpeek/README.md): commands, build, and the stdlib index.
+- [enforcer/README.md](enforcer/README.md): the Pi prompt hook, policy, and safety rules.
 - [pi-container/README.md](pi-container/README.md): setup, use, limits, and links to the configuration and operations docs.
 - [scripts/README.md](scripts/README.md): local Apple `container` discovery.
 - [pi-container/E2E.md](pi-container/E2E.md): manual macOS checklist.

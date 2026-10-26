@@ -77,6 +77,10 @@ Run these from `pi-container/` unless noted.
       `/settings`, save a model with `Ctrl+S`, save thinking with `Ctrl+S`, and
       save scoped models with `Ctrl+S`; after quitting, the hash is unchanged.
 - [ ] An edit to the host `settings.json` applies on the next launch.
+- [ ] `./run.sh bash -c 'enforcer on'` writes the extension into the instance's
+      agent volume; a restart makes Pi load it. `enforcer off` removes it.
+- [ ] `printf '{"prompt":"ghp_abc"}' | enforcer hook` exits 2; a clean prompt
+      exits 0, and neither writes to stdout.
 - [ ] `./clear.sh nuke agent --instance other --yes` deletes only the E2E
       profile's `other` agent volume; the E2E default agent volume, proxy, and
       profile settings file remain.

@@ -4,10 +4,13 @@ Run [Pi](https://pi.dev) on OpenRouter in an Apple [`container`](https://github.
 
 `pi-proxy` tunnels GitHub, adds your OpenRouter key, and refuses everything else. Pi shares only a host-only `pi-locked` network with it. The default profile uses one proxy for every instance; a non-default `PI_CONFIG_DIR` is a separate profile with its own proxy, network, and subnet.
 
-The image has Pi, git, gh, ripgrep, fd, Zig 0.17.0, Neovim 0.12.6, ZLS 0.17.0, and zigpeek. Zig's cache is prewarmed. The image is aarch64-only and fails early on other architectures.
+The image has Pi, git, gh, ripgrep, fd, Zig 0.17.0, Neovim 0.12.6, ZLS 0.17.0, zigpeek, and enforcer. Zig's cache is prewarmed. The image is aarch64-only and fails early on other architectures.
 
 `zigpeek` answers Zig API questions offline from the compiler's own docs; its
 skill file tells Pi to use it. See [../zigpeek/README.md](../zigpeek/README.md).
+
+`enforcer` is a Pi prompt hook that blocks a pasted GitHub token. It is
+installed but disabled. See [../enforcer/README.md](../enforcer/README.md).
 
 ## Setup
 
@@ -35,11 +38,11 @@ container build -t pi-agent:local -f Dockerfile ..
 ```
 
 The build context is the repo root (`..`), not `pi-container/`, because the image
-compiles `../zigpeek` from source and installs it as `zigpeek`. `run.sh` does not
-build `pi-agent:local` for you; it only rebuilds the profile's proxy image
+compiles `../zigpeek` and `../enforcer` from source. `run.sh` does not build
+`pi-agent:local` for you; it only rebuilds the profile's proxy image
 (`pi-proxy:local` in the default profile), and it cannot tell that the image
-predates an edit to the `Dockerfile` or `zigpeek/`, so re-run the build command
-after changing either.
+predates an edit to the `Dockerfile`, `zigpeek/`, or `enforcer/`, so re-run the
+build command after changing any of them.
 
 The first `check` in a profile builds that profile's proxy image and spends no OpenRouter credits.
 
@@ -68,6 +71,19 @@ PI_CLONE=you/your-repo pic --manual
 ```
 
 `/model` picks a model; `:free` costs nothing. `/quit` exits and deletes the Pi VM. Do not run `/login`; it saves a real key into the agent volume.
+
+To enable the prompt hook for an instance, run `enforcer on` in its agent
+volume, then restart Pi:
+
+```bash
+./run.sh bash
+enforcer on
+# exit, then start Pi again
+./run.sh
+```
+
+`enforcer off` removes it. The hook is per-instance because the extension lives
+in the agent volume.
 
 The default mode mounts the current folder. Use it only for repos you trust; use `--clone` otherwise. `run.sh --help` lists the flags.
 

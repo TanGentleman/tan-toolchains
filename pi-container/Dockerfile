@@ -79,6 +79,19 @@ RUN HTTP_PROXY=http://127.0.0.1:9 HTTPS_PROXY=http://127.0.0.1:9 \
     && zigpeek get std.Io.Writer.print >/dev/null
 COPY zigpeek/skills/zigpeek/SKILL.md /root/.agents/skills/zigpeek/SKILL.md
 
+COPY enforcer /tmp/enforcer
+# enforcer is pure Zig and static. Build it here; the image ships it disabled so
+# `enforcer on` decides whether this instance gets the Pi prompt hook.
+RUN cd /tmp/enforcer \
+    && zig build check \
+    && zig build -Dtarget=aarch64-linux-musl --release=small \
+    && install -m755 zig-out/bin/enforcer /usr/local/bin/enforcer \
+    && cd / \
+    && rm -rf /tmp/enforcer
+RUN test "$(printf '{"prompt":"hello"}' | enforcer hook; echo $?)" = 0 \
+    && test "$(printf '{"prompt":"ghp_abc"}' | enforcer hook 2>/dev/null; echo $?)" = 2 \
+    && enforcer --help >/dev/null
+
 # Version drift fails the build; a mismatched Zig/ZLS pair mis-parses code silently.
 RUN [ "$(zig version)" = "$ZIG_VERSION" ] \
     || (echo "zig version mismatch: expected ${ZIG_VERSION}, got $(zig version)" >&2; exit 1)

@@ -8,6 +8,8 @@ Read `README.md`, `pi-container/README.md` and the docs under
 
 - `zigpeek/`: pure-Zig reader for Zig stdlib and `@`-builtin docs. No network,
   no bundled docs; it reads the installed compiler's `lib/` and `doc/`.
+- `enforcer/`: pure-Zig Pi prompt hook. Pi is the only supported agent; Claude
+  is detection-only and points at the upstream project.
 - `pi-container/`: bash driver, Dockerfiles, and proxy that run Pi in an Apple
   `container` VM.
 
@@ -20,6 +22,8 @@ not merge or tag before `pi-container/E2E.md` passes on macOS.
 cd pi-container && ./test/run-tests.sh   # jq required; no container or network
 cd zigpeek && zig build test
 cd zigpeek && zig build --release=small
+cd enforcer && zig build check
+cd enforcer && zig build --release=small
 
 for f in pi-container/*.sh pi-container/lib/*.sh pi-container/test/*.sh scripts/*.sh; do
   bash -n "$f"
@@ -28,7 +32,7 @@ python3 -m py_compile pi-container/proxy.py
 ```
 
 The image build context is the repo root because the image compiles
-`../zigpeek`:
+`../zigpeek` and `../enforcer`:
 
 ```sh
 cd pi-container
@@ -91,8 +95,9 @@ explicitly that `run.sh check` and the E2E checklist were not run.
   (Neovim/ZLS).
 - Pin versions explicitly; CI checks the Zig pins, and the image build checks
   the installed tool versions.
-- Each tool owns its build and test story: `zig build test` for zigpeek, CI for
-  the source, `run.sh check` for the container.
+- Each tool owns its build and test story: `zig build test` for zigpeek, `zig
+  build check` for enforcer, CI for the source, `run.sh check` for the
+  container.
 
 ## Version pins
 
@@ -103,6 +108,7 @@ Move these together:
 - `.github/workflows/test.yml`: `ZIG_VERSION`.
 - `zigpeek/build.zig.zon`: `minimum_zig_version` and `version`.
 - `zigpeek/src/version.zig`: `version`.
+- `enforcer/build.zig.zon`: `minimum_zig_version`.
 
 `ZLS_VERSION` must equal `ZIG_VERSION`; a mismatch silently mis-parses projects.
 
@@ -126,8 +132,10 @@ Move these together:
 - Keep parsing in `lib/inspect.sh`, naming in `names.sh`, validation in
   `lib/validate.sh`, and path/security logic in `lib/paths.sh`.
 - Zig targets the pinned version and uses the standard library only. Keep
-  command parsing in `cli.zig`, indexing in `stdlib.zig`, builtins in
-  `builtins.zig`, and rendering in `info.zig`/`get.zig`. Run `zig fmt`.
+  zigpeek command parsing in `cli.zig`, indexing in `stdlib.zig`, builtins in
+  `builtins.zig`, and rendering in `info.zig`/`get.zig`. Keep enforcer command
+  parsing in `main.zig`, rules in `policy.zig`, writes in `settings.zig`, and
+  agent knowledge in `adapters.zig`/`pi.zig`. Run `zig fmt`.
 - Docs must be concise and literal: no slogans, stale metrics, or repeated
   claims. Root `README.md` owns the network boundary; `UPGRADES.md` holds open
   work only; `modal-scratchpad.md` is speculative.
