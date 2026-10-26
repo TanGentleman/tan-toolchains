@@ -1,6 +1,7 @@
 # AGENTS.md
 
-Read `README.md`, `pi-container/README.md`, `pi-container/ASSUMPTIONS.md`,
+Read `README.md`, `pi-container/README.md` and the docs under
+`pi-container/docs/`, plus `pi-container/ASSUMPTIONS.md`,
 `pi-container/UPGRADES.md`, and `pi-container/E2E.md` before changing behavior.
 
 ## Scope
@@ -82,6 +83,17 @@ explicitly that `run.sh check` and the E2E checklist were not run.
   nodes, or unrelated volume contents.
 - When a security check cannot be verified, refuse rather than assume safe.
 
+## Toolchain policy
+
+- No compiler tarballs, wheels, or package caches in Git. Build from source or
+  fetch from the publisher.
+- Verify downloads by publisher signature (Zig/minisign) or publisher checksum
+  (Neovim/ZLS).
+- Pin versions explicitly; CI checks the Zig pins, and the image build checks
+  the installed tool versions.
+- Each tool owns its build and test story: `zig build test` for zigpeek, CI for
+  the source, `run.sh check` for the container.
+
 ## Version pins
 
 Move these together:
@@ -93,8 +105,6 @@ Move these together:
 - `zigpeek/src/version.zig`: `version`.
 
 `ZLS_VERSION` must equal `ZIG_VERSION`; a mismatch silently mis-parses projects.
-Verify downloads by publisher signature (Zig/minisign) or publisher checksum
-(Neovim/ZLS).
 
 ## Testing rules
 
