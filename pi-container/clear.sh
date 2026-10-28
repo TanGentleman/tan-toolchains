@@ -11,6 +11,7 @@ set -euo pipefail
 
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 . "$here/names.sh"
+. "$here/images.sh"
 . "$here/lib/inspect.sh"
 . "$here/lib/lock.sh"
 cli="${CONTAINER_CLI:-container}"
@@ -101,7 +102,7 @@ release_lock() { pi_release_lock "$lock_dir"; }
 
 build_hint() {
   # The image compiles ../zigpeek, so the context is the repo root.
-  printf '%s build -t %s -f %s/Dockerfile %s/..' "$cli" "$pi_image" "$here" "$here"
+  pi_build_hint "$cli" "$pi_image" "$here"
 }
 
 require_image() {

@@ -14,6 +14,7 @@ set -euo pipefail
 
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 . "$here/names.sh"
+. "$here/images.sh"
 . "$here/lib/paths.sh"
 . "$here/lib/inspect.sh"
 . "$here/lib/validate.sh"
@@ -132,7 +133,7 @@ require_agent_image() {
   echo "run.sh: cannot inspect image $image" >&2
   echo "run.sh: if 'container system start' has not run yet, start it first" >&2
   echo "run.sh: otherwise build it from the repo root context, because the image compiles ../zigpeek:" >&2
-  echo "  $cli build -t $image -f $here/Dockerfile $here/.." >&2
+  echo "  $(pi_build_hint "$cli" "$image" "$here")" >&2
   exit 1
 }
 
@@ -170,15 +171,19 @@ EOF
 acquire_host_lock() { pi_acquire_lock "$lock_dir" run.sh; }
 release_host_lock() { pi_release_lock "$lock_dir"; }
 
-require_env() {
+require_env_file() {
   [ -f "$env_file" ] || { echo "run.sh: missing $env_file (see README)" >&2; exit 1; }
   [ -r "$env_file" ] || { echo "run.sh: cannot read $env_file" >&2; exit 1; }
   case $(pi_file_mode "$env_file") in
     600|400) ;;
     *) echo "run.sh: $env_file must be mode 600 (chmod 600)" >&2; exit 1 ;;
   esac
-  if ! grep -q '^OPENROUTER_API_KEY=.' "$env_file" || ! grep -q '^GITHUB_TOKEN=.' "$env_file"; then
-    echo "run.sh: set OPENROUTER_API_KEY and GITHUB_TOKEN in $env_file" >&2
+}
+
+require_env() {
+  require_env_file
+  if ! grep -q '^OPENROUTER_API_KEY=.' "$env_file"; then
+    echo "run.sh: set OPENROUTER_API_KEY in $env_file" >&2
     exit 1
   fi
   if grep -q '^OPENROUTER_API_KEY=sk-or-v1-placeholder[[:space:]]*$' "$env_file"; then
@@ -264,9 +269,10 @@ write_proxy_env() {
   rm -f "$cfg/proxy.env" # old location
 }
 
-# Pi gets only the GitHub token and commit identity.
+# Pi gets only the GitHub token and commit identity. A token is optional: an
+# empty result removes the generated file so a removed host token cannot linger.
 write_pi_env() {
-  local old_umask tmp
+  local old_umask tmp found=0 line value
   mkdir -p "$cfg"
   old_umask=$(umask)
   umask 077
@@ -276,12 +282,14 @@ write_pi_env() {
   for name in GITHUB_TOKEN GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL; do
     line=$(grep "^${name}=" "$env_file" | tail -n 1 | tr -d '\r' || true)
     value=${line#*=}
-    [ -n "$value" ] && printf '%s\n' "$line" >> "$tmp"
+    if [ -n "$value" ]; then
+      printf '%s\n' "$line" >> "$tmp"
+      found=1
+    fi
   done
-  if ! grep -q '^GITHUB_TOKEN=.' "$tmp"; then
-    rm -f "$tmp"
-    echo "run.sh: GITHUB_TOKEN is empty" >&2
-    exit 1
+  if [ "$found" = 0 ]; then
+    rm -f "$tmp" "$cfg/pi.env"
+    return 0
   fi
   if [ -f "$cfg/pi.env" ] && cmp -s "$tmp" "$cfg/pi.env"; then
     rm -f "$tmp"
@@ -305,6 +313,24 @@ image_pi_version() {
   local image=${PI_IMAGE:-pi-agent:local} json
   json=$("$cli" image inspect "$image" 2>/dev/null) || return 1
   printf '%s\n' "$json" | pi_image_version_from_json
+}
+
+# Capabilities let a pack fail clearly when it lacks the command a mode needs.
+# Legacy images have no metadata; treat them as full so they keep working.
+image_capabilities() {
+  local image=${PI_IMAGE:-pi-agent:local} json
+  json=$("$cli" image inspect "$image" 2>/dev/null) || return 1
+  printf '%s\n' "$json" | pi_image_capabilities_from_json
+}
+
+require_image_capability() { # capabilities, name
+  local caps=$1 name=$2
+  [ -n "$caps" ] || return 0
+  case ",$caps," in
+    *",$name,"*) return 0 ;;
+  esac
+  echo "run.sh: image ${PI_IMAGE:-pi-agent:local} lacks capability '$name' (has: $caps)" >&2
+  exit 1
 }
 
 # Pi reads this file directly; edits on the Mac apply on the next launch.
@@ -523,8 +549,16 @@ if [ "$manual" = 1 ]; then
     echo "run.sh: clone volume: $clone_vol" >&2
     boot=$(clone_boot_script)
     args+=(-v "$clone_vol:/work" -w /work -e "PI_CLONE=$clone")
+    # Refresh the filtered env from the host file so a removed token cannot
+    # linger in a generated pi.env from an earlier run.
+    if [ -f "$env_file" ]; then
+      require_env_file
+      write_pi_env
+    else
+      rm -f "$cfg/pi.env"
+    fi
     manual_pi_env=0
-    if [ -f "$cfg/pi.env" ]; then
+    if [ -s "$cfg/pi.env" ]; then
       manual_pi_env=1
       args+=(--env-file "$cfg/pi.env")
     fi
@@ -556,7 +590,17 @@ case "${1:-}" in
   *) if [ -n "$clone" ]; then :; else guard_mount; fi ;;
 esac
 require_env
-if [ "${1:-}" != proxy ]; then require_agent_image; fi
+image_caps=""
+if [ "${1:-}" != proxy ]; then
+  require_agent_image
+  image_caps=$(image_capabilities || true)
+  require_image_capability "$image_caps" pi
+  if [ "${1:-}" = check ]; then
+    require_image_capability "$image_caps" enforcer
+    require_image_capability "$image_caps" zig
+    require_image_capability "$image_caps" zigpeek
+  fi
+fi
 acquire_host_lock
 write_pi_env
 ensure_settings
@@ -578,7 +622,6 @@ if [ "${1:-}" != proxy ]; then ensure_volume "$agent_volume" agent; fi
 [ -f "$ca_file" ] || { echo "run.sh: missing $ca_file; start the proxy or unset PI_SKIP_HOST_SETUP" >&2; exit 1; }
 
 args=(run --rm -i --init --network "$network_name"
-  --env-file "$cfg/pi.env"
   --cpus "${PI_CPUS:-4}" --memory "${PI_MEMORY:-4G}"
   -e "TERM=${TERM:-xterm-256color}"
   -e LANG=C.UTF-8 -e LC_ALL=C.UTF-8
@@ -595,6 +638,7 @@ args=(run --rm -i --init --network "$network_name"
   -v "$ca_file:/etc/pi-proxy-ca/ca.pem:ro"
   -v "$agent_volume:/root/.pi/agent"
   -v "$settings_file:/root/.pi/agent/settings.json:ro")
+if [ -s "$cfg/pi.env" ]; then args+=(--env-file "$cfg/pi.env"); fi
 if [ -n "$clone" ]; then
   add_zig_cache_args "/work/${clone#*/}"
 else
@@ -640,8 +684,14 @@ else
   s=1
 fi
 echo "== GitHub"
-gh auth status || s=1
-[ -z "$1" ] || git ls-remote "https://github.com/$1.git" HEAD || s=1
+if [ -z "${GITHUB_TOKEN:-}" ]; then
+  echo "WARN: GITHUB_TOKEN is not set; skipping GitHub checks"
+elif ! command -v gh >/dev/null 2>&1; then
+  echo "FAIL: GITHUB_TOKEN is set but gh is missing from the image"; s=1
+else
+  gh auth status || s=1
+  [ -z "$1" ] || git ls-remote "https://github.com/$1.git" HEAD || s=1
+fi
 if ! git var GIT_AUTHOR_IDENT >/dev/null 2>&1; then
   echo "WARN: git author identity is unset; add GIT_AUTHOR_NAME and GIT_AUTHOR_EMAIL to the env file"
 fi

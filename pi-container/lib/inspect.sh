@@ -60,6 +60,19 @@ pi_image_version_from_json() {
   ' 2>/dev/null
 }
 
+# Comma-separated capability list recorded in the image environment. Empty for
+# legacy images that predate the metadata.
+pi_image_capabilities_from_json() {
+  jq -r '
+    def variant: .[0]?.variants[0]?;
+    [ (variant.config.config.Env[]?)
+      | select(type == "string")
+      | (capture("^PI_CONTAINER_CAPABILITIES=(?<v>.*)$")? // {})
+      | .v? // empty
+    ] | .[0] // empty
+  ' 2>/dev/null
+}
+
 # Classify a network inspect payload:
 #   ok             configuration.mode is hostOnly
 #   not-host-only  a different mode is present

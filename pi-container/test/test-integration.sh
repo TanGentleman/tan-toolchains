@@ -101,8 +101,14 @@ vol_json() { # name kind instance config settings [repo] [profile] [managed]
 # Emit image/network/proxy inspect payloads inline. Integration tests must not
 # depend on a recorded fixture's version or subnet: re-recording fixtures must
 # not rewrite expectations.
-image_json() { # version
-  printf '[{"id":"sha256:test","configuration":{"descriptor":{"digest":"sha256:test"},"name":"pi-agent:local"},"variants":[{"config":{"config":{"Env":["PI_CONTAINER_PI_VERSION=%s"]},"history":[]}}]}]' "$1"
+image_json() { # version [capabilities]
+  local env
+  if [ -n "${2:-}" ]; then
+    env="[\"PI_CONTAINER_PI_VERSION=$1\",\"PI_CONTAINER_CAPABILITIES=$2\"]"
+  else
+    env="[\"PI_CONTAINER_PI_VERSION=$1\"]"
+  fi
+  printf '[{"id":"sha256:test","configuration":{"descriptor":{"digest":"sha256:test"},"name":"pi-agent:local"},"variants":[{"config":{"config":{"Env":%s},"history":[]}}]}]' "$env"
 }
 
 network_json() { # subnet [mode]
@@ -183,6 +189,67 @@ case_check_enforcer() {
   log_has 'ghp_' "check probes the blocking rule"
 }
 
+# ------------------------------------------------------- tokenless agent pack
+case_tokenless_run() {
+  new_case tokenless
+  image_json 1.4.0 "zig,zigpeek,enforcer,pi" > "$world/images/pi-agent-lite_local.json"
+  image_json 1.4.0 > "$world/images/pi-proxy_local.json"
+  network_json "172.30.240.0/24" > "$world/networks/pi-locked.json"
+  printf 'pi-locked\n' > "$world/networks.list"
+  proxy_running_json > "$world/containers/pi-proxy.json"
+  printf '172.30.240.2\n' > "$cfg/private/proxy.addr"
+  printf 'OPENROUTER_API_KEY=sk-or-v1-real\n' > "$cfg/env"
+  chmod 600 "$cfg/env"
+  printf 'GITHUB_TOKEN=stale\n' > "$cfg/pi.env"
+  chmod 600 "$cfg/pi.env"
+  (
+    cd "$t/project" || exit 1
+    run_it env HOME="$home" PI_ENV_FILE="$cfg/env" PI_IMAGE=pi-agent-lite:local \
+      CONTAINER_CLI="$fake" FAKE_CONTAINER_WORLD="$world" FAKE_CONTAINER_LOG="$logfile" \
+      bash "$run_sh" pi
+  )
+  expect_status 0 "tokenless agent pack runs"
+  log_lacks "--env-file" "tokenless run does not mount pi.env"
+  [ -e "$cfg/pi.env" ] && fail "stale pi.env was not removed" || pass
+}
+
+case_tokenless_check() {
+  new_case tokenlesscheck
+  image_json 1.4.0 "zig,zigpeek,enforcer,pi" > "$world/images/pi-agent-lite_local.json"
+  image_json 1.4.0 > "$world/images/pi-proxy_local.json"
+  network_json "172.30.240.0/24" > "$world/networks/pi-locked.json"
+  printf 'pi-locked\n' > "$world/networks.list"
+  proxy_running_json > "$world/containers/pi-proxy.json"
+  printf '172.30.240.2\n' > "$cfg/private/proxy.addr"
+  printf 'OPENROUTER_API_KEY=sk-or-v1-real\n' > "$cfg/env"
+  chmod 600 "$cfg/env"
+  (
+    cd "$t/project" || exit 1
+    run_it env HOME="$home" PI_ENV_FILE="$cfg/env" PI_IMAGE=pi-agent-lite:local \
+      CONTAINER_CLI="$fake" FAKE_CONTAINER_WORLD="$world" FAKE_CONTAINER_LOG="$logfile" \
+      bash "$run_sh" check owner/repo
+  )
+  expect_status 0 "tokenless check succeeds without gh"
+  log_lacks "--env-file" "tokenless check does not mount pi.env"
+  log_has 'enforcer' "tokenless check still probes enforcer"
+}
+
+case_pack_missing_pi() {
+  new_case packmissing
+  image_json 1.4.0 "zig,zigpeek,enforcer,nvim,zls" > "$world/images/pi-editor_local.json"
+  printf 'OPENROUTER_API_KEY=sk-or-v1-real\n' > "$cfg/env"
+  chmod 600 "$cfg/env"
+  (
+    cd "$t/project" || exit 1
+    run_it env HOME="$home" PI_ENV_FILE="$cfg/env" PI_IMAGE=pi-editor:local \
+      CONTAINER_CLI="$fake" FAKE_CONTAINER_WORLD="$world" FAKE_CONTAINER_LOG="$logfile" \
+      bash "$run_sh" pi
+  )
+  expect_status 1 "normal mode refuses an image without Pi"
+  contains "lacks capability 'pi'" "$(e)" "missing capability is named"
+  log_lacks "run --" "missing capability never starts a container"
+}
+
 # ------------------------------------------------------ network shape guards
 case_network_nat_refused() {
   new_case nat
@@ -219,6 +286,7 @@ case_network_escaped_subnet() {
 case_manual_clone() {
   new_case manual
   image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  rm -f "$cfg/env"
   (
     cd "$t/project" || exit 1
     pi "$run_sh" --manual --clone owner/repo true
@@ -231,6 +299,31 @@ case_manual_clone() {
   log_has "/root/.config/nvim" "nvim config mounted"
   log_lacks "--env-file" "no pi.env mounted when absent"
   [ -f "$cfg/nvim/init.lua" ] && pass || fail "nvim init.lua was not seeded"
+}
+
+case_manual_clone_env() {
+  new_case manualenv
+  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  (
+    cd "$t/project" || exit 1
+    pi "$run_sh" --manual --clone owner/repo true
+  )
+  expect_status 0 "manual clone with env succeeds"
+  log_has "--env-file" "manual clone mounts filtered env when present"
+  [ -f "$cfg/pi.env" ] && pass || fail "manual clone did not write pi.env"
+}
+
+case_manual_clone_env_mode() {
+  new_case manualenvmode
+  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  chmod 644 "$cfg/env"
+  (
+    cd "$t/project" || exit 1
+    pi "$run_sh" --manual --clone owner/repo true
+  )
+  expect_status 1 "manual clone refuses an insecure env file"
+  contains 'must be mode 600' "$(e)" "manual clone names the mode problem"
+  log_lacks 'run --' "insecure env file never starts a container"
 }
 
 # ------------------------------------------------------------ clear.sh list
@@ -433,8 +526,10 @@ case_nuke_all_builder_failure() {
 }
 
 # ------------------------------------------------------------------- drivers
-for c in case_normal_run case_check_enforcer case_network_nat_refused case_network_escaped_subnet \
-         case_proxy_unknown_state case_manual_clone case_clear_list case_nuke_agent case_nuke_clones_scoped \
+for c in case_normal_run case_check_enforcer case_tokenless_run case_tokenless_check case_pack_missing_pi \
+         case_network_nat_refused case_network_escaped_subnet \
+         case_proxy_unknown_state case_manual_clone case_manual_clone_env case_manual_clone_env_mode \
+         case_clear_list case_nuke_agent case_nuke_clones_scoped \
          case_option_guards case_nuke_all_builder_failure case_mount_guards; do
   "$c"
 done
