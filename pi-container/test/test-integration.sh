@@ -353,6 +353,20 @@ case_clear_list() {
   contains "$cfg/settings.json" "$(o)" "settings path shown"
 }
 
+# `container` can be on PATH while the runtime is stopped. Volume listing then
+# fails, and an empty list would read as "no instances".
+case_clear_list_runtime_down() {
+  new_case listdown
+  mkdir -p "$world/fail"
+  : > "$world/fail/volume.list"
+  run_it env -u PI_CONFIG_DIR HOME="$home" PI_CONFIG_DIR="$cfg" \
+    CONTAINER_CLI="$fake" FAKE_CONTAINER_WORLD="$world" FAKE_CONTAINER_LOG="$logfile" \
+    bash "$clear_sh" list
+  expect_status 1 "clear.sh list fails when the runtime does not answer"
+  contains 'start the container system' "$(e)" "runtime failure names the fix"
+  not_contains 'current profile' "$(o)" "no headers for an unanswered runtime"
+}
+
 # ---------------------------------------------------- clear.sh save + nuke agent
 case_nuke_agent() {
   new_case nukeagent
@@ -534,7 +548,7 @@ case_nuke_all_builder_failure() {
 for c in case_normal_run case_check_enforcer case_tokenless_run case_tokenless_check case_pack_missing_pi \
          case_network_nat_refused case_network_escaped_subnet \
          case_proxy_unknown_state case_manual_clone case_manual_clone_env case_manual_clone_env_mode \
-         case_clear_list case_nuke_agent case_nuke_clones_scoped \
+         case_clear_list case_clear_list_runtime_down case_nuke_agent case_nuke_clones_scoped \
          case_option_guards case_nuke_all_builder_failure case_mount_guards; do
   "$c"
 done

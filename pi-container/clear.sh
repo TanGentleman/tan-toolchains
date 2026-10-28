@@ -97,6 +97,14 @@ require_jq() {
   die "jq not found; install it (brew install jq)"
 }
 
+# A command on PATH is not a running runtime. `volume list` proves it answered,
+# because every list/nuke path reads volumes and an unanswered call would
+# otherwise look like an empty result.
+require_runtime() {
+  "$cli" volume list -q >/dev/null 2>&1 && return 0
+  die "'$cli' is not responding; start the container system with 'container system start'"
+}
+
 acquire_lock() { pi_acquire_lock "$lock_dir" clear.sh; }
 release_lock() { pi_release_lock "$lock_dir"; }
 
@@ -364,7 +372,7 @@ cmd=${1:-help}
 shift || true
 trap release_lock EXIT
 case $cmd in
-  list) require_cli; require_jq; cmd_list "$@" ;;
+  list) require_cli; require_jq; require_runtime; cmd_list "$@" ;;
   save) require_cli; acquire_lock; cmd_save "$@" ;;
   nuke) require_cli; require_jq; acquire_lock; cmd_nuke "$@" ;;
   help | -h | --help) usage ;;
