@@ -106,5 +106,10 @@ behavior or test value justifies the churn.
 - `test/record-fixtures.sh` and `scripts/container-discovery.sh` are
   syntax-checked but not behavior-tested. They are local Mac tools; add tests
   only if they start changing often or grow more logic.
+- Instances are not bound to images. `PI_IMAGE` is a per-run choice, and `run.sh
+  announce_run` prints the pair but nothing records it, so `clear.sh list`
+  cannot show which image last wrote a volume. If that provenance matters, add a
+  marker file per agent volume rather than a `pi.image` label: labels are fixed
+  at `volume create` and would go stale on the first image switch.
 - `scripts/` is intentionally temporary. Fold it into `pi-container/test/` or
   remove it if discovery stops being a recurring workflow.

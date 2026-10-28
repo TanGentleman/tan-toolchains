@@ -84,8 +84,21 @@ PI_CLONE=you/your-repo pic --manual
 
 A trailing command runs in the normal Pi container instead of `pi`. For example,
 `pic bash` has the proxy, settings, and agent volume mounted; `pic --manual` has
-the editor mounts and the default network instead. Use `PI_IMAGE=pi-editor:local
-pic --manual` for the editor pack.
+the editor mounts and the default network instead.
+
+The image is a per-run choice, not a property of the instance: `PI_IMAGE` picks a
+pack for that run, and nothing records the pairing afterwards. `run.sh` prints
+the instance, image, pack, and capabilities before Pi starts. Build a pack once
+with `./build.sh PACK`; see [configuration](docs/configuration.md#image-packs)
+for contents and tags.
+
+| Want | Command |
+| --- | --- |
+| Everything, with `gh` | `pic --clone you/your-repo` |
+| No `gh`, tokenless | `PI_IMAGE=pi-agent-lite:local pic --clone you/your-repo` |
+| Neovim and ZLS only | `PI_IMAGE=pi-editor:local pic --manual` |
+| Zig tools only | `PI_IMAGE=pi-tools:local pic bash` |
+| Separate state for a project | `PI_INSTANCE=work PI_IMAGE=pi-agent-lite:local pic --clone you/your-repo` |
 
 `/model` picks a model; `:free` costs nothing. `/quit` exits and deletes the Pi VM. Do not run `/login`; it saves a real key into the agent volume.
 

@@ -106,6 +106,10 @@ Rebuilding a pack replaces its tag and reuses the layer cache, so a Dockerfile
 change only rebuilds from the first changed stage. Run `./build.sh PACK
 --no-cache` for a clean build; deleting the image first is not required.
 
+`run.sh` prints the instance, image, pack, and capabilities to stderr before it
+starts. An instance is not bound to an image: `PI_IMAGE` selects the pack for
+that run only.
+
 Images record `PI_CONTAINER_CAPABILITIES` in their environment. Normal mode and
 `check` both refuse an image without `pi`; `check` additionally requires
 `enforcer`, `zig`, and `zigpeek`. An image with no capability metadata is

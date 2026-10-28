@@ -335,6 +335,16 @@ require_image_capability() { # capabilities, name
   exit 1
 }
 
+# Instances are not bound to images: PI_IMAGE is a per-run choice and nothing
+# records it afterwards. Print the pairing before Pi takes the terminal, so the
+# pack in use is visible in the scrollback.
+announce_run() { # capabilities
+  local image=${PI_IMAGE:-pi-agent:local} pack
+  pack=$(pi_pack_for_tag "$image" 2>/dev/null || true)
+  printf 'run.sh: instance=%s image=%s pack=%s capabilities=%s\n' \
+    "$instance" "$image" "${pack:--}" "${1:--}" >&2
+}
+
 # Pi reads this file directly; edits on the Mac apply on the next launch.
 # The file is mounted read-only, so Pi cannot change settings, packages, or
 # resource paths. Seed lastChangelogVersion so Pi does not try to write it.
@@ -581,6 +591,7 @@ if [ "$manual" = 1 ]; then
   if [ -n "${TZ:-}" ]; then args+=(-e "TZ=$TZ"); fi
   if [ -n "${COLORTERM:-}" ]; then args+=(-e "COLORTERM=$COLORTERM"); fi
   if [ -t 0 ] && [ -t 1 ]; then args+=(-t); fi
+  announce_run "$(image_capabilities || true)"
   release_host_lock
   exec "$cli" "${args[@]}" "${PI_IMAGE:-pi-agent:local}" "$@"
 fi
@@ -762,4 +773,5 @@ else
 fi
 
 set -- bash -c "$prep" prep "$@"
+announce_run "$image_caps"
 exec "$cli" "${args[@]}" "${PI_IMAGE:-pi-agent:local}" "$@"

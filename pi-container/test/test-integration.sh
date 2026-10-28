@@ -209,6 +209,8 @@ case_tokenless_run() {
       bash "$run_sh" pi
   )
   expect_status 0 "tokenless agent pack runs"
+  contains 'instance=default image=pi-agent-lite:local pack=agent' "$(e)" "normal run names the instance and pack"
+  contains 'capabilities=zig,zigpeek,enforcer,pi' "$(e)" "normal run names the capabilities"
   log_lacks "--env-file" "tokenless run does not mount pi.env"
   [ -e "$cfg/pi.env" ] && fail "stale pi.env was not removed" || pass
 }
@@ -230,6 +232,7 @@ case_tokenless_check() {
       bash "$run_sh" check owner/repo
   )
   expect_status 0 "tokenless check succeeds without gh"
+  contains 'image=pi-agent-lite:local pack=agent' "$(e)" "check names the image it verifies"
   log_lacks "--env-file" "tokenless check does not mount pi.env"
   log_has 'enforcer' "tokenless check still probes enforcer"
 }
@@ -292,6 +295,7 @@ case_manual_clone() {
     pi "$run_sh" --manual --clone owner/repo true
   )
   expect_status 0 "manual clone succeeds"
+  contains 'image=pi-agent:local pack=full capabilities=-' "$(e)" "manual run announces a legacy image without capabilities"
   log_has "pi-clone_default_owner-repo-" "clone volume named"
   log_has "PI_CLONE=owner/repo" "clone target passed"
   log_has "-w /work" "clone workdir set"
