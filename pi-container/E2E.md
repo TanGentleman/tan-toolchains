@@ -4,14 +4,14 @@ Run on macOS before calling a branch stable. A failure is a blocker; fix it on
 the branch, not `main`.
 
 **This test deletes** the E2E agent volume, the E2E profile's proxy and network,
-the E2E proxy image, the shared agent image, and the builder cache, plus E2E
+the E2E proxy image, the active `PI_IMAGE`, and the builder cache, plus E2E
 clone volumes during the scoped clone cleanup below. Other profiles'
-proxy/network resources and other instances' agent volumes stay. Quit all Pi
-processes first and save sessions (`./clear.sh save --instance e2e`). The agent
-volume holds Pi's `auth.json`, models store, and user-installed
+proxy/network resources, other instances' agent volumes, and other pack tags
+stay. Quit all Pi processes first and save sessions (`./clear.sh save --instance
+e2e`). The agent volume holds Pi's `auth.json`, models store, and user-installed
 skills/extensions; save custom skills too. Host config, the Neovim paths under
 `$PI_CONFIG_DIR`, and project files stay. Everything else rebuilds except the
-agent image, which you rebuild by hand in Build and keys.
+active image, which you rebuild by hand in Build and keys.
 
 ## Setup
 
@@ -47,11 +47,20 @@ From the repo root, record: `git rev-parse HEAD`, `date`, and
 Run these from `pi-container/` unless noted.
 
 ### Build and keys
-- [ ] `container build -t pi-agent:local -f Dockerfile ..`
+- [ ] `./build.sh full`
+- [ ] `./build.sh agent`
+- [ ] `./build.sh editor`
+- [ ] `PI_IMAGE=pi-editor:local ./run.sh --manual sh -c 'nvim --version | head -n 1; zls --version; command -v enforcer; ! command -v pi; ! command -v gh'`
+      reports the editor tools and confirms Pi/gh are absent.
 - [ ] `$PI_ENV_FILE` is mode 600/400; `private/proxy.env` and `pi.env` are
       filtered; no secret in logs.
 - [ ] `./run.sh --manual sh -c 'nvim --version | head -n 1; zls --version'`
       reports Neovim 0.12.6 and ZLS 0.17.0.
+- [ ] With an env file containing only `OPENROUTER_API_KEY`,
+      `PI_IMAGE=pi-agent-lite:local ./run.sh check "$owner/tan-toolchains-e2e"`
+      reports GitHub as skipped rather than failed.
+- [ ] `PI_IMAGE=pi-agent-lite:local ./run.sh bash -c 'command -v enforcer; pi --version; ! command -v gh'`
+      succeeds; `enforcer on` still writes into the instance's agent volume.
 
 ### First check
 - [ ] `./run.sh check "$owner/tan-toolchains-e2e"` builds the E2E profile's
@@ -156,13 +165,12 @@ The product path: build in the container, run on the Mac.
 - [ ] Create a throwaway clone, then `./clear.sh nuke clones --instance e2e
       --yes` deletes only that instance's clone volumes.
 - [ ] `./clear.sh nuke all` deletes the E2E agent volume plus the E2E profile's
-      proxy and network, the E2E proxy image, the shared agent image, and
-      builder cache. It keeps other profiles' proxy/network resources, other
-      agent volumes, and all clone volumes.
+      proxy and network, the E2E proxy image, the active `PI_IMAGE`, and builder
+      cache. It keeps other profiles' proxy/network resources, other agent
+      volumes, all clone volumes, and other pack tags.
 - [ ] `./clear.sh list` still shows any retained non-E2E instances.
 - [ ] After `nuke all`, `./run.sh` reports the missing image instead of pulling
-      from Docker Hub. Then rebuild and `./run.sh check` again:
-      `container build -t pi-agent:local -f Dockerfile ..`
+      from Docker Hub. Then rebuild and `./run.sh check` again: `./build.sh full`.
 - [ ] Host config, the Neovim paths under `$PI_CONFIG_DIR`, and project files
       survive every cleanup.
 

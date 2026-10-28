@@ -11,9 +11,13 @@ command such as `pic bash` when changing state under `/root/.pi/agent`, includin
 `enforcer on` and `enforcer off`.
 
 Manual mode does not require the env file. It mounts the current folder, or a
-clone with `--clone O/R`; clone mode reuses an existing `pi.env` for GitHub
-authentication. `PI_CLONE=O/R` makes clone the default. A cloned shell starts in
-`/work/<repo>` and shares its volume with normal `--clone` in the same profile.
+clone with `--clone O/R`; clone mode refreshes `pi.env` from the host env file
+when it exists, so a removed token does not linger. `PI_CLONE=O/R` makes clone
+the default. A cloned shell starts in `/work/<repo>` and shares its volume with
+normal `--clone` in the same profile.
+
+Use `PI_IMAGE=pi-editor:local` for the editor pack. Manual mode does not require
+the image to contain Pi.
 
 Neovim paths:
 

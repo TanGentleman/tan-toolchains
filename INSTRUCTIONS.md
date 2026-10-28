@@ -19,7 +19,7 @@ cd pi-container
 ## 2. Create the resources the checks inspect
 
 ```bash
-container build -t pi-agent:local -f Dockerfile ..
+./build.sh full
 ./run.sh check OWNER/REPO
 ```
 

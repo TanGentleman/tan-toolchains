@@ -20,7 +20,7 @@ One tool per directory.
 
 # pi-container
 cd pi-container
-container build -t pi-agent:local -f Dockerfile ..
+./build.sh full
 ./run.sh check you/your-repo
 ```
 

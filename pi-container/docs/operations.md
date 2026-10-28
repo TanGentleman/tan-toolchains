@@ -13,8 +13,9 @@ network, port, and OpenRouter key stay shared.
 
 `PI_CONFIG_DIR` selects a profile. The default is `~/.config/pi-container`;
 another directory gets its own settings, env file, proxy, host-only network,
-subnet, proxy image, agent volumes, and clone volumes. The agent image and
-builder cache stay machine-wide.
+subnet, proxy image, agent volumes, and clone volumes. The active image and
+builder cache stay machine-wide; pack tags can be built and selected with
+`PI_IMAGE`.
 
 ```bash
 alias pic=/path/to/pi-container/run.sh
@@ -64,13 +65,13 @@ settings file is not in that volume.
 `nuke clones` deletes the selected instance's clone volumes in the current
 profile, scoped by volume labels. `nuke all` deletes the selected instance's
 agent volume plus this profile's proxy and network, this profile's proxy image,
-the shared agent image, and the builder cache. It keeps other profiles'
-proxy/network resources, other agent volumes, and all clone volumes. The agent
-image is global, so other profiles still need to rebuild it. It does not delete
-the Neovim host paths under `$PI_CONFIG_DIR` (default
-`~/.config/pi-container/`). It also deletes `pi-agent:local`, and the next
-`./run.sh` fails until you rebuild it:
+the active `PI_IMAGE`, and the builder cache. It keeps other profiles'
+proxy/network resources, other agent volumes, all clone volumes, and other pack
+tags. The active image is machine-wide, so other profiles using it still need to
+rebuild. It does not delete the Neovim host paths under `$PI_CONFIG_DIR`
+(default `~/.config/pi-container/`). The next `./run.sh` fails until you rebuild
+the active pack:
 
 ```bash
-container build -t pi-agent:local -f Dockerfile ..
+./build.sh full          # or the pack matching PI_IMAGE
 ```

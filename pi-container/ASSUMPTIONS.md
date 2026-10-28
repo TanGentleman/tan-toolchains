@@ -26,13 +26,15 @@ as JSON, so a failed capture leaves the old fixture in place. See
 | `container network inspect <name>` is an array; the only host-only mode is `[0].configuration.mode == "hostOnly"`. Any other mode is `not-host-only`; a missing or non-string mode is `unverified`. | `lib/inspect.sh: pi_network_host_only_verdict` | `network/host-only.json`, `network/nat.json`, `network/no-mode.json` |
 | Subnets are `[0].configuration.ipv4Subnet` and `[0].status.ipv4Subnet`. Every subnet present must match `PI_LOCKED_SUBNET`. jq decodes both `/` and older `\/` captures, so no textual unescape pass is needed. | `lib/inspect.sh: pi_network_has_subnet` | `network/host-only.json`, `network/host-only-escaped.json` |
 | `container image inspect <name>` is an array. The image config is at `[0].variants[0].config.config`: `Env` and `Labels`. History is at `[0].variants[0].config.history[].created_by`. Precedence is Env, label, history. With no version, the parser returns empty and `ensure_settings` uses the Dockerfile ARG. | `lib/inspect.sh: pi_image_version_from_json` | `image/inspect.json`, `image/env-version.json`, `image/label-version.json`, `image/history-version.json`, `image/no-version.json` |
+| Image capabilities are the `PI_CONTAINER_CAPABILITIES=<comma-list>` entry in the same `Env` array. An absent value means a legacy image and skips the capability gate. | `lib/inspect.sh: pi_image_capabilities_from_json`; `run.sh: require_image_capability` | `test/test-inspect.sh` inline payloads |
 | `container volume inspect <name>` is an array; labels are at `[0].configuration.labels`. Label values are plain on 1.4.1+; older captures may escape slashes as `\/` and jq decodes them. Lookup is by exact key. | `lib/inspect.sh: pi_volume_label_from_json` | `volume/labelled.json`, `volume/escaped-labels.json` |
 | `container volume list -q` and `container network list -q` print one name per line. | `run.sh: volume_exists`, `ensure_network`; `clear.sh: all_volumes` | `test/fake-container.sh` |
 | `container run` exits non-zero when the container fails. | `run.sh` exec; `clear.sh: save_sessions` | `test/fake-container.sh` (`fail/<key>`) |
 
 ## Why these are centralised
 
-The parsers live in `lib/inspect.sh` and each path has a fixture. A shape change
-fails a unit test, and `run.sh` only decides what to do: distinguish an absent
-proxy from an unknown one, report a network verdict, or refuse a subnet
-mismatch.
+The parsers live in `lib/inspect.sh`; each path is covered by a fixture or an
+inline payload in `test/test-inspect.sh`. A shape change fails a unit test, and
+`run.sh` only decides what to do: distinguish an absent proxy from an unknown
+one, report a network verdict, refuse a subnet mismatch, or refuse an image that
+lacks a required capability.

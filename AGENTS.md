@@ -37,7 +37,8 @@ The image build context is the repo root because the image compiles
 
 ```sh
 cd pi-container
-container build -t pi-agent:local -f Dockerfile ..
+./build.sh full             # pi-agent:local
+./build.sh agent            # pi-agent-lite:local, no gh
 ./run.sh check owner/repo
 ```
 

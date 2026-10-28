@@ -14,8 +14,9 @@ binaries run on macOS and do not use its network.
   runtime certificates read-only into the proxy.
 - Separate keys work by running with a different `PI_CONFIG_DIR`: the proxy,
   network, subnet, proxy image, agent volumes, and clone volumes are derived
-  from it. The agent image and builder cache remain shared, so `nuke all` in
-  one profile still deletes them for every profile.
+  from it. The active agent image and builder cache remain shared, so `nuke all`
+  in one profile still deletes the active `PI_IMAGE` for every profile. Other
+  pack tags are left behind.
 
 ## Enforcer
 
@@ -53,9 +54,9 @@ binaries run on macOS and do not use its network.
 
 ## Quality
 
-- CI runs `test/run-tests.sh`: naming, validation, path guards, the jq-based
-  JSON parsers in `lib/inspect.sh`, and `run.sh`/`clear.sh` against a fake
-  `container` CLI. This covers orchestration decisions without Apple
+- CI runs `test/run-tests.sh`: naming, validation, the image pack catalog, path
+  guards, the jq-based JSON parsers in `lib/inspect.sh`, and `run.sh`/`clear.sh`
+  against a fake `container` CLI. This covers orchestration decisions without Apple
   `container`. Real volume/network/proxy behaviour and `run.sh check` still
   need the [E2E checklist](E2E.md) on macOS.
 - `jq` is a hard dependency for `run.sh` normal/check/proxy, `clear.sh`
@@ -68,6 +69,10 @@ binaries run on macOS and do not use its network.
   and a changed shape should fail a smoke test instead of a run.
 - `scripts/container-discovery.sh` captures raw shapes and a jq summary without
   touching the fixtures. Use it when iterating on a new Apple CLI version.
+- Image packs are built manually with `./build.sh PACK`; CI does not build
+  Dockerfile targets. The `agent` and `editor` packs deliberately omit `gh`, so
+  a `check` with `GITHUB_TOKEN` set fails on those images instead of silently
+  skipping GitHub.
 - Add a shellcheck step once the existing warnings are triaged; it is not
   wired up yet.
 - Add CI checks for the Neovim/ZLS pins and for `ZLS_VERSION == ZIG_VERSION`

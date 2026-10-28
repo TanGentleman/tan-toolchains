@@ -4,7 +4,7 @@ Run [Pi](https://pi.dev) on OpenRouter in an Apple [`container`](https://github.
 
 `pi-proxy` tunnels GitHub, adds your OpenRouter key, and refuses everything else. Pi shares only a host-only `pi-locked` network with it. The default profile uses one proxy for every instance; a non-default `PI_CONFIG_DIR` is a separate profile with its own proxy, network, and subnet.
 
-The image has Pi, git, gh, ripgrep, fd, Zig 0.17.0, Neovim 0.12.6, ZLS 0.17.0, zigpeek, and enforcer. Zig's cache is prewarmed. The image is aarch64-only and fails early on other architectures.
+The default `full` image has Pi, git, gh, ripgrep, fd, Zig 0.17.0, Neovim 0.12.6, ZLS 0.17.0, zigpeek, and enforcer. Other packs omit Pi, gh, or the editor tools; see [Image packs](docs/configuration.md#image-packs). Zig's cache is prewarmed. Images are aarch64-only and fail early on other architectures.
 
 `zigpeek` answers Zig API questions offline from the compiler's own docs; its
 skill file tells Pi to use it. See [../zigpeek/README.md](../zigpeek/README.md).
@@ -24,25 +24,37 @@ container system start
 mkdir -p ~/.config/pi-container
 cat > ~/.config/pi-container/env <<'EOF'
 OPENROUTER_API_KEY=
-GITHUB_TOKEN=
 
-# Optional: commits in the Pi container.
+# Optional: GitHub and commit identity. The agent/editor packs do not need these.
+# GITHUB_TOKEN=
 # GIT_AUTHOR_NAME=
 # GIT_AUTHOR_EMAIL=
 EOF
 chmod 600 ~/.config/pi-container/env
 open -e ~/.config/pi-container/env
 
-container build -t pi-agent:local -f Dockerfile ..
+./build.sh full
 ./run.sh check you/your-repo
 ```
 
-The build context is the repo root (`..`), not `pi-container/`, because the image
-compiles `../zigpeek` and `../enforcer` from source. `run.sh` does not build
-`pi-agent:local` for you; it only rebuilds the profile's proxy image
+`build.sh` builds from the repo root (`..`), not `pi-container/`, because the
+image compiles `../zigpeek` and `../enforcer` from source. `run.sh` does not
+build the agent image for you; it only rebuilds the profile's proxy image
 (`pi-proxy:local` in the default profile), and it cannot tell that the image
-predates an edit to the `Dockerfile`, `zigpeek/`, or `enforcer/`, so re-run the
-build command after changing any of them.
+predates an edit to the `Dockerfile`, `zigpeek/`, or `enforcer/`, so re-run
+`build.sh` after changing any of them.
+
+The default pack is `full` (`pi-agent:local`). Build a smaller pack and select it
+with `PI_IMAGE`:
+
+```bash
+./build.sh agent
+PI_IMAGE=pi-agent-lite:local ./run.sh check you/your-repo
+PI_IMAGE=pi-agent-lite:local ./run.sh
+```
+
+`agent` includes Pi, enforcer, Zig, and zigpeek, but not `gh`. It works without
+`GITHUB_TOKEN`; `check` skips the GitHub checks when the token is absent.
 
 The first `check` in a profile builds that profile's proxy image and spends no OpenRouter credits.
 
@@ -72,7 +84,8 @@ PI_CLONE=you/your-repo pic --manual
 
 A trailing command runs in the normal Pi container instead of `pi`. For example,
 `pic bash` has the proxy, settings, and agent volume mounted; `pic --manual` has
-the editor mounts and the default network instead.
+the editor mounts and the default network instead. Use `PI_IMAGE=pi-editor:local
+pic --manual` for the editor pack.
 
 `/model` picks a model; `:free` costs nothing. `/quit` exits and deletes the Pi VM. Do not run `/login`; it saves a real key into the agent volume.
 
@@ -106,8 +119,8 @@ The default mode mounts the current folder. Use it only for repos you trust; use
 
 ## Limits
 
-- Normal Pi mode allows GitHub hosts, `openrouter.ai`, and its subdomains. Everything else is refused.
-- `--manual` uses the default container network, not a profile network or `pi-proxy`. When cloning, it passes `pi.env` if that file exists, so the GitHub token is available there; otherwise only public clones work.
+- Normal Pi mode allows GitHub hosts, `openrouter.ai`, and its subdomains. Everything else is refused. The `agent` and `editor` packs omit `gh`; the proxy still allows GitHub.
+- `--manual` uses the default container network, not a profile network or `pi-proxy`. When cloning, it refreshes `pi.env` from the host env file if that file exists; without a token only public clones work.
 - A profile's network is host-only. Pi can reach your Mac and other containers on it.
 - If the Mac forwards IP, the host-only network can reach the internet. `run.sh check` reports this.
 - Zig 0.17's `std.http.Client` mishandles HTTPS through a CONNECT proxy, so dev-time `zig fetch` inside the container can fail. This is a container limitation, not a reason to add network code to a shipped tool.

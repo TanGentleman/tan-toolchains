@@ -1,32 +1,48 @@
 # Configuration
 
 Source of truth for user-facing `pi-container` configuration. When adding a
-flag, environment variable, generated file, or build argument, update this file,
-`run.sh --help` / `clear.sh help`, and the tests in the same change.
+flag, environment variable, generated file, pack, or build argument, update this
+file, `run.sh --help` / `clear.sh help`, and the tests in the same change.
 
 Flags override environment variables; environment variables override defaults.
 Commands run from `pi-container/` unless noted.
 
+## Design decisions
+
+| Decision | Default | Why |
+| --- | --- | --- |
+| Image | `pi-agent:local` = `full` pack | Existing commands keep working; packs are opt-in. |
+| OpenRouter key | Required for normal Pi and `proxy` | The proxy needs the real key for the agent. |
+| GitHub token | Optional | Pi can work on a mounted repo, and `agent`/`editor` packs have no `gh`. |
+| Pi hook | Installed but disabled | `enforcer on` is per instance; no prompt is blocked by surprise. |
+| Agent state | Per instance, in a volume | Sessions and extensions survive restarts and stay isolated. |
+| Settings | Shared per profile, read-only | Pi cannot persist preference or install changes. |
+| Manual mode | Default network, no proxy | Editor work is separate from the locked Pi path. |
+| Pack capability check | Refuse missing `pi` in normal mode | A clear error beats a container that cannot start its command. |
+| `nuke all` image scope | The active `PI_IMAGE` only | Other pack tags are not deleted implicitly. |
+| Build context | Repo root | The image compiles `../zigpeek` and `../enforcer`. |
+
 ## Host env file
 
 The env file stays on the Mac, mode 600 or 400. The default path is
-`$PI_CONFIG_DIR/env`; set `PI_ENV_FILE` to use another file. To share keys
-between profiles, point both profiles at the same env file. Normal Pi mode
-requires it; manual mode does not.
+`$PI_CONFIG_DIR/env`; set `PI_ENV_FILE` to use another file. Normal Pi mode
+requires it for the OpenRouter key; manual mode does not require it.
 
 | Key | Used by | Notes |
 | --- | --- | --- |
-| `OPENROUTER_API_KEY` | `pi-proxy` | Required. Pi receives `sk-or-v1-placeholder`; the proxy adds the real key. Set a credit limit. |
-| `GITHUB_TOKEN` | Pi | Required. Use a fine-grained, one-repo token with Contents and Pull requests: Read and write. Keep Workflows off. |
+| `OPENROUTER_API_KEY` | `pi-proxy` | Required for normal Pi and `proxy`. Pi receives `sk-or-v1-placeholder`; the proxy adds the real key. Set a credit limit. |
+| `GITHUB_TOKEN` | Pi, `check` | Optional. Use a fine-grained, one-repo token with Contents and Pull requests: Read and write. Keep Workflows off. |
 | `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL` | Pi | Optional commit identity. |
 | `GIT_COMMITTER_NAME`, `GIT_COMMITTER_EMAIL` | Pi | Optional; set only when the committer differs from the author. |
 
-`run.sh` writes two filtered copies. Do not edit these; edit the host env file.
+`run.sh` writes filtered copies. Do not edit these; edit the host env file.
 
 - `$PI_CONFIG_DIR/private/proxy.env`: the OpenRouter key only, mounted only into
   `pi-proxy`.
 - `$PI_CONFIG_DIR/pi.env`: the GitHub token and commit identity, passed only to
-  Pi.
+  Pi. It is created only when at least one value is present; removing a token
+  from the host file removes the generated file on the next normal run or
+  manual clone.
 
 Pi never receives the real OpenRouter key. Pi's install ping and `gh` telemetry
 are off.
@@ -63,6 +79,35 @@ ones:
 pic pi --model openrouter/<model>:high
 ```
 
+## Image packs
+
+One Dockerfile builds capability packs. `./build.sh PACK` builds the pack from
+the repo root context and tags it. `PI_IMAGE` selects the image at runtime.
+
+| Pack | Tag | Contents |
+| --- | --- | --- |
+| `tools` | `pi-tools:local` | Zig, zigpeek, enforcer, git, jq, ripgrep, fd |
+| `editor` | `pi-editor:local` | tools + Neovim + ZLS |
+| `agent` | `pi-agent-lite:local` | tools + Pi; no `gh` |
+| `agent-gh` | `pi-agent-gh:local` | agent + `gh` |
+| `full` | `pi-agent:local` | agent-gh + Neovim + ZLS; default |
+
+```bash
+./build.sh full              # pi-agent:local
+./build.sh agent             # pi-agent-lite:local, no gh
+./build.sh editor            # pi-editor:local, no Pi
+./build.sh all               # every pack
+```
+
+Pass extra `container build` options after the pack, for example
+`./build.sh agent --build-arg PI_VERSION=1.4.0`. `all` builds every pack.
+
+Images record `PI_CONTAINER_CAPABILITIES` in their environment. Normal mode
+refuses an image without `pi`; `check` also requires `enforcer`, `zig`, and
+`zigpeek`. An image with no capability metadata is treated as a legacy full
+image. If `GITHUB_TOKEN` is set, `check` requires `gh`, so use `agent-gh` or
+`full`; `agent` is for tokenless runs.
+
 ## Flags
 
 ### `run.sh`
@@ -73,7 +118,7 @@ pic pi --model openrouter/<model>:high
 | `--clone O/R` | Use a clone kept in a volume instead of the current folder. Defaults to `PI_CLONE` when set. |
 | `--manual [CMD]` | Open a shell without Pi or the proxy. See [Manual mode](manual.md). |
 | `COMMAND [ARG...]` | Run inside the normal Pi container instead of `pi`; for example, `run.sh bash`. |
-| `check [O/R]` | Check keys, the proxy, GitHub, the network lock, and enforcer. |
+| `check [O/R]` | Check keys, the proxy, GitHub when a token is present, the network lock, and enforcer. |
 | `proxy` | Follow the profile's proxy logs. |
 | `proxy-stop` | Stop the profile's proxy. |
 | `--help` | Print usage. |
@@ -90,7 +135,7 @@ volume mounted, unlike `--manual`. `run.sh bash` is therefore the way to run
 | `save` | Save session JSONL files under `PI_BACKUP_DIR`. |
 | `nuke agent` | Save sessions, then delete the selected instance's agent volume. |
 | `nuke clones` | Delete the selected instance's clone volumes in this profile. |
-| `nuke all` | Delete the selected instance's agent volume plus profile and shared resources. See [Operations](operations.md). |
+| `nuke all` | Delete the selected instance's agent volume plus the active image and profile resources. See [Operations](operations.md). |
 | `--instance NAME` | Scope `save` or `nuke`. Defaults to `PI_INSTANCE` or `default`. |
 | `--yes` | Skip the `nuke` confirmation. |
 | `help` | Print usage. |
@@ -113,7 +158,7 @@ volume mounted, unlike `--manual`. `run.sh bash` is therefore the way to run
 
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `PI_IMAGE` | `pi-agent:local` | Shared agent image used by `run.sh` and `clear.sh`. |
+| `PI_IMAGE` | `pi-agent:local` | Image pack used by `run.sh` and `clear.sh`. |
 | `PI_PROXY_IMAGE` | Profile-derived | Proxy image for this profile. |
 | `PI_PROXY_NAME` | Profile-derived | Proxy container name. |
 | `PI_NETWORK_NAME` | Profile-derived | Host-only network name. |
@@ -140,15 +185,14 @@ to the container when set on the host.
 | --- | --- | --- |
 | `PI_PROXY_WAIT` | `90` | Seconds to wait for the proxy to answer. |
 | `PI_LOCK_WAIT` | `120` | Seconds to wait for the host setup lock. |
-| `CONTAINER_CLI` | `container` | CLI used by `run.sh`, `clear.sh`, `record-fixtures.sh`, and `container-discovery.sh`. |
+| `CONTAINER_CLI` | `container` | CLI used by `run.sh`, `clear.sh`, `build.sh`, `record-fixtures.sh`, and `container-discovery.sh`. |
 
 `PI_SOURCE_ONLY`, `PI_SKIP_HOST_SETUP`, and `PI_SKIP_PROXY_IP` are test hooks.
 Do not use them for normal runs.
 
 ## Image build arguments
 
-Pass these to `container build` with `--build-arg`. Defaults are in
-`Dockerfile`.
+Pass these to `./build.sh PACK --build-arg ...`; defaults are in `Dockerfile`.
 
 | Argument | Default | Effect |
 | --- | --- | --- |
