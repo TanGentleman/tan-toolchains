@@ -22,10 +22,15 @@ pub const Context = struct {
     claude_settings: []const u8,
 };
 
-pub fn context(gpa: Allocator, home: []const u8) !Context {
+/// `pi_agent_dir` is Pi's `PI_CODING_AGENT_DIR` override; when absent, the
+/// default lives under `home`. The returned paths are owned by the caller.
+pub fn context(gpa: Allocator, home: []const u8, pi_agent_dir: ?[]const u8) !Context {
     return .{
         .home = home,
-        .agent_dir = try std.fs.path.join(gpa, &.{ home, ".pi", "agent" }),
+        .agent_dir = if (pi_agent_dir) |path|
+            try gpa.dupe(u8, path)
+        else
+            try std.fs.path.join(gpa, &.{ home, ".pi", "agent" }),
         .claude_settings = try std.fs.path.join(gpa, &.{ home, ".claude", "settings.json" }),
     };
 }
@@ -81,10 +86,19 @@ test "pi is absent when the agent directory does not exist" {
     const home = try std.fs.path.join(std.testing.allocator, &.{ ".zig-cache/tmp", &tmp.sub_path });
     defer std.testing.allocator.free(home);
 
-    const ctx = try context(std.testing.allocator, home);
+    const ctx = try context(std.testing.allocator, home, null);
     defer std.testing.allocator.free(ctx.agent_dir);
     defer std.testing.allocator.free(ctx.claude_settings);
 
     try std.testing.expect(detect(std.testing.io, ctx, .pi) == .absent);
     try std.testing.expect(detect(std.testing.io, ctx, .claude) == .absent);
+}
+
+test "PI_CODING_AGENT_DIR overrides the default agent directory" {
+    const ctx = try context(std.testing.allocator, "/home/user", "/custom/pi-agent");
+    defer std.testing.allocator.free(ctx.agent_dir);
+    defer std.testing.allocator.free(ctx.claude_settings);
+
+    try std.testing.expectEqualStrings("/custom/pi-agent", ctx.agent_dir);
+    try std.testing.expectEqualStrings("/home/user/.claude/settings.json", ctx.claude_settings);
 }

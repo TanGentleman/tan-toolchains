@@ -22,7 +22,7 @@ command -v pi >/dev/null 2>&1 || {
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-mkdir -p "$tmp/home/.pi/agent" "$tmp/work"
+mkdir -p "$tmp/agent" "$tmp/work"
 
 run_pi() { # prompt, stdout, stderr
   local prompt=$1 out=$2 err=$3 code=0
@@ -31,7 +31,7 @@ run_pi() { # prompt, stdout, stderr
     env -i \
       HOME="$tmp/home" \
       PATH="$PATH" \
-      PI_CODING_AGENT_DIR="$tmp/home/.pi/agent" \
+      PI_CODING_AGENT_DIR="$tmp/agent" \
       PI_TELEMETRY=0 \
       TERM=xterm \
       pi -p --no-session --offline --no-skills --no-prompt-templates \
@@ -48,8 +48,8 @@ fail() {
   exit 1
 }
 
-HOME="$tmp/home" "$bin" on >/dev/null
-[ -f "$tmp/home/.pi/agent/extensions/enforcer.ts" ] || fail "enforcer on did not write the extension"
+HOME="$tmp/home" PI_CODING_AGENT_DIR="$tmp/agent" "$bin" on >/dev/null
+[ -f "$tmp/agent/extensions/enforcer.ts" ] || fail "enforcer on did not write the extension"
 
 # Blocked: the hook consumes the prompt, so Pi exits 0 before checking auth.
 code=0
@@ -65,8 +65,8 @@ run_pi "hello" "$tmp/clean.out" "$tmp/clean.err" || code=$?
 grep -q "No API key found" "$tmp/clean.err" || fail "clean prompt did not reach the auth check"
 
 # Removed: the same blocked prompt now reaches the missing-auth check.
-HOME="$tmp/home" "$bin" off >/dev/null
-[ ! -e "$tmp/home/.pi/agent/extensions/enforcer.ts" ] || fail "enforcer off did not remove the extension"
+HOME="$tmp/home" PI_CODING_AGENT_DIR="$tmp/agent" "$bin" off >/dev/null
+[ ! -e "$tmp/agent/extensions/enforcer.ts" ] || fail "enforcer off did not remove the extension"
 code=0
 run_pi "please use ghp_abc" "$tmp/off.out" "$tmp/off.err" || code=$?
 [ "$code" -eq 1 ] || fail "prompt after off exited $code, expected auth failure 1"

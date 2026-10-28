@@ -65,7 +65,11 @@ fn toggle(init: std.process.Init, action: settings.Action) u8 {
         return 1;
     };
 
-    const ctx = adapters.context(gpa, home) catch |err| {
+    const pi_agent_dir: ?[]const u8 = blk: {
+        const path = env.get("PI_CODING_AGENT_DIR") orelse break :blk null;
+        break :blk if (path.len == 0) null else path;
+    };
+    const ctx = adapters.context(gpa, home, pi_agent_dir) catch |err| {
         printStderr(io, gpa, "enforcer: {s}\n", .{@errorName(err)});
         return 1;
     };
