@@ -254,7 +254,10 @@ cmd_list() {
       if [ -n "$config" ]; then
         settings=$(pi_settings_file "$config")
       else
-        settings=$settings_file
+        # Profiles and the pi.config label arrived together, so a volume without
+        # that label predates profiles and belongs to the default profile -- not
+        # to whichever profile happens to be listing.
+        settings=$(pi_settings_file "$(pi_default_config_dir)")
       fi
     fi
     printf '%-10s %-12s %-42s %-10s %s\n' "$vol_profile" "$inst" "$vol" "$size" "$settings"

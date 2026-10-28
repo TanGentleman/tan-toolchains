@@ -367,6 +367,25 @@ case_clear_list_runtime_down() {
   not_contains 'current profile' "$(o)" "no headers for an unanswered runtime"
 }
 
+# A volume created before profiles existed has no pi.config label. Listing it
+# from another profile must not claim that profile's settings file.
+case_clear_list_legacy_volume() {
+  new_case legacylist
+  printf 'pi-agent-home\n' > "$world/volumes.list"
+  # Kind labels predate profiles, so this volume is recognisably an agent volume
+  # but has no pi.profile/pi.config/pi.settings.
+  printf '[{"id":"pi-agent-home","configuration":{"name":"pi-agent-home","labels":{"pi.managed":"true","pi.instance":"default","pi.kind":"agent"}}}]' \
+    > "$world/volumes/pi-agent-home.json"
+  run_it env -u PI_CONFIG_DIR HOME="$home" PI_CONFIG_DIR="$t/other" \
+    CONTAINER_CLI="$fake" FAKE_CONTAINER_WORLD="$world" FAKE_CONTAINER_LOG="$logfile" \
+    bash "$clear_sh" list
+  expect_status 0 "clear.sh list tolerates a legacy volume"
+  row=$(printf '%s\n' "$(o)" | grep 'pi-agent-home' | head -n 1)
+  contains 'pi-agent-home' "$row" "legacy volume listed"
+  contains "$home/.config/pi-container/settings.json" "$row" "legacy volume uses the default profile settings"
+  not_contains "$t/other/settings.json" "$row" "legacy volume does not borrow the listing profile"
+}
+
 # ---------------------------------------------------- clear.sh save + nuke agent
 case_nuke_agent() {
   new_case nukeagent
@@ -548,7 +567,8 @@ case_nuke_all_builder_failure() {
 for c in case_normal_run case_check_enforcer case_tokenless_run case_tokenless_check case_pack_missing_pi \
          case_network_nat_refused case_network_escaped_subnet \
          case_proxy_unknown_state case_manual_clone case_manual_clone_env case_manual_clone_env_mode \
-         case_clear_list case_clear_list_runtime_down case_nuke_agent case_nuke_clones_scoped \
+         case_clear_list case_clear_list_runtime_down case_clear_list_legacy_volume \
+         case_nuke_agent case_nuke_clones_scoped \
          case_option_guards case_nuke_all_builder_failure case_mount_guards; do
   "$c"
 done
