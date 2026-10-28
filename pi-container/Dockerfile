@@ -91,6 +91,14 @@ RUN cd /tmp/enforcer \
 RUN test "$(printf '{"prompt":"hello"}' | enforcer hook; echo $?)" = 0 \
     && test "$(printf '{"prompt":"ghp_abc"}' | enforcer hook 2>/dev/null; echo $?)" = 2 \
     && enforcer --help >/dev/null
+# Exercise the extension write path in the image, including PI_CODING_AGENT_DIR.
+RUN tmp=$(mktemp -d) \
+    && mkdir -p "$tmp/agent" \
+    && HOME="$tmp" PI_CODING_AGENT_DIR="$tmp/agent" enforcer on >/dev/null \
+    && test -f "$tmp/agent/extensions/enforcer.ts" \
+    && HOME="$tmp" PI_CODING_AGENT_DIR="$tmp/agent" enforcer off >/dev/null \
+    && test ! -e "$tmp/agent/extensions/enforcer.ts" \
+    && rm -rf "$tmp"
 
 # Version drift fails the build; a mismatched Zig/ZLS pair mis-parses code silently.
 RUN [ "$(zig version)" = "$ZIG_VERSION" ] \

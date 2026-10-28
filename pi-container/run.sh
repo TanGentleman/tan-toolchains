@@ -41,9 +41,11 @@ usage() {
 Run Pi inside Apple's container, on a host-only network.
   run.sh [--instance NAME]                Pi on the current folder (trusted repos only)
   run.sh [--instance NAME] --clone O/R    Pi on a clone kept in a volume
+  run.sh [--instance NAME] [--clone O/R] [COMMAND [ARG...]]
+                                             Pi, or COMMAND, in the locked container
   run.sh [--instance NAME] [--clone O/R] --manual [CMD]
                                              shell without Pi or proxy
-  run.sh [--instance NAME] check [O/R]    keys, GitHub, and the network lock
+  run.sh [--instance NAME] check [O/R]    keys, GitHub, the network lock, and enforcer
   run.sh proxy                            follow the proxy container's logs
   run.sh proxy-stop                       stop the proxy container
   run.sh --help                           show this text
@@ -654,6 +656,20 @@ case $info in
        echo "FAIL: zigpeek could not read the langref"; s=1
      fi ;;
 esac
+echo "== enforcer"
+if ! command -v enforcer >/dev/null 2>&1; then
+  echo "FAIL: enforcer is missing from the image"; s=1
+elif printf '{"prompt":"hello"}' | enforcer hook >/dev/null 2>&1; then
+  code=0
+  printf '{"prompt":"ghp_abc"}' | enforcer hook >/dev/null 2>&1 || code=$?
+  if [ "$code" = 2 ]; then
+    echo "enforcer is installed and blocks ghp_"
+  else
+    echo "FAIL: enforcer did not block a GitHub token (exit $code)"; s=1
+  fi
+else
+  echo "FAIL: enforcer did not allow a clean prompt"; s=1
+fi
 echo "== other sites"
 if curl -fsS -m 15 -o /dev/null https://example.com; then
   echo "FAIL: example.com was reachable"; s=1

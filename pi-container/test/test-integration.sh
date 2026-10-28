@@ -165,6 +165,24 @@ case_normal_run() {
   log_lacks "OPENROUTER_API_KEY=sk-or-v1-real" "real key never appears in argv"
 }
 
+# --------------------------------------------------- check includes enforcer
+case_check_enforcer() {
+  new_case checkenforcer
+  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  image_json 1.4.0 > "$world/images/pi-proxy_local.json"
+  network_json "172.30.240.0/24" > "$world/networks/pi-locked.json"
+  printf 'pi-locked\n' > "$world/networks.list"
+  proxy_running_json > "$world/containers/pi-proxy.json"
+  printf '172.30.240.2\n' > "$cfg/private/proxy.addr"
+  (
+    cd "$t/project" || exit 1
+    pi "$run_sh" check owner/repo
+  )
+  expect_status 0 "check succeeds against the fake runtime"
+  log_has 'enforcer' "check probes enforcer"
+  log_has 'ghp_' "check probes the blocking rule"
+}
+
 # ------------------------------------------------------ network shape guards
 case_network_nat_refused() {
   new_case nat
@@ -385,6 +403,7 @@ case_option_guards() {
     bash "$run_sh" --help
   expect_status 0 "help works before validation"
   contains 'Run Pi inside' "$(o)" "help text shown"
+  contains '[COMMAND [ARG...]]' "$(o)" "help documents normal-mode commands"
   log_lacks "network create" "help has no side effects"
 }
 
@@ -414,7 +433,7 @@ case_nuke_all_builder_failure() {
 }
 
 # ------------------------------------------------------------------- drivers
-for c in case_normal_run case_network_nat_refused case_network_escaped_subnet \
+for c in case_normal_run case_check_enforcer case_network_nat_refused case_network_escaped_subnet \
          case_proxy_unknown_state case_manual_clone case_clear_list case_nuke_agent case_nuke_clones_scoped \
          case_option_guards case_nuke_all_builder_failure case_mount_guards; do
   "$c"
