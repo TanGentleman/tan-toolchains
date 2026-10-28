@@ -6,6 +6,10 @@ configuration. It uses the container's default network, so it is not subject to
 installed, but manual mode configures no provider, so use normal `pic` for the
 agent.
 
+Manual mode does not mount the instance's agent volume. Use a normal-mode
+command such as `pic bash` when changing state under `/root/.pi/agent`, including
+`enforcer on` and `enforcer off`.
+
 Manual mode does not require the env file. It mounts the current folder, or a
 clone with `--clone O/R`; clone mode reuses an existing `pi.env` for GitHub
 authentication. `PI_CLONE=O/R` makes clone the default. A cloned shell starts in

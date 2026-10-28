@@ -70,6 +70,10 @@ pic --manual --clone you/your-repo
 PI_CLONE=you/your-repo pic --manual
 ```
 
+A trailing command runs in the normal Pi container instead of `pi`. For example,
+`pic bash` has the proxy, settings, and agent volume mounted; `pic --manual` has
+the editor mounts and the default network instead.
+
 `/model` picks a model; `:free` costs nothing. `/quit` exits and deletes the Pi VM. Do not run `/login`; it saves a real key into the agent volume.
 
 To enable the prompt hook for an instance, run `enforcer on` in its agent

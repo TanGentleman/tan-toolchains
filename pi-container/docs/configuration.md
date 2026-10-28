@@ -72,10 +72,15 @@ pic pi --model openrouter/<model>:high
 | `--instance NAME` | Isolate sessions and the agent volume. Defaults to `PI_INSTANCE` or `default`. |
 | `--clone O/R` | Use a clone kept in a volume instead of the current folder. Defaults to `PI_CLONE` when set. |
 | `--manual [CMD]` | Open a shell without Pi or the proxy. See [Manual mode](manual.md). |
-| `check [O/R]` | Check keys, the proxy, GitHub, and the network lock. |
+| `COMMAND [ARG...]` | Run inside the normal Pi container instead of `pi`; for example, `run.sh bash`. |
+| `check [O/R]` | Check keys, the proxy, GitHub, the network lock, and enforcer. |
 | `proxy` | Follow the profile's proxy logs. |
 | `proxy-stop` | Stop the profile's proxy. |
 | `--help` | Print usage. |
+
+A trailing command uses normal mode: it has the proxy, settings, and agent
+volume mounted, unlike `--manual`. `run.sh bash` is therefore the way to run
+`enforcer on` in a persistent agent volume.
 
 ### `clear.sh`
 

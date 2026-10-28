@@ -78,7 +78,11 @@ Run these from `pi-container/` unless noted.
       save scoped models with `Ctrl+S`; after quitting, the hash is unchanged.
 - [ ] An edit to the host `settings.json` applies on the next launch.
 - [ ] `./run.sh bash -c 'enforcer on'` writes the extension into the instance's
-      agent volume; a restart makes Pi load it. `enforcer off` removes it.
+      agent volume; a restart makes Pi load it. `enforcer off` removes it. This
+      uses normal mode deliberately: `--manual` does not mount the agent volume.
+- [ ] With the hook installed and Pi restarted, submit a prompt containing
+      `ghp_`; Pi shows the enforcer warning and sends no request. A clean prompt
+      proceeds normally.
 - [ ] `printf '{"prompt":"ghp_abc"}' | enforcer hook` exits 2; a clean prompt
       exits 0, and neither writes to stdout.
 - [ ] `./clear.sh nuke agent --instance other --yes` deletes only the E2E
