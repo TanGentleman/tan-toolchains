@@ -10,6 +10,7 @@
 #   run.sh --help                           show this text
 #   PI_INSTANCE=NAME                        default for --instance
 #   PI_CLONE=O/R                            default for --clone
+#   PI_IMAGE=IMAGE                          image to run; packs: build.sh --help
 set -euo pipefail
 
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
@@ -52,6 +53,7 @@ Run Pi inside Apple's container, on a host-only network.
   run.sh --help                           show this text
   PI_INSTANCE=NAME                        default for --instance
   PI_CLONE=O/R                            default for --clone
+  PI_IMAGE=IMAGE                          image to run; packs: build.sh --help
 EOF
 }
 

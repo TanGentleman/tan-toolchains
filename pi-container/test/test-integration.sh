@@ -497,6 +497,7 @@ case_option_guards() {
   expect_status 0 "help works before validation"
   contains 'Run Pi inside' "$(o)" "help text shown"
   contains '[COMMAND [ARG...]]' "$(o)" "help documents normal-mode commands"
+  contains 'PI_IMAGE=IMAGE' "$(o)" "help documents the image override"
   log_lacks "network create" "help has no side effects"
 }
 

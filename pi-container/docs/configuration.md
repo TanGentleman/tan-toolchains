@@ -102,11 +102,15 @@ the repo root context and tags it. `PI_IMAGE` selects the image at runtime.
 Pass extra `container build` options after the pack, for example
 `./build.sh agent --build-arg PI_VERSION=1.4.0`. `all` builds every pack.
 
-Images record `PI_CONTAINER_CAPABILITIES` in their environment. Normal mode
-refuses an image without `pi`; `check` also requires `enforcer`, `zig`, and
-`zigpeek`. An image with no capability metadata is treated as a legacy full
-image. If `GITHUB_TOKEN` is set, `check` requires `gh`, so use `agent-gh` or
-`full`; `agent` is for tokenless runs.
+Rebuilding a pack replaces its tag and reuses the layer cache, so a Dockerfile
+change only rebuilds from the first changed stage. Run `./build.sh PACK
+--no-cache` for a clean build; deleting the image first is not required.
+
+Images record `PI_CONTAINER_CAPABILITIES` in their environment. Normal mode and
+`check` both refuse an image without `pi`; `check` additionally requires
+`enforcer`, `zig`, and `zigpeek`. An image with no capability metadata is
+treated as a legacy full image. If `GITHUB_TOKEN` is set, `check` also requires
+`gh`, so use `agent-gh` or `full`; `agent` is for tokenless runs.
 
 ## Flags
 
