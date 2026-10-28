@@ -108,7 +108,9 @@ change only rebuilds from the first changed stage. Run `./build.sh PACK
 
 `run.sh` prints the instance, image, pack, and capabilities to stderr before it
 starts. An instance is not bound to an image: `PI_IMAGE` selects the pack for
-that run only.
+that run only. `capabilities=-` means the image was built before the pack
+metadata existed, so `./build.sh full` (or the pack's target) again; the gate
+treats such an image as a legacy full image.
 
 Images record `PI_CONTAINER_CAPABILITIES` in their environment. Normal mode and
 `check` both refuse an image without `pi`; `check` additionally requires
