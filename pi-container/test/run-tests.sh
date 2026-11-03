@@ -8,7 +8,6 @@
 set -uo pipefail
 
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
-root=$(CDPATH= cd -- "$here/.." && pwd -P)
 
 fail=0
 
@@ -27,11 +26,6 @@ for f in "$here"/test-*.sh; do
   printf '== %s\n' "${f##*/}"
   if ! bash "$f"; then fail=1; fi
 done
-
-# The naming tests predate the test/ directory and stay where run.sh users and
-# the README expect them.
-printf '== test-names.sh\n'
-if ! bash "$root/test-names.sh"; then fail=1; fi
 
 if [ "$fail" -eq 0 ]; then
   printf 'run-tests.sh: all tests passed\n'

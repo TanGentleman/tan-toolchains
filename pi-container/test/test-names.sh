@@ -3,7 +3,8 @@
 set -euo pipefail
 
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
-. "$here/names.sh"
+root=$(CDPATH= cd -- "$here/.." && pwd -P)
+. "$root/names.sh"
 
 fail() { printf 'test-names.sh: %s\n' "$*" >&2; exit 1; }
 
