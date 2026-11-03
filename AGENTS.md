@@ -25,7 +25,7 @@ cd enforcer && zig build check
 cd enforcer && zig build --release=small
 cd enforcer && bash test/pi-integration.sh ./zig-out/bin/enforcer  # pi required
 
-for f in pi-container/*.sh pi-container/lib/*.sh pi-container/test/*.sh enforcer/test/*.sh scripts/*.sh; do
+for f in pi-container/*.sh pi-container/lib/*.sh pi-container/test/*.sh enforcer/test/*.sh; do
   bash -n "$f"
 done
 python3 -m py_compile pi-container/proxy.py
@@ -59,9 +59,10 @@ explicitly that `run.sh check` and the E2E checklist were not run.
 
 - The observed contract is Apple `container` 1.6.1. Since 1.4.1, JSON output
   uses plain `/`; older captures may use `\/`. Keep `jq`, which decodes both.
-- Capture real shapes on a Mac with `scripts/container-discovery.sh` or refresh
-  fixtures with `pi-container/test/record-fixtures.sh`. Both check the expected
-  paths after capture.
+- Capture real shapes on a Mac with `pi-container/test/record-fixtures.sh`. It
+  replaces a fixture only after the capture parses as JSON and checks the paths
+  the parsers use, so review `git diff` and revert an unwanted capture rather
+  than reaching for a second tool.
 - Parse the observed JSON paths with `jq` in `pi-container/lib/inspect.sh`. Do
   not add whole-document `grep`/`sed`/`awk` extraction or accept unobserved
   shapes. A new shape needs a fixture and a test.
@@ -159,5 +160,5 @@ Move these together:
   invariant, and test coverage. Keep one concern per commit.
 - Run the relevant checks and inspect `git diff` before committing. Never commit
   `.zig-cache/`, `zig-out/`, captures, secrets, or generated binaries.
-- If a check needs a Mac, put the helper in `scripts/`, ask the user to run the
-  exact command, and end the turn. Do not fake the result.
+- If a check needs a Mac, put the helper in `pi-container/test/`, ask the user
+  to run the exact command, and end the turn. Do not fake the result.

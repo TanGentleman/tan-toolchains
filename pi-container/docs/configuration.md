@@ -195,7 +195,7 @@ to the container when set on the host.
 | --- | --- | --- |
 | `PI_PROXY_WAIT` | `90` | Seconds to wait for the proxy to answer. |
 | `PI_LOCK_WAIT` | `120` | Seconds to wait for the host setup lock. |
-| `CONTAINER_CLI` | `container` | CLI used by `run.sh`, `clear.sh`, `build.sh`, `record-fixtures.sh`, and `container-discovery.sh`. |
+| `CONTAINER_CLI` | `container` | CLI used by `run.sh`, `clear.sh`, `build.sh`, and `record-fixtures.sh`. |
 
 `PI_SOURCE_ONLY`, `PI_SKIP_HOST_SETUP`, and `PI_SKIP_PROXY_IP` are test hooks.
 Do not use them for normal runs.

@@ -67,8 +67,6 @@ binaries run on macOS and do not use its network.
   to refresh captures; it only replaces a fixture after the output parses as
   JSON. Exact expectations are inline, so re-recording does not rewrite them,
   and a changed shape should fail a smoke test instead of a run.
-- `scripts/container-discovery.sh` captures raw shapes and a jq summary without
-  touching the fixtures. Use it when iterating on a new Apple CLI version.
 - Image packs are built manually with `./build.sh PACK`; CI does not build
   Dockerfile targets. The `agent` and `editor` packs deliberately omit `gh`, so
   a `check` with `GITHUB_TOKEN` set fails on those images instead of silently
@@ -103,13 +101,11 @@ behavior or test value justifies the churn.
   the label/history/Dockerfile version instead. Rebuild the image, re-run
   `test/record-fixtures.sh`, and check that `run.sh check` seeds the expected
   `lastChangelogVersion`.
-- `test/record-fixtures.sh` and `scripts/container-discovery.sh` are
-  syntax-checked but not behavior-tested. They are local Mac tools; add tests
-  only if they start changing often or grow more logic.
+- `test/record-fixtures.sh` is syntax-checked but not behavior-tested. It is a
+  local Mac tool; add tests only if it starts changing often or grows more
+  logic.
 - Instances are not bound to images. `PI_IMAGE` is a per-run choice, and `run.sh
   announce_run` prints the pair but nothing records it, so `clear.sh list`
   cannot show which image last wrote a volume. If that provenance matters, add a
   marker file per agent volume rather than a `pi.image` label: labels are fixed
   at `volume create` and would go stale on the first image switch.
-- `scripts/` is intentionally temporary. Fold it into `pi-container/test/` or
-  remove it if discovery stops being a recurring workflow.
