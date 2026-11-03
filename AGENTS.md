@@ -13,8 +13,7 @@ Read `README.md`, `pi-container/README.md` and the docs under
 - `pi-container/`: bash driver, Dockerfiles, and proxy that run Pi in an Apple
   `container` VM.
 
-The current development line is `container-bootstrap-3`; `main` is stable. Do
-not merge or tag before `pi-container/E2E.md` passes on macOS.
+Do not merge or tag before `pi-container/E2E.md` passes on macOS.
 
 ## Commands
 
@@ -143,7 +142,7 @@ Move these together:
   agent knowledge in `adapters.zig`/`pi.zig`. Run `zig fmt`.
 - Docs must be concise and literal: no slogans, stale metrics, or repeated
   claims. Root `README.md` owns the network boundary; `UPGRADES.md` holds open
-  work only; `modal-scratchpad.md` is speculative.
+  work only.
 - `pi-container/docs/configuration.md` is the source of truth for user-facing
   flags, environment variables, generated config files, and build arguments.
   Update it with the code and `--help` text.
