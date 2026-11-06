@@ -169,6 +169,15 @@ The product path: build in the container, run on the Mac.
       cache. It keeps other profiles' proxy/network resources, other agent
       volumes, all clone volumes, and other pack tags.
 - [ ] `./clear.sh list` still shows any retained non-E2E instances.
+- [ ] `PI_CONFIG_DIR=$PI_CONFIG_DIR ./clear.sh nuke profile --yes` deletes the
+      E2E profile's agent volumes, clone volumes, proxy, network, and proxy
+      image, and reports the shared `PI_IMAGE`, the builder cache, and other
+      profiles as kept. Other profiles still run without a rebuild.
+- [ ] After `nuke all`, `./clear.sh nuke agent --yes` still deletes a leftover
+      agent volume in another profile and prints that the backup was skipped
+      because the image is missing.
+- [ ] `./clear.sh list` marks a profile whose `PI_CONFIG_DIR` no longer exists
+      with a trailing `(missing)` in the settings column.
 - [ ] After `nuke all`, `./run.sh` reports the missing image instead of pulling
       from Docker Hub. Then rebuild and `./run.sh check` again: `./build.sh full`.
 - [ ] Host config, the Neovim paths under `$PI_CONFIG_DIR`, and project files

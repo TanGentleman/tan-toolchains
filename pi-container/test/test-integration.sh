@@ -66,6 +66,17 @@ log_lacks() { # needle, label
   fi
 }
 
+# Unlike log_lacks, this one does not match a longer name that contains the
+# needle: 'pi-proxy' is a prefix of 'pi-proxy-<id>'. The fake logs one CALL line
+# per invocation, so the whole line is the exact argv.
+log_lacks_line() { # exact call, label
+  if [ -f "$logfile" ] && grep -qxF -- "$1" "$logfile"; then
+    fail "${2:-log}: unexpected [$1]"
+  else
+    pass
+  fi
+}
+
 # Create an isolated world and config. Sets: t, home, cfg, world, logfile.
 new_case() { # name
   t="$tmp/$1"
@@ -409,6 +420,22 @@ case_nuke_agent() {
   fi
 }
 
+# The shared agent image can be gone -- `nuke all` deletes it -- and cleanup must
+# still work. The volume goes without a backup, and the run says so.
+case_nuke_agent_without_image() {
+  new_case nukeagentnoimage
+  printf 'pi-agent-home\n' > "$world/volumes.list"
+  vol_json pi-agent-home agent default "$cfg" "$cfg/settings.json" \
+    > "$world/volumes/pi-agent-home.json"
+  run_it env -u PI_CONFIG_DIR HOME="$home" PI_CONFIG_DIR="$cfg" PI_BACKUP_DIR="$t/backups" \
+    CONTAINER_CLI="$fake" FAKE_CONTAINER_WORLD="$world" FAKE_CONTAINER_LOG="$logfile" \
+    bash "$clear_sh" nuke agent --yes
+  expect_status 0 "nuke agent succeeds without the agent image"
+  log_has "volume delete pi-agent-home" "agent volume deleted without the image"
+  contains 'without a session backup' "$(o)" "skipped backup is reported"
+  log_lacks 'run --rm' "no backup container runs without the image"
+}
+
 # ------------------------------------------------ clear.sh nuke clones scoped
 case_nuke_clones_scoped() {
   new_case nukeclones
@@ -428,6 +455,92 @@ case_nuke_clones_scoped() {
   log_lacks "volume delete pi-clone_unmanaged" "unmanaged clone kept"
   not_contains 'pi-clone_other' "$(o)" "other clone not listed for deletion"
   not_contains 'pi-clone_unmanaged' "$(o)" "unmanaged clone not listed for deletion"
+}
+
+# ---------------------------------------------- clear.sh list marks a dead profile
+# A profile whose config dir is gone still owns a proxy, a network, an image, and
+# volumes. list flags it so `nuke profile` has a visible target.
+case_clear_list_dead_profile() {
+  new_case listdead
+  deadcfg="$t/deadcfg"
+  id=$(. "$root/names.sh"; pi_profile_id "$deadcfg")
+  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  printf 'pi-agent-home\npi-agent-%s-work\n' "$id" > "$world/volumes.list"
+  vol_json pi-agent-home agent default "$cfg" "$cfg/settings.json" \
+    > "$world/volumes/pi-agent-home.json"
+  vol_json "pi-agent-$id-work" agent work "$deadcfg" "$deadcfg/settings.json" "" "$id" \
+    > "$world/volumes/pi-agent-$id-work.json"
+  run_it env -u PI_CONFIG_DIR HOME="$home" PI_CONFIG_DIR="$cfg" \
+    CONTAINER_CLI="$fake" FAKE_CONTAINER_WORLD="$world" FAKE_CONTAINER_LOG="$logfile" \
+    bash "$clear_sh" list
+  expect_status 0 "list succeeds with a dead profile present"
+  dead_row=$(printf '%s\n' "$(o)" | grep "pi-agent-$id-work" | head -n 1)
+  live_row=$(printf '%s\n' "$(o)" | grep 'pi-agent-home' | head -n 1)
+  contains '(missing)' "$dead_row" "dead profile settings are marked missing"
+  not_contains '(missing)' "$live_row" "live profile is not marked missing"
+}
+
+# ---------------------------------------------------- clear.sh nuke profile
+# One command retires a profile: every instance's agent volume, its clone
+# volumes, its proxy, network, and proxy image. The shared agent image, the
+# builder cache, and other profiles stay; the config dir stays.
+case_nuke_profile() {
+  new_case nukeprofile
+  deadcfg="$t/deadcfg"
+  id=$(. "$root/names.sh"; pi_profile_id "$deadcfg")
+  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  image_json 1.4.0 > "$world/images/pi-proxy-${id}_local.json"
+  network_json "172.30.240.0/24" > "$world/networks/pi-locked-$id.json"
+  printf 'pi-locked-%s\n' "$id" > "$world/networks.list"
+  proxy_running_json | sed "s/pi-proxy/pi-proxy-$id/g" > "$world/containers/pi-proxy-$id.json"
+  printf 'pi-agent-home\npi-agent-%s-work\npi-agent-%s-other\npi-clone_%s_work_owner-repo-abcdef12\n' \
+    "$id" "$id" "$id" > "$world/volumes.list"
+  vol_json pi-agent-home agent default "$cfg" "$cfg/settings.json" \
+    > "$world/volumes/pi-agent-home.json"
+  vol_json "pi-agent-$id-work" agent work "$deadcfg" "$deadcfg/settings.json" "" "$id" \
+    > "$world/volumes/pi-agent-$id-work.json"
+  vol_json "pi-agent-$id-other" agent other "$deadcfg" "$deadcfg/settings.json" "" "$id" \
+    > "$world/volumes/pi-agent-$id-other.json"
+  vol_json "pi-clone_${id}_work_owner-repo-abcdef12" clone work "$deadcfg" "$deadcfg/settings.json" \
+    owner/repo "$id" > "$world/volumes/pi-clone_${id}_work_owner-repo-abcdef12.json"
+  mkdir -p "$t/stream/sessions"
+  printf '{"session":1}\n' > "$t/stream/sessions/a.jsonl"
+  tar -C "$t/stream" -cf "$t/stream.tar" sessions
+  cp "$t/stream.tar" "$world/run.stdout"
+  run_it env -u PI_CONFIG_DIR HOME="$home" PI_CONFIG_DIR="$deadcfg" PI_BACKUP_DIR="$t/backups" \
+    CONTAINER_CLI="$fake" FAKE_CONTAINER_WORLD="$world" FAKE_CONTAINER_LOG="$logfile" \
+    bash "$clear_sh" nuke profile --yes
+  expect_status 0 "nuke profile succeeds"
+  log_has "volume delete pi-agent-$id-work" "work agent volume deleted"
+  log_has "volume delete pi-agent-$id-other" "other agent volume deleted"
+  log_has "volume delete pi-clone_${id}_work_owner-repo-abcdef12" "clone volume deleted"
+  log_has "delete --force pi-proxy-$id" "profile proxy deleted"
+  log_has "network delete pi-locked-$id" "profile network deleted"
+  log_has "image delete pi-proxy-${id}:local" "profile proxy image deleted"
+  log_lacks "volume delete pi-agent-home" "another profile's agent volume kept"
+  log_lacks_line "CALL delete --force pi-proxy" "the default profile's proxy kept"
+  log_lacks_line "CALL network delete pi-locked" "the default profile's network kept"
+  log_lacks "image delete pi-agent:local" "the shared agent image kept"
+  log_lacks "builder delete" "the builder cache kept"
+  contains "kept: $deadcfg" "$(o)" "config dir reported as kept"
+  [ -d "$deadcfg" ] && fail "nuke profile must not create the config dir" || pass
+  find "$t/backups" -name a.jsonl -type f 2>/dev/null | grep -q . && pass || fail "sessions were not backed up"
+}
+
+# --instance is parsed before dispatch, so `nuke profile` must refuse it rather
+# than silently deleting every instance in the profile.
+case_nuke_profile_rejects_instance() {
+  new_case nukeprofileinst
+  printf 'pi-agent-home\n' > "$world/volumes.list"
+  vol_json pi-agent-home agent default "$cfg" "$cfg/settings.json" \
+    > "$world/volumes/pi-agent-home.json"
+  run_it env -u PI_CONFIG_DIR HOME="$home" PI_CONFIG_DIR="$cfg" \
+    CONTAINER_CLI="$fake" FAKE_CONTAINER_WORLD="$world" FAKE_CONTAINER_LOG="$logfile" \
+    bash "$clear_sh" nuke profile --instance work --yes
+  expect_status 1 "nuke profile rejects --instance"
+  contains 'drop --instance' "$(e)" "the refusal explains the flag"
+  log_lacks 'volume delete' "nothing is deleted"
+  log_lacks 'delete --force' "the proxy stays"
 }
 
 # --------------------------------------------------------------- mount guards
@@ -568,7 +681,9 @@ for c in case_normal_run case_check_enforcer case_tokenless_run case_tokenless_c
          case_network_nat_refused case_network_escaped_subnet \
          case_proxy_unknown_state case_manual_clone case_manual_clone_env case_manual_clone_env_mode \
          case_clear_list case_clear_list_runtime_down case_clear_list_legacy_volume \
-         case_nuke_agent case_nuke_clones_scoped \
+         case_clear_list_dead_profile \
+         case_nuke_agent case_nuke_agent_without_image case_nuke_clones_scoped \
+         case_nuke_profile case_nuke_profile_rejects_instance \
          case_option_guards case_nuke_all_builder_failure case_mount_guards; do
   "$c"
 done

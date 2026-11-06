@@ -48,6 +48,7 @@ instances also share the Neovim paths in [Manual mode](manual.md); use the
 ./clear.sh save --instance work                   # sessions only, for analysis
 ./clear.sh nuke agent --instance work             # save, then delete the profile's work agent volume
 ./clear.sh nuke clones --instance work            # delete work's clone volumes in this profile
+./clear.sh nuke profile                           # delete the whole profile, keeping the shared image
 ./clear.sh nuke all                               # reset this profile's default instance
 ./clear.sh nuke all --instance work               # reset this profile's work instance
 ```
@@ -60,7 +61,10 @@ config and project files stay.
 
 `nuke agent` saves sessions, then deletes the whole agent volume: `auth.json`,
 installed skills/extensions, trust decisions, and other state. The profile
-settings file is not in that volume.
+settings file is not in that volume. When the agent image is absent -- `nuke
+all`, or a hand-run `container image delete` -- the volume is deleted without a
+backup and the output says so, because cleanup must not depend on an image
+another profile may have removed.
 
 `nuke clones` deletes the selected instance's clone volumes in the current
 profile, scoped by volume labels. `nuke all` deletes the selected instance's
@@ -74,4 +78,27 @@ the active pack:
 
 ```bash
 ./build.sh full          # or the pack matching PI_IMAGE
+```
+
+## Retiring a profile
+
+`nuke profile` deletes everything a `PI_CONFIG_DIR` owns: the agent volume of
+every instance (sessions saved first), the profile's clone volumes, its proxy,
+its host-only network, and its proxy image. It keeps the shared agent image,
+the builder cache, other profiles, and the config directory itself, so the
+other profiles do not need a rebuild.
+
+```bash
+PI_CONFIG_DIR=~/.config/pi-container-work ./clear.sh nuke profile
+rm -rf ~/.config/pi-container-work        # only when the directory is retired
+```
+
+Every name in the stack derives from the config path, so a profile is still
+reachable after its directory is gone -- the state that otherwise strands a
+running `pi-proxy-<id>` holding the real OpenRouter key. `list` marks those rows
+`(missing)` in the settings column; delete them with the path it prints:
+
+```bash
+./clear.sh list                           # b0536c38 ... /var/folders/.../settings.json (missing)
+PI_CONFIG_DIR=/var/folders/... ./clear.sh nuke profile
 ```

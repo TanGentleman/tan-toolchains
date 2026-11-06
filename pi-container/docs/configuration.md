@@ -144,8 +144,9 @@ volume mounted, unlike `--manual`. `run.sh bash` is therefore the way to run
 | --- | --- |
 | `list` | Show profiles, instances, sessions, and clone volumes. |
 | `save` | Save session JSONL files under `PI_BACKUP_DIR`. |
-| `nuke agent` | Save sessions, then delete the selected instance's agent volume. |
+| `nuke agent` | Save sessions, then delete the selected instance's agent volume. Without the agent image the backup is skipped, not fatal. |
 | `nuke clones` | Delete the selected instance's clone volumes in this profile. |
+| `nuke profile` | Delete this profile: every instance's agent volume, its clone volumes, proxy, network, and proxy image. The shared image and builder cache stay. |
 | `nuke all` | Delete the selected instance's agent volume plus the active image and profile resources. See [Operations](operations.md). |
 | `--instance NAME` | Scope `save` or `nuke`. Defaults to `PI_INSTANCE` or `default`. |
 | `--yes` | Skip the `nuke` confirmation. |
