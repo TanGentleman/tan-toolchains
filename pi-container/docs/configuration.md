@@ -60,7 +60,8 @@ on the Mac; changes apply on the next launch.
 | `defaultModel` | `deepseek/deepseek-v4.1-flash-1017` | Pi model. |
 | `lastChangelogVersion` | Image Pi version | Set from `PI_CONTAINER_PI_VERSION`, or the Dockerfile version when the image records none. Stops Pi from updating it. |
 
-If you rebuild with another `PI_VERSION`, update an existing host settings file;
+If you rebuild with another `PI_VERSION`, update `lastChangelogVersion` in an
+existing host settings file, or delete the file so `run.sh` re-seeds it;
 `run.sh check` warns when it is stale.
 
 Because settings are read-only, Pi cannot persist preference changes. These
@@ -100,7 +101,7 @@ the repo root context and tags it. `PI_IMAGE` selects the image at runtime.
 ```
 
 Pass extra `container build` options after the pack, for example
-`./build.sh agent --build-arg PI_VERSION=1.4.0`. `all` builds every pack.
+`./build.sh agent --build-arg PI_VERSION=1.5.0`. `all` builds every pack.
 
 Rebuilding a pack replaces its tag and reuses the layer cache, so a Dockerfile
 change only rebuilds from the first changed stage. Run `./build.sh PACK
@@ -206,7 +207,7 @@ Pass these to `./build.sh PACK --build-arg ...`; defaults are in `Dockerfile`.
 
 | Argument | Default | Effect |
 | --- | --- | --- |
-| `PI_VERSION` | `1.4.0` | Pi package version and settings stamp. |
+| `PI_VERSION` | `1.5.0` | Pi package version and settings stamp. |
 | `ZIG_VERSION` | `0.17.0` | Zig toolchain; CI checks this pin. |
 | `ZIG_PUBKEY` | Pinned | Zig minisign public key. |
 | `NVIM_VERSION` | `0.12.6` | Neovim release. |

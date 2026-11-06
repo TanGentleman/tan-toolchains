@@ -1,6 +1,6 @@
 # Build targets are capability packs. The last stage is the default full image;
 # `build.sh` maps pack names to targets and tags. Keep the common pins here.
-ARG PI_VERSION=1.4.0
+ARG PI_VERSION=1.5.0
 ARG ZIG_VERSION=0.17.0
 ARG ZIG_PUBKEY=RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U
 ARG NVIM_VERSION=0.12.6
