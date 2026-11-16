@@ -101,7 +101,7 @@ the repo root context and tags it. `PI_IMAGE` selects the image at runtime.
 ```
 
 Pass extra `container build` options after the pack, for example
-`./build.sh agent --build-arg PI_VERSION=1.5.0`. `all` builds every pack.
+`./build.sh agent --build-arg PI_VERSION=1.5.2`. `all` builds every pack.
 
 Rebuilding a pack replaces its tag and reuses the layer cache, so a Dockerfile
 change only rebuilds from the first changed stage. Run `./build.sh PACK
@@ -208,7 +208,7 @@ Pass these to `./build.sh PACK --build-arg ...`; defaults are in `Dockerfile`.
 
 | Argument | Default | Effect |
 | --- | --- | --- |
-| `PI_VERSION` | `1.5.0` | Pi package version and settings stamp. |
+| `PI_VERSION` | `1.5.2` | Pi package version and settings stamp. |
 | `ZIG_VERSION` | `0.17.0` | Zig toolchain; CI checks this pin. |
 | `ZIG_PUBKEY` | Pinned | Zig minisign public key. |
 | `NVIM_VERSION` | `0.12.6` | Neovim release. |
