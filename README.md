@@ -35,6 +35,7 @@ cd pi-container
 ## Boundaries
 
 - `pi-container/` runs Pi in an Apple `container` VM. `pi-proxy` is its only
-  network path; `--manual` uses the container's default network instead.
+  network path in normal mode; `--manual` uses the default network without Pi,
+  and `--allow-egress` gives Pi the default network and the real key.
 - Shipped tools run on macOS and make no network requests. A separate process
   owns any network layer.

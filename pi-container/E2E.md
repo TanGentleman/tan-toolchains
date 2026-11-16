@@ -72,6 +72,21 @@ Run these from `pi-container/` unless noted.
 - [ ] The default profile's `pi-proxy`/`pi-locked` are untouched by this
       profile's `run.sh check`.
 
+### Egress mode
+- [ ] `./run.sh --allow-egress sh -c 'curl -fsS -m 15 -o /dev/null https://example.com && echo egress-ok'`
+      prints `egress-ok`.
+- [ ] `./run.sh --allow-egress sh -c 'test -n "$OPENROUTER_API_KEY" && [ "$OPENROUTER_API_KEY" != sk-or-v1-placeholder ] && echo real-key-in-vm'`
+      prints `real-key-in-vm`.
+- [ ] `private/egress.env` is mode 600. The run creates no `pi-proxy` or
+      `pi-locked` network and does not require one.
+- [ ] `./run.sh --allow-egress check`, `proxy`, `proxy-stop`, and `--manual`
+      are refused with status 2.
+- [ ] `./run.sh --allow-egress` starts Pi, reaches OpenRouter, and reads and
+      writes the mounted repo.
+- [ ] A session created in egress mode is visible to a normal `./run.sh` for
+      the same instance, and `./run.sh check` still reports the placeholder and
+      blocked direct egress afterwards.
+
 ### Pi and instances
 - [ ] `./run.sh` starts Pi; `/model` works; `/quit` exits.
 - [ ] `/login` is not needed; OpenRouter placeholder is in place.

@@ -18,6 +18,7 @@ Commands run from `pi-container/` unless noted.
 | Agent state | Per instance, in a volume | Sessions and extensions survive restarts and stay isolated. |
 | Settings | Shared per profile, read-only | Pi cannot persist preference or install changes. |
 | Manual mode | Default network, no proxy | Editor work is separate from the locked Pi path. |
+| Egress mode | Off; `--allow-egress` | Runs Pi on the default network when the allowlist is too narrow; the real key enters the VM. |
 | Pack capability check | Refuse missing `pi` in normal mode | A clear error beats a container that cannot start its command. |
 | `nuke all` image scope | The active `PI_IMAGE` only | Other pack tags are not deleted implicitly. |
 | Build context | Repo root | The image compiles `../zigpeek` and `../enforcer`. |
@@ -30,7 +31,7 @@ requires it for the OpenRouter key; manual mode does not require it.
 
 | Key | Used by | Notes |
 | --- | --- | --- |
-| `OPENROUTER_API_KEY` | `pi-proxy` | Required for normal Pi and `proxy`. Pi receives `sk-or-v1-placeholder`; the proxy adds the real key. Set a credit limit. |
+| `OPENROUTER_API_KEY` | `pi-proxy`, `--allow-egress` | Required for normal Pi, `proxy`, and `--allow-egress`. Pi receives `sk-or-v1-placeholder` in normal mode; the proxy adds the real key. Egress mode passes the real key in `private/egress.env`. Set a credit limit. |
 | `GITHUB_TOKEN` | Pi, `check` | Optional. Use a fine-grained, one-repo token with Contents and Pull requests: Read and write. Keep Workflows off. |
 | `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL` | Pi | Optional commit identity. |
 | `GIT_COMMITTER_NAME`, `GIT_COMMITTER_EMAIL` | Pi | Optional; set only when the committer differs from the author. |
@@ -39,6 +40,8 @@ requires it for the OpenRouter key; manual mode does not require it.
 
 - `$PI_CONFIG_DIR/private/proxy.env`: the OpenRouter key only, mounted only into
   `pi-proxy`.
+- `$PI_CONFIG_DIR/private/egress.env`: the OpenRouter key plus the `pi.env`
+  values, passed only to `--allow-egress`. See [Egress mode](egress.md).
 - `$PI_CONFIG_DIR/pi.env`: the GitHub token and commit identity, passed only to
   Pi. It is created only when at least one value is present; removing a token
   from the host file removes the generated file on the next normal run or
@@ -128,6 +131,7 @@ treated as a legacy full image. If `GITHUB_TOKEN` is set, `check` also requires
 | `--instance NAME` | Isolate sessions and the agent volume. Defaults to `PI_INSTANCE` or `default`. |
 | `--clone O/R` | Use a clone kept in a volume instead of the current folder. Defaults to `PI_CLONE` when set. |
 | `--manual [CMD]` | Open a shell without Pi or the proxy. See [Manual mode](manual.md). |
+| `--allow-egress` | Run Pi or `COMMAND` on the default network with the real OpenRouter key. See [Egress mode](egress.md). |
 | `COMMAND [ARG...]` | Run inside the normal Pi container instead of `pi`; for example, `run.sh bash`. |
 | `check [O/R]` | Check keys, the proxy, GitHub when a token is present, the network lock, and enforcer. |
 | `proxy` | Follow the profile's proxy logs. |
@@ -137,6 +141,10 @@ treated as a legacy full image. If `GITHUB_TOKEN` is set, `check` also requires
 A trailing command uses normal mode: it has the proxy, settings, and agent
 volume mounted, unlike `--manual`. `run.sh bash` is therefore the way to run
 `enforcer on` in a persistent agent volume.
+
+`--allow-egress` applies to normal mode's Pi and command path only: it uses the
+default network, passes the real OpenRouter key, and refuses the proxy, `check`,
+and `--manual`.
 
 ### `clear.sh`
 

@@ -4,6 +4,8 @@
 #   run.sh [--instance NAME] --clone O/R    Pi on a clone kept in a volume
 #   run.sh [--instance NAME] [--clone O/R] --manual [CMD]
 #                                              shell without Pi or proxy
+#   run.sh [--instance NAME] [--allow-egress] [--clone O/R] [COMMAND [ARG...]]
+#                                              Pi or COMMAND with full egress
 #   run.sh [--instance NAME] check [O/R]    keys, GitHub, and the network lock
 #   run.sh proxy                            follow the proxy container's logs
 #   run.sh proxy-stop                       stop the proxy container
@@ -29,6 +31,7 @@ nvim_state="${PI_NVIM_STATE:-$cfg/nvim-state}"
 nvim_cache="${PI_NVIM_CACHE:-$cfg/nvim-cache}"
 ca_file="$cfg/certs/ca.pem"
 proxy_env="$cfg/private/proxy.env"
+egress_env="$cfg/private/egress.env"
 port="${PI_PROXY_PORT:-8888}"
 placeholder="sk-or-v1-placeholder"
 cli="${CONTAINER_CLI:-container}"
@@ -47,6 +50,8 @@ Run Pi inside Apple's container, on a host-only network.
                                              Pi, or COMMAND, in the locked container
   run.sh [--instance NAME] [--clone O/R] --manual [CMD]
                                              shell without Pi or proxy
+  run.sh [--instance NAME] [--allow-egress] [--clone O/R] [COMMAND [ARG...]]
+                                             Pi or COMMAND with full network egress
   run.sh [--instance NAME] check [O/R]    keys, GitHub, the network lock, and enforcer
   run.sh proxy                            follow the proxy container's logs
   run.sh proxy-stop                       stop the proxy container
@@ -59,6 +64,7 @@ EOF
 
 instance=${PI_INSTANCE:-$pi_default_instance}
 manual=0
+egress=0
 clone="${PI_CLONE:-}"
 while [ $# -gt 0 ]; do
   case $1 in
@@ -73,6 +79,10 @@ while [ $# -gt 0 ]; do
       ;;
     --manual)
       manual=1
+      shift
+      ;;
+    --allow-egress)
+      egress=1
       shift
       ;;
     --clone)
@@ -91,6 +101,18 @@ case "${1:-}" in
   --help|-h|help) usage; exit 0 ;;
   -*) echo "run.sh: unknown option '$1' (try --help)" >&2; exit 2 ;;
 esac
+if [ "$egress" = 1 ]; then
+  if [ "$manual" = 1 ]; then
+    echo "run.sh: --allow-egress runs Pi; use --manual alone for an editor shell" >&2
+    exit 2
+  fi
+  case "${1:-}" in
+    check|proxy|proxy-stop)
+      echo "run.sh: --allow-egress has no proxy or locked network to $1" >&2
+      exit 2
+      ;;
+  esac
+fi
 if ! pi_instance_valid "$instance"; then
   echo "run.sh: invalid instance '$instance'; use lowercase letters, digits, and hyphens (max 24; not 'home')" >&2
   exit 2
@@ -271,6 +293,37 @@ write_proxy_env() {
   rm -f "$cfg/proxy.env" # old location
 }
 
+# Egress mode has no proxy to add the key, so the container gets a private file
+# with the real key plus the filtered pi.env values. It lives in private/ and is
+# mounted only in egress mode; normal and manual mode still never see the key.
+write_egress_env() {
+  local old_umask tmp
+  mkdir -p "$cfg/private"
+  chmod 700 "$cfg/private"
+  old_umask=$(umask)
+  umask 077
+  tmp=$(mktemp "${egress_env}.XXXXXX")
+  umask "$old_umask"
+  grep '^OPENROUTER_API_KEY=' "$env_file" | tail -n 1 | tr -d '\r' > "$tmp" || true
+  if ! grep -q '^OPENROUTER_API_KEY=.' "$tmp"; then
+    rm -f "$tmp"
+    echo "run.sh: OPENROUTER_API_KEY is empty" >&2
+    exit 1
+  fi
+  if grep -q '^OPENROUTER_API_KEY=sk-or-v1-placeholder[[:space:]]*$' "$tmp"; then
+    rm -f "$tmp"
+    echo "run.sh: OPENROUTER_API_KEY is still the placeholder" >&2
+    exit 1
+  fi
+  if [ -s "$cfg/pi.env" ]; then cat "$cfg/pi.env" >> "$tmp"; fi
+  if [ -f "$egress_env" ] && cmp -s "$tmp" "$egress_env"; then
+    rm -f "$tmp"
+  else
+    mv "$tmp" "$egress_env"
+  fi
+  chmod 600 "$egress_env"
+}
+
 # Pi gets only the GitHub token and commit identity. A token is optional: an
 # empty result removes the generated file so a removed host token cannot linger.
 write_pi_env() {
@@ -338,11 +391,12 @@ require_image_capability() { # capabilities, name
 # Instances are not bound to images: PI_IMAGE is a per-run choice and nothing
 # records it afterwards. Print the pairing before Pi takes the terminal, so the
 # pack in use is visible in the scrollback.
-announce_run() { # capabilities
-  local image=${PI_IMAGE:-pi-agent:local} pack
+announce_run() { # capabilities [mode]
+  local image=${PI_IMAGE:-pi-agent:local} pack mode=""
   pack=$(pi_pack_for_tag "$image" 2>/dev/null || true)
-  printf 'run.sh: instance=%s image=%s pack=%s capabilities=%s\n' \
-    "$instance" "$image" "${pack:--}" "${1:--}" >&2
+  [ -z "${2:-}" ] || mode=" mode=$2"
+  printf 'run.sh: instance=%s image=%s pack=%s capabilities=%s%s\n' \
+    "$instance" "$image" "${pack:--}" "${1:--}" "$mode" >&2
 }
 
 # Pi reads this file directly; edits on the Mac apply on the next launch.
@@ -617,41 +671,55 @@ fi
 acquire_host_lock
 write_pi_env
 ensure_settings
-if [ "${PI_SKIP_HOST_SETUP:-}" = 1 ]; then
-  proxy_ip_value="${PI_SKIP_PROXY_IP:-${locked_subnet%/*}}"
-  proxy_ip_value="${proxy_ip_value%.*}.2"
+run_network=$network_name
+if [ "$egress" = 1 ]; then
+  # No proxy, CA, or locked network: this mode is deliberately unsandboxed.
+  run_network=default
+  write_egress_env
+  ensure_volume "$agent_volume" agent
+  release_host_lock
 else
-  ensure_network
-  ensure_proxy
-  if [ "${1:-}" = proxy ]; then
-    release_host_lock
-    exec "$cli" logs -f "$proxy_name"
+  if [ "${PI_SKIP_HOST_SETUP:-}" = 1 ]; then
+    proxy_ip_value="${PI_SKIP_PROXY_IP:-${locked_subnet%/*}}"
+    proxy_ip_value="${proxy_ip_value%.*}.2"
+  else
+    ensure_network
+    ensure_proxy
+    if [ "${1:-}" = proxy ]; then
+      release_host_lock
+      exec "$cli" logs -f "$proxy_name"
+    fi
+    proxy_ip_value=$(proxy_ip)
   fi
-  proxy_ip_value=$(proxy_ip)
+  release_host_lock
+  proxy_url="http://${proxy_ip_value}:${port}"
+  if [ "${1:-}" != proxy ]; then ensure_volume "$agent_volume" agent; fi
+  [ -f "$ca_file" ] || { echo "run.sh: missing $ca_file; start the proxy or unset PI_SKIP_HOST_SETUP" >&2; exit 1; }
 fi
-release_host_lock
-proxy_url="http://${proxy_ip_value}:${port}"
-if [ "${1:-}" != proxy ]; then ensure_volume "$agent_volume" agent; fi
-[ -f "$ca_file" ] || { echo "run.sh: missing $ca_file; start the proxy or unset PI_SKIP_HOST_SETUP" >&2; exit 1; }
 
-args=(run --rm -i --init --network "$network_name"
+args=(run --rm -i --init --network "$run_network"
   --cpus "${PI_CPUS:-4}" --memory "${PI_MEMORY:-4G}"
   -e "TERM=${TERM:-xterm-256color}"
   -e LANG=C.UTF-8 -e LC_ALL=C.UTF-8
-  -e "OPENROUTER_API_KEY=${placeholder}"
   -e PI_TELEMETRY=0 -e GH_TELEMETRY=0
-  -e PI_CODING_AGENT_DIR=/root/.pi/agent
-  -e "HTTP_PROXY=${proxy_url}" -e "HTTPS_PROXY=${proxy_url}"
-  -e "http_proxy=${proxy_url}" -e "https_proxy=${proxy_url}"
-  -e NO_PROXY=localhost,127.0.0.1,::1 -e no_proxy=localhost,127.0.0.1,::1
-  -e NODE_EXTRA_CA_CERTS=/etc/pi-proxy-ca/ca.pem
-  -e SSL_CERT_FILE=/etc/pi-proxy-ca/ca.pem
-  -e CURL_CA_BUNDLE=/etc/pi-proxy-ca/ca.pem
-  -e REQUESTS_CA_BUNDLE=/etc/pi-proxy-ca/ca.pem
-  -v "$ca_file:/etc/pi-proxy-ca/ca.pem:ro"
-  -v "$agent_volume:/root/.pi/agent"
+  -e PI_CODING_AGENT_DIR=/root/.pi/agent)
+if [ "$egress" = 1 ]; then
+  args+=(--env-file "$egress_env")
+  echo "run.sh: egress mode: default network; the container gets the real OpenRouter key" >&2
+else
+  args+=(-e "OPENROUTER_API_KEY=${placeholder}"
+    -e "HTTP_PROXY=${proxy_url}" -e "HTTPS_PROXY=${proxy_url}"
+    -e "http_proxy=${proxy_url}" -e "https_proxy=${proxy_url}"
+    -e NO_PROXY=localhost,127.0.0.1,::1 -e no_proxy=localhost,127.0.0.1,::1
+    -e NODE_EXTRA_CA_CERTS=/etc/pi-proxy-ca/ca.pem
+    -e SSL_CERT_FILE=/etc/pi-proxy-ca/ca.pem
+    -e CURL_CA_BUNDLE=/etc/pi-proxy-ca/ca.pem
+    -e REQUESTS_CA_BUNDLE=/etc/pi-proxy-ca/ca.pem
+    -v "$ca_file:/etc/pi-proxy-ca/ca.pem:ro")
+fi
+args+=(-v "$agent_volume:/root/.pi/agent"
   -v "$settings_file:/root/.pi/agent/settings.json:ro")
-if [ -s "$cfg/pi.env" ]; then args+=(--env-file "$cfg/pi.env"); fi
+if [ "$egress" != 1 ] && [ -s "$cfg/pi.env" ]; then args+=(--env-file "$cfg/pi.env"); fi
 if [ -n "$clone" ]; then
   add_zig_cache_args "/work/${clone#*/}"
 else
@@ -773,5 +841,7 @@ else
 fi
 
 set -- bash -c "$prep" prep "$@"
-announce_run "$image_caps"
+mode=""
+if [ "$egress" = 1 ]; then mode=egress; fi
+announce_run "$image_caps" "$mode"
 exec "$cli" "${args[@]}" "${PI_IMAGE:-pi-agent:local}" "$@"

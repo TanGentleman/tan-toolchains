@@ -264,6 +264,88 @@ case_pack_missing_pi() {
   log_lacks "run --" "missing capability never starts a container"
 }
 
+# ---------------------------------------------------------------- egress mode
+# --allow-egress swaps the locked network and proxy for the container's default
+# network, and passes the real OpenRouter key in a private env file. It must not
+# create a network, build a proxy, or leak the key into argv.
+case_egress_run() {
+  new_case egress
+  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  (
+    cd "$t/project" || exit 1
+    pi "$run_sh" --allow-egress pi
+  )
+  expect_status 0 "egress run succeeds without a proxy or locked network"
+  log_has "run --rm -i --init --network default" "egress uses the default network"
+  log_lacks "pi-locked" "egress never names the locked network"
+  log_lacks "network create" "egress creates no host-only network"
+  log_lacks "build -t pi-proxy:local" "egress builds no proxy image"
+  log_lacks "exec pi-proxy" "egress does not ask the proxy for an address"
+  log_lacks "HTTP_PROXY=" "egress sets no proxy variables"
+  log_lacks "/etc/pi-proxy-ca" "egress mounts no CA"
+  log_has "private/egress.env" "egress passes its private env file"
+  contains 'mode=egress' "$(e)" "egress announces the mode"
+  contains 'the container gets the real OpenRouter key' "$(e)" "egress warns about the key"
+  [ -f "$cfg/private/egress.env" ] && pass || fail "egress.env was not written"
+  local mode
+  mode=$(stat -Lc %a "$cfg/private/egress.env" 2>/dev/null || stat -Lf %Lp "$cfg/private/egress.env")
+  eq 600 "$mode" "egress.env is mode 600"
+  contains 'OPENROUTER_API_KEY=sk-or-v1-real' "$(cat "$cfg/private/egress.env")" "egress.env has the real key"
+  contains 'GITHUB_TOKEN=ghp_test' "$(cat "$cfg/private/egress.env")" "egress.env has the filtered token"
+  not_contains OPENROUTER_API_KEY "$(cat "$cfg/pi.env")" "pi.env still omits the key"
+  log_lacks "OPENROUTER_API_KEY=sk-or-v1-real" "real key never appears in argv"
+}
+
+case_egress_clone() {
+  new_case egressclone
+  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  (
+    cd "$t/project" || exit 1
+    pi "$run_sh" --allow-egress --clone owner/repo true
+  )
+  expect_status 0 "egress clone succeeds"
+  log_has "run --rm -i --init --network default" "egress clone keeps the default network"
+  log_has "pi-clone_default_owner-repo-" "egress clone volume named"
+  log_has "PI_CLONE=owner/repo" "egress clone target passed"
+  log_has "-w /work" "egress clone workdir set"
+}
+
+case_egress_refusals() {
+  new_case egressrefuse
+  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  for cmd in check proxy proxy-stop; do
+    (
+      cd "$t/project" || exit 1
+      pi "$run_sh" --allow-egress "$cmd"
+    )
+    expect_status 2 "egress refuses $cmd"
+    contains "has no proxy or locked network to $cmd" "$(e)" "$cmd refusal names the reason"
+  done
+  (
+    cd "$t/project" || exit 1
+    pi "$run_sh" --allow-egress --manual
+  )
+  expect_status 2 "egress refuses --manual"
+  contains 'use --manual alone' "$(e)" "--manual conflict is explained"
+  log_lacks "run --" "egress refusals start no container"
+  log_lacks "volume create" "egress refusals create no volume"
+}
+
+case_egress_requires_key() {
+  new_case egresskey
+  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  printf 'GITHUB_TOKEN=ghp_test\n' > "$cfg/env"
+  chmod 600 "$cfg/env"
+  (
+    cd "$t/project" || exit 1
+    pi "$run_sh" --allow-egress pi
+  )
+  expect_status 1 "egress requires the OpenRouter key"
+  contains 'set OPENROUTER_API_KEY' "$(e)" "egress names the missing key"
+  log_lacks "run --" "missing key starts no container"
+  [ -e "$cfg/private/egress.env" ] && fail "egress.env was written without a key" || pass
+}
+
 # ------------------------------------------------------ network shape guards
 case_network_nat_refused() {
   new_case nat
@@ -678,6 +760,7 @@ case_nuke_all_builder_failure() {
 
 # ------------------------------------------------------------------- drivers
 for c in case_normal_run case_check_enforcer case_tokenless_run case_tokenless_check case_pack_missing_pi \
+         case_egress_run case_egress_clone case_egress_refusals case_egress_requires_key \
          case_network_nat_refused case_network_escaped_subnet \
          case_proxy_unknown_state case_manual_clone case_manual_clone_env case_manual_clone_env_mode \
          case_clear_list case_clear_list_runtime_down case_clear_list_legacy_volume \

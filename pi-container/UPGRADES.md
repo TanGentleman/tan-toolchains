@@ -12,6 +12,10 @@ binaries run on macOS and do not use its network.
   OpenRouter key, CA private key, and leaf key. Generate certificates outside
   the long-running proxy, mount only the public certificate into Pi, and mount
   runtime certificates read-only into the proxy.
+- `--allow-egress` gives the agent VM the real OpenRouter key and unrestricted
+  egress. Prefer a dedicated key with a low credit limit for that mode, or
+  replace the env-file injection with a proxy that tunnels any `CONNECT` but
+  still rewrites OpenRouter. Scope the key per run if the mode becomes routine.
 - Separate keys work by running with a different `PI_CONFIG_DIR`: the proxy,
   network, subnet, proxy image, agent volumes, and clone volumes are derived
   from it. The active agent image and builder cache remain shared, so `nuke all`

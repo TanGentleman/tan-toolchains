@@ -52,6 +52,9 @@ explicitly that `run.sh check` and the E2E checklist were not run.
   MITMs OpenRouter to add the key; everything else is refused.
 - `--manual` uses the container's default network and is not sandboxed by
   `pi-locked`. Do not describe it as if it were.
+- `--allow-egress` runs Pi on the default network and passes the real OpenRouter
+  key in `private/egress.env`. It is opt-in and unsandboxed; keep it documented
+  that way, and never fold it into normal mode.
 - The image is aarch64-only. Either add tested multi-arch handling or keep the
   explicit guard.
 
@@ -78,9 +81,12 @@ explicitly that `run.sh check` and the E2E checklist were not run.
 ## Security invariants
 
 - The host env file stays mode 600 or 400. Filter it into `private/proxy.env`
-  (OpenRouter key only) and `pi.env` (GitHub token and commit identity). The
-  real OpenRouter key never enters the agent environment, argv, or logs.
-- Pi gets `sk-or-v1-placeholder`; the proxy adds the real key.
+  (OpenRouter key only) and `pi.env` (GitHub token and commit identity).
+  `private/egress.env` is the `--allow-egress` exception: key plus `pi.env`.
+  Outside egress mode, the real key never enters the agent environment, argv,
+  or logs.
+- In normal Pi mode, Pi gets `sk-or-v1-placeholder`; the proxy adds the real
+  key. `--allow-egress` is the documented exception.
 - `settings.json` is mounted read-only so Pi cannot persist settings or installs.
 - The mount guard fails closed: refuse `/`, `$HOME`, ancestors of `$HOME`,
   secrets directories, and anything overlapping config, env, or settings paths.

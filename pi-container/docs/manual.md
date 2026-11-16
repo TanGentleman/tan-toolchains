@@ -41,7 +41,8 @@ prewarmed; the local cache is per container.
 
 Plugins are not baked in: manual mode has internet, but normal Pi mode is behind
 the proxy, so Git clones from `github.com` work while release-asset and tool
-downloads may fail. The image does not include a compiler for Treesitter
+downloads may fail. Use [egress mode](egress.md) when Pi itself needs an
+unproxied download. The image does not include a compiler for Treesitter
 parsers; use Neovim's built-in Zig syntax.
 
 Normal Pi mode does not mount the Neovim paths.

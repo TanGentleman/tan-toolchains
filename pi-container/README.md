@@ -1,6 +1,6 @@
 # Pi in an Apple container
 
-Run [Pi](https://pi.dev) on OpenRouter in an Apple [`container`](https://github.com/apple/container) VM. Pi has no internet route; `pi-proxy` is the only way out.
+Run [Pi](https://pi.dev) on OpenRouter in an Apple [`container`](https://github.com/apple/container) VM. In normal mode Pi has no internet route; `pi-proxy` is the only way out.
 
 `pi-proxy` tunnels GitHub, adds your OpenRouter key, and refuses everything else. Pi shares only a host-only `pi-locked` network with it. The default profile uses one proxy for every instance; a non-default `PI_CONFIG_DIR` is a separate profile with its own proxy, network, and subnet.
 
@@ -80,11 +80,17 @@ pic --manual             # local Neovim/ZLS shell, no Pi or proxy
 pic --manual nvim .
 pic --manual --clone you/your-repo
 PI_CLONE=you/your-repo pic --manual
+
+pic --allow-egress       # Pi with full network egress, no proxy (trusted repos only)
 ```
 
 A trailing command runs in the normal Pi container instead of `pi`. For example,
 `pic bash` has the proxy, settings, and agent volume mounted; `pic --manual` has
 the editor mounts and the default network instead.
+
+`pic --allow-egress` is the only mode that gives Pi unrestricted egress. It uses
+the default network with no proxy, and the container receives the real
+OpenRouter key, so use it only for trusted repos. See [Egress mode](docs/egress.md).
 
 The image is a per-run choice, not a property of the instance: `PI_IMAGE` picks a
 pack for that run, and nothing records the pairing afterwards. `run.sh` prints
@@ -124,6 +130,7 @@ The default mode mounts the current folder. Use it only for repos you trust; use
 - [Configuration](docs/configuration.md): env file, settings, flags, environment variables, and build arguments.
 - [Operations](docs/operations.md): profiles, instances, and cleanup.
 - [Manual mode](docs/manual.md): local Neovim/ZLS, clone mode, and caches.
+- [Egress mode](docs/egress.md): Pi on the default network with the real key, and its limits.
 - [Testing](docs/testing.md): CI suite and fixture recording.
 - [ASSUMPTIONS.md](ASSUMPTIONS.md): Apple `container` JSON contract.
 - [E2E.md](E2E.md): manual macOS checklist.
@@ -132,6 +139,7 @@ The default mode mounts the current folder. Use it only for repos you trust; use
 ## Limits
 
 - Normal Pi mode allows GitHub hosts, `openrouter.ai`, and its subdomains. Everything else is refused. The `agent` and `editor` packs omit `gh`; the proxy still allows GitHub.
+- `--allow-egress` runs Pi on the default network and passes the real OpenRouter key into the VM. Any host and protocol is reachable, and anything the agent runs can read the key and the agent volume. See [Egress mode](docs/egress.md).
 - `--manual` uses the default container network, not a profile network or `pi-proxy`. When cloning, it refreshes `pi.env` from the host env file if that file exists; without a token only public clones work.
 - A profile's network is host-only. Pi can reach your Mac and other containers on it.
 - If the Mac forwards IP, the host-only network can reach the internet. `run.sh check` reports this.
