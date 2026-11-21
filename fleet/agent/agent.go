@@ -67,7 +67,7 @@ var kindEnv = map[string][]string{
 // including other credentials, stays out of the child.
 var passEnv = []string{
 	"PATH", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "TZ", "USER", "SHELL", "TMPDIR",
-	"SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS",
+	"SSL_CERT_FILE", "SSL_CERT_DIR", "NODE_EXTRA_CA_CERTS", "CODEX_CA_CERTIFICATE", "CURL_CA_BUNDLE", "REQUESTS_CA_BUNDLE",
 	"HTTPS_PROXY", "HTTP_PROXY", "NO_PROXY", "https_proxy", "http_proxy", "no_proxy", "NODE_USE_ENV_PROXY",
 }
 
@@ -287,6 +287,11 @@ func (a *adapter) env() []string {
 		}
 	}
 	env = append(env, "HOME="+a.statePath("home"))
+	// Node's fetch ignores HTTPS_PROXY unless asked; without this Pi would
+	// try to reach openrouter.ai directly and fail on a locked network.
+	if (os.Getenv("HTTPS_PROXY") != "" || os.Getenv("https_proxy") != "") && os.Getenv("NODE_USE_ENV_PROXY") == "" {
+		env = append(env, "NODE_USE_ENV_PROXY=1")
+	}
 	env = append(env, commonEnv...)
 	env = append(env, kindEnv[a.c.Kind]...)
 	switch a.c.Kind {

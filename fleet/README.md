@@ -119,6 +119,25 @@ these settings the only traffic is model calls.
 
 Tested with pi 1.6.0, Claude Code 2.1.330, Codex 0.171.0.
 
+### Behind the pi-container proxy
+
+The adapters run unchanged behind `pi-container/proxy.py`, so the node never
+holds the real key. Give `fleetd` what `run.sh` gives Pi:
+
+```sh
+OPENROUTER_API_KEY=sk-or-v1-placeholder   # proxy.py swaps in the real key
+HTTPS_PROXY=http://<proxy>:8888 HTTP_PROXY=http://<proxy>:8888
+NO_PROXY=localhost,127.0.0.1,::1          # never openrouter.ai
+SSL_CERT_FILE=/etc/pi-proxy-ca/ca.pem NODE_EXTRA_CA_CERTS=/etc/pi-proxy-ca/ca.pem
+```
+
+The adapter passes the proxy and CA variables through (Codex reads
+`SSL_CERT_FILE` or `CODEX_CA_CERTIFICATE`) and sets `NODE_USE_ENV_PROXY=1`
+so Pi's fetch uses the proxy. Model calls are the only traffic: the proxy
+log shows no GitHub tunnels and no denials. `TestBehindV5Proxy` runs the real
+`proxy.py` on loopback against `fakeor`, which accepts only the key the proxy
+holds; `TestLiveBehindV5Proxy` does the same against openrouter.ai.
+
 ## Tests
 
 ```sh

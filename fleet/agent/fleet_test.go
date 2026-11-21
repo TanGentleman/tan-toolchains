@@ -148,14 +148,10 @@ func TestLive(t *testing.T) {
 	if os.Getenv("FLEET_LIVE") != "1" || key == "" {
 		t.Skip("set FLEET_LIVE=1 and OPENROUTER_API_KEY")
 	}
-	models := map[string]string{"pi": "deepseek/deepseek-v4.1-flash", "claude": "anthropic/claude-haiku-4.5", "codex": "openai/gpt-5.1-codex-mini"}
 	for _, kind := range kinds {
 		t.Run(kind, func(t *testing.T) {
 			b := bin(t, kind)
-			model := models[kind]
-			if m := os.Getenv("FLEET_LIVE_" + strings.ToUpper(kind) + "_MODEL"); m != "" {
-				model = m
-			}
+			model := liveModels[kind]
 			w := newWorld(t, "openrouter.ai,.openrouter.ai,127.0.0.1,localhost")
 			root := t.TempDir()
 			cfg := func(n string) Config {
@@ -184,3 +180,14 @@ func TestLive(t *testing.T) {
 		})
 	}
 }
+
+// Cheap defaults for live runs; override with FLEET_LIVE_<KIND>_MODEL.
+var liveModels = func() map[string]string {
+	m := map[string]string{"pi": "deepseek/deepseek-v4.1-flash", "claude": "anthropic/claude-haiku-4.5", "codex": "openai/gpt-5.1-codex-mini"}
+	for k := range m {
+		if v := os.Getenv("FLEET_LIVE_" + strings.ToUpper(k) + "_MODEL"); v != "" {
+			m[k] = v
+		}
+	}
+	return m
+}()
