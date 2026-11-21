@@ -12,6 +12,9 @@ Read `README.md`, `pi-container/README.md` and the docs under
   is detection-only and points at the upstream project.
 - `pi-container/`: bash driver, Dockerfiles, and proxy that run Pi in an Apple
   `container` VM.
+- `fleet/`: Go daemon (`fleetd`) that runs, records, replicates, and hands off
+  agent sessions across tailnet nodes. Read `fleet/IMPLEMENTATION.md` before
+  changing its log format, API, or authz.
 
 Do not merge or tag before `pi-container/E2E.md` passes on macOS.
 
@@ -29,6 +32,10 @@ for f in pi-container/*.sh pi-container/lib/*.sh pi-container/test/*.sh enforcer
   bash -n "$f"
 done
 python3 -m py_compile pi-container/proxy.py
+
+cd fleet && gofmt -l . && go vet ./... && go test -race ./...
+cd fleet && bash e2e/smoke.sh     # python3, curl
+cd fleet && bash e2e/tailnet.sh   # docker, sudo (cleans root-owned tsnet state)
 ```
 
 The image build context is the repo root because the image compiles
@@ -120,6 +127,9 @@ Move these together:
 - `zigpeek/build.zig.zon`: `minimum_zig_version` and `version`.
 - `zigpeek/src/version.zig`: `version`.
 - `enforcer/build.zig.zon`: `minimum_zig_version`.
+
+Separately, `fleet/go.mod` pins Go and `tailscale.com`; `fleet/e2e/tailnet.sh`
+pins the Headscale image, which must accept that Tailscale client version.
 
 `ZLS_VERSION` must equal `ZIG_VERSION`; a mismatch silently mis-parses projects.
 
