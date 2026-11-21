@@ -129,7 +129,7 @@ func (n *Node) appendCopied(s *session, body []byte) (int, error) {
 			}
 			continue
 		}
-		if err := core.Apply(&s.st, e); err != nil {
+		if err := s.apply(e); err != nil {
 			s.broken = err
 			return 0, err
 		}

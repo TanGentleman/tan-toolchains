@@ -75,6 +75,7 @@ type native struct {
 	Kind    string `json:"kind"`
 	Session string `json:"session"`
 	Turns   int    `json:"turns"`
+	Total   Usage  `json:"total"` // tokens over all turns
 }
 
 type adapter struct {
@@ -440,6 +441,7 @@ func (a *adapter) turn(id, text string, stderr io.Writer) error {
 	a.emit(map[string]any{"type": "fleet.turn_start", "id": id, "turn": a.nat.Turns + 1, "session": a.nat.Session})
 
 	var got string
+	var use Usage
 	br := bufio.NewReaderSize(stdout, 1<<16)
 	for {
 		line, rerr := br.ReadBytes('\n')
@@ -447,6 +449,7 @@ func (a *adapter) turn(id, text string, stderr io.Writer) error {
 			if got == "" {
 				got = reported(a.c.Kind, s)
 			}
+			use.add(usageOf(a.c.Kind, s))
 			a.out.Write(append(s, '\n'))
 		}
 		if rerr != nil {
@@ -458,6 +461,15 @@ func (a *adapter) turn(id, text string, stderr io.Writer) error {
 	a.cur = nil
 	a.mu.Unlock()
 	code := cmd.ProcessState.ExitCode()
+	if a.c.Kind == "codex" {
+		// `codex exec resume` reports the thread's running total.
+		if cum := use; cum.Input >= a.nat.Total.Input && cum.Output >= a.nat.Total.Output && cum != (Usage{}) {
+			use = Usage{cum.Input - a.nat.Total.Input, cum.Output - a.nat.Total.Output}
+			a.nat.Total = cum
+		}
+	} else {
+		a.nat.Total.add(use)
+	}
 
 	switch {
 	case got == "" && code == 0:
@@ -476,12 +488,51 @@ func (a *adapter) turn(id, text string, stderr io.Writer) error {
 	if serr := a.save(); err == nil {
 		err = serr
 	}
-	end := map[string]any{"type": "fleet.turn_end", "id": id, "turn": a.nat.Turns, "code": code, "session": a.nat.Session}
+	end := map[string]any{"type": "fleet.turn_end", "id": id, "turn": a.nat.Turns, "code": code, "session": a.nat.Session, "usage": use}
 	if werr != nil {
 		end["error"] = werr.Error()
 	}
 	a.emit(end)
 	return err
+}
+
+// Usage is model tokens as the CLI reports them; input includes cached
+// tokens. fleet.turn_end carries one turn's total.
+type Usage struct {
+	Input  int64 `json:"input"`
+	Output int64 `json:"output"`
+}
+
+func (u *Usage) add(v Usage) { u.Input += v.Input; u.Output += v.Output }
+
+// usageOf reads one stdout line: Pi reports each model call (message_end),
+// Claude and Codex the whole turn (result, turn.completed).
+func usageOf(kind string, line []byte) Usage {
+	var m struct {
+		Type    string `json:"type"`
+		Message struct {
+			Role  string `json:"role"`
+			Usage struct{ Input, Output int64 }
+		}
+		Usage struct {
+			In          int64 `json:"input_tokens"`
+			Out         int64 `json:"output_tokens"`
+			CacheCreate int64 `json:"cache_creation_input_tokens"`
+			CacheRead   int64 `json:"cache_read_input_tokens"`
+		}
+	}
+	if !bytes.Contains(line, []byte(`usage`)) || json.Unmarshal(line, &m) != nil {
+		return Usage{}
+	}
+	switch {
+	case kind == "pi" && m.Type == "message_end" && m.Message.Role == "assistant":
+		return Usage{m.Message.Usage.Input, m.Message.Usage.Output}
+	case kind == "claude" && m.Type == "result":
+		return Usage{m.Usage.In + m.Usage.CacheCreate + m.Usage.CacheRead, m.Usage.Out}
+	case kind == "codex" && m.Type == "turn.completed":
+		return Usage{m.Usage.In, m.Usage.Out}
+	}
+	return Usage{}
 }
 
 // lineWriter serializes whole lines and scrubs the API key from them.

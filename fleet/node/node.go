@@ -52,6 +52,7 @@ type Node struct {
 }
 
 type session struct {
+	usage    Usage // derived from fleet.turn_end lines; never logged
 	mu       sync.Mutex
 	dir      string
 	log      *store.Log
@@ -169,7 +170,7 @@ func (n *Node) open(sid string) (*session, error) {
 		if err := json.Unmarshal(line, &e); err != nil {
 			return err
 		}
-		return core.Apply(&s.st, e)
+		return s.apply(e)
 	})
 	if err != nil {
 		return nil, err
@@ -219,7 +220,7 @@ func (n *Node) commit(s *session, cmds ...core.Cmd) ([]uint64, error) {
 		}
 		b, err := json.Marshal(e)
 		if err == nil {
-			err = core.Apply(&s.st, e)
+			err = s.apply(e)
 		}
 		if err != nil {
 			s.broken = err
@@ -634,6 +635,38 @@ func (n *Node) Events(login, sid string, after uint64) ([][]byte, <-chan struct{
 type Summary struct {
 	core.State
 	Level core.Level `json:"level"`
+	Usage Usage      `json:"usage"`
+}
+
+// Usage totals the model tokens a session's harness reported in
+// {"type":"fleet.turn_end","usage":{"input","output"}} lines. It is a view
+// over the log, rebuilt on every fold, so every copy agrees.
+type Usage struct {
+	Input  int64 `json:"input"`
+	Output int64 `json:"output"`
+}
+
+// apply is core.Apply plus the derived views.
+func (s *session) apply(e core.Event) error {
+	if err := core.Apply(&s.st, e); err != nil {
+		return err
+	}
+	if e.Kind != core.Out {
+		return nil
+	}
+	var line string
+	if json.Unmarshal(e.Data, &line) != nil || !strings.Contains(line, `"fleet.turn_end"`) {
+		return nil
+	}
+	var m struct {
+		Type  string
+		Usage Usage
+	}
+	if json.Unmarshal([]byte(line), &m) == nil && m.Type == "fleet.turn_end" && m.Usage.Input >= 0 && m.Usage.Output >= 0 {
+		s.usage.Input += m.Usage.Input
+		s.usage.Output += m.Usage.Output
+	}
+	return nil
 }
 
 func (n *Node) List(login string) []Summary {
@@ -641,7 +674,7 @@ func (n *Node) List(login string) []Summary {
 	for _, s := range n.list() {
 		s.mu.Lock()
 		if l := n.level(login, s); l > core.None && s.st.Head > 0 {
-			out = append(out, Summary{State: s.st, Level: l})
+			out = append(out, Summary{State: s.st, Level: l, Usage: s.usage})
 		}
 		s.mu.Unlock()
 	}

@@ -96,6 +96,13 @@ export FLEET_MODEL=deepseek/deepseek-v4.1-flash    # or FLEET_PI_MODEL, FLEET_CL
 | Claude Code | `ANTHROPIC_BASE_URL=https://openrouter.ai/api`, `ANTHROPIC_AUTH_TOKEN=$key`, `ANTHROPIC_API_KEY=` (OpenRouter's documented setup); all model slots set to the chosen model | `--session-id` then `--resume` |
 | Codex | `model_providers.openrouter` in `$CODEX_HOME/config.toml`, `wire_api = "responses"`, `env_key = "OPENROUTER_API_KEY"` | `codex exec resume <thread>` |
 
+Each turn ends with `{"type":"fleet.turn_end","usage":{"input","output"}}`,
+the model tokens the CLI reported for that turn (Codex reports a running
+thread total; the adapter subtracts the previous one, kept in `agent.json`).
+`GET /v1/sessions` sums these per session as `usage`, rebuilt from the log on
+every node. Tokens, not dollars: each CLI prices OpenRouter models from its
+own table, so their cost fields are not trusted.
+
 The adapter refuses to continue (exit 3) if the native session file is
 missing or the CLI reports a different session id, instead of letting the
 conversation restart from nothing.

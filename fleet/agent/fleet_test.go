@@ -136,6 +136,12 @@ func TestFleetHandoff(t *testing.T) {
 					t.Fatalf("%s sent model %q, want fake/session-model", r.Path, r.Model)
 				}
 			}
+			waitTurn(t, bn, sid, 2, 60*time.Second)
+			for _, s := range bn.List("tan") {
+				if s.Sid == sid && (s.Usage != node.Usage{Input: 20, Output: 10}) {
+					t.Fatalf("usage on b after handoff = %+v, want 20/10", s.Usage)
+				}
+			}
 			if st, _ := bn.State("tan", sid); st.Model != "fake/session-model" {
 				t.Fatalf("state model = %q", st.Model)
 			}

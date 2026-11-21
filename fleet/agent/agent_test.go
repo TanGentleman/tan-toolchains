@@ -175,6 +175,10 @@ func TestResumeOnAnotherNode(t *testing.T) {
 			if !contains(out, "seen TOKALPHA") || end == nil || end["code"].(float64) != 0 {
 				t.Fatalf("first turn: end=%v\n%s\nstderr:\n%s", end, strings.Join(out, "\n"), a.errb)
 			}
+			// fakeor bills 10 in / 5 out per call.
+			if u, _ := end["usage"].(map[string]any); u["input"] != 10.0 || u["output"] != 5.0 {
+				t.Fatalf("turn usage = %v", end["usage"])
+			}
 			if err := a.close(); err != nil {
 				t.Fatal(err)
 			}

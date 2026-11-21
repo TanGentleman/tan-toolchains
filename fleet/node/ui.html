@@ -51,7 +51,7 @@ async function home() {
   const ul = $("<ul></ul>");
   for (const s of list) {
     const where = s.running ? `running on ${s.writer}` : `idle, writer ${s.writer}`;
-    ul.append($(`<li><a href="#${s.sid}">${esc(s.title || s.sid)}<br><small>${esc(s.owner)} · ${where} · ${s.head} events${s.fork_of ? " · fork" : ""}</small></a></li>`));
+    ul.append($(`<li><a href="#${s.sid}">${esc(s.title || s.sid)}<br><small>${esc(s.owner)} · ${where} · ${s.head} events${s.usage && s.usage.input ? ` · ${s.usage.input}/${s.usage.output} tok` : ""}${s.fork_of ? " · fork" : ""}</small></a></li>`));
   }
   if (!list.length) ul.append($(`<li class="dim">No sessions you can see yet.</li>`));
   main.append(ul);
