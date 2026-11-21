@@ -61,7 +61,7 @@ All routes need `Tailscale-User-Login`. Bodies are JSON.
 | ----- | ---- |
 | `GET /v1/node` | name, caller, harnesses |
 | `GET /v1/sessions` | sessions the caller can see |
-| `POST /v1/sessions` | `{harness,title,key,prompt}` spawn |
+| `POST /v1/sessions` | `{harness,model,title,key,prompt}` spawn; `model` (optional) is stored in the log and passed to the harness as `$FLEET_SESSION_MODEL` on every node |
 | `GET /v1/sessions/{sid}` | folded state |
 | `GET /v1/sessions/{sid}/events?after=N` | raw lines (JSONL, `wait=1` long-polls; SSE with `Accept: text/event-stream`) |
 | `POST /v1/sessions/{sid}/inputs` | `{key,kind,text}`, kind `prompt`/`steer`/`abort` |

@@ -24,6 +24,7 @@ type Spec struct {
 	Work   string // working directory; not replicated
 	State  string // harness-owned files, checkpointed and moved on handoff
 	Stderr io.Writer
+	Env    []string // extra NAME=VALUE for the harness, after Exec.Env
 }
 
 type Proc interface {
@@ -53,7 +54,7 @@ func (h Exec) Start(s Spec) (Proc, error) {
 	}
 	cmd := exec.Command(argv[0], argv[1:]...)
 	cmd.Dir = s.Work
-	cmd.Env = append(os.Environ(), h.Env...)
+	cmd.Env = append(append(os.Environ(), h.Env...), s.Env...)
 	for k, v := range vars {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}

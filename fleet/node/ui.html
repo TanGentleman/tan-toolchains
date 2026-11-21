@@ -39,11 +39,12 @@ async function home() {
   main.replaceChildren();
   if (node.can_spawn) {
     const f = $(`<form><select name="harness">${node.harnesses.map((h) => `<option>${esc(h)}</option>`).join("")}</select>
+      <input name="model" placeholder="model (optional)">
       <input name="prompt" placeholder="first prompt" required><button>Spawn</button></form>`);
     f.onsubmit = async (e) => {
       e.preventDefault();
       const d = new FormData(f);
-      try { const r = await api("POST", "/v1/sessions", { harness: d.get("harness"), title: d.get("prompt").slice(0, 60), key: key(), prompt: d.get("prompt") }); location.hash = r.sid; } catch (e) { fail(e); }
+      try { const r = await api("POST", "/v1/sessions", { harness: d.get("harness"), model: d.get("model").trim(), title: d.get("prompt").slice(0, 60), key: key(), prompt: d.get("prompt") }); location.hash = r.sid; } catch (e) { fail(e); }
     };
     main.append(f);
   }

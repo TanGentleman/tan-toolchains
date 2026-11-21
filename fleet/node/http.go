@@ -45,11 +45,11 @@ func (n *Node) Handler() http.Handler {
 		writeJSON(w, list)
 	})
 	mux.HandleFunc("POST /v1/sessions", func(w http.ResponseWriter, r *http.Request) {
-		var b struct{ Harness, Title, Key, Prompt string }
+		var b struct{ Harness, Model, Title, Key, Prompt string }
 		if !readJSON(w, r, &b) {
 			return
 		}
-		sid, err := n.Spawn(login(r), b.Harness, b.Title, b.Key, b.Prompt)
+		sid, err := n.Spawn(login(r), b.Harness, b.Model, b.Title, b.Key, b.Prompt)
 		reply(w, map[string]string{"sid": sid}, err)
 	})
 	mux.HandleFunc("GET /v1/sessions/{sid}", func(w http.ResponseWriter, r *http.Request) {

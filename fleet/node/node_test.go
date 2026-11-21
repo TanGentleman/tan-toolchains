@@ -128,14 +128,14 @@ func TestHandoff(t *testing.T) {
 	a := startNode(t, "a", t.TempDir())
 	b := startNode(t, "b", t.TempDir())
 
-	sid, err := a.Spawn("tan", "fake", "demo", "k1", "hello")
+	sid, err := a.Spawn("tan", "fake", "", "demo", "k1", "hello")
 	if err != nil {
 		t.Fatal(err)
 	}
 	waitTurns(t, a.Node, sid, 1)
 
 	// Retried requests change nothing.
-	if again, _ := a.Spawn("tan", "fake", "demo", "k1", "hello"); again != sid {
+	if again, _ := a.Spawn("tan", "fake", "", "demo", "k1", "hello"); again != sid {
 		t.Fatalf("retried spawn made %s", again)
 	}
 	s1, _ := a.Input("tan", sid, "i1", "prompt", "two")
@@ -225,7 +225,7 @@ func TestHandoff(t *testing.T) {
 // without anyone asking, so they stay viewable when the writer goes away.
 func TestBackgroundPull(t *testing.T) {
 	a := startNode(t, "a", t.TempDir())
-	sid, err := a.Spawn("tan", "fake", "demo", "k1", "hello")
+	sid, err := a.Spawn("tan", "fake", "", "demo", "k1", "hello")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -241,5 +241,28 @@ func TestBackgroundPull(t *testing.T) {
 	a.srv.Close()
 	if st, err := c.State("tan", sid); err != nil || st.Writer != "a" {
 		t.Fatalf("copy on c: %+v %v", st, err)
+	}
+}
+
+func TestModelFollowsSessionAndForks(t *testing.T) {
+	a := startNode(t, "a", t.TempDir())
+	sid, err := a.Spawn("tan", "fake", "openai/gpt-5-nano", "demo", "k1", "hello")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitTurns(t, a.Node, sid, 1)
+	fid, err := a.Fork("tan", sid, "f1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{sid, fid} {
+		if st, _ := a.State("tan", id); st.Model != "openai/gpt-5-nano" {
+			t.Fatalf("%s model = %q", id, st.Model)
+		}
+	}
+	for _, bad := range []string{"has space", "new\nline", strings.Repeat("x", 201)} {
+		if _, err := a.Spawn("tan", "fake", bad, "demo", "k-"+bad, ""); err == nil {
+			t.Errorf("accepted model %q", bad)
+		}
 	}
 }

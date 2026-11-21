@@ -53,6 +53,7 @@ type File struct {
 type CreatedData struct {
 	Owner   string `json:"owner"`
 	Harness string `json:"harness"`
+	Model   string `json:"model,omitempty"` // passed to the harness on every node
 	Title   string `json:"title,omitempty"`
 	ForkOf  string `json:"fork_of,omitempty"`
 	ForkAt  uint64 `json:"fork_at,omitempty"`
@@ -92,6 +93,7 @@ type State struct {
 	Head      uint64           `json:"head"`
 	Owner     string           `json:"owner"`
 	Harness   string           `json:"harness"`
+	Model     string           `json:"model,omitempty"`
 	Title     string           `json:"title,omitempty"`
 	ForkOf    string           `json:"fork_of,omitempty"`
 	ForkAt    uint64           `json:"fork_at,omitempty"`
@@ -138,7 +140,7 @@ func Apply(s *State, e Event) error {
 		if err := json.Unmarshal(e.Data, &d); err != nil {
 			return err
 		}
-		s.Sid, s.Owner, s.Harness, s.Title = e.Sid, d.Owner, d.Harness, d.Title
+		s.Sid, s.Owner, s.Harness, s.Model, s.Title = e.Sid, d.Owner, d.Harness, d.Model, d.Title
 		s.ForkOf, s.ForkAt, s.Files = d.ForkOf, d.ForkAt, d.Files
 		s.Writer = e.Node
 	case Started:

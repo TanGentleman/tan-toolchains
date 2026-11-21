@@ -264,7 +264,7 @@ func (n *Node) session(login, sid string, lvl core.Level) (*session, error) {
 
 // Spawn creates a session owned by login and starts it. The same login and
 // key always name the same session, so a retried spawn changes nothing.
-func (n *Node) Spawn(login, harness, title, key, prompt string) (string, error) {
+func (n *Node) Spawn(login, harness, model, title, key, prompt string) (string, error) {
 	if !n.cfg.Policy.CanSpawn(login) {
 		return "", ErrForbidden
 	}
@@ -274,8 +274,24 @@ func (n *Node) Spawn(login, harness, title, key, prompt string) (string, error) 
 	if _, ok := n.cfg.Harnesses[harness]; !ok {
 		return "", fmt.Errorf("unknown harness %q", harness)
 	}
+	if !validModel(model) {
+		return "", fmt.Errorf("bad model %q", model)
+	}
 	sid := sessionID("spawn", n.cfg.Name, login, key)
-	return sid, n.create(sid, login, key, core.CreatedData{Owner: login, Harness: harness, Title: title}, prompt)
+	return sid, n.create(sid, login, key, core.CreatedData{Owner: login, Harness: harness, Model: model, Title: title}, prompt)
+}
+
+// validModel accepts ids like "anthropic/claude-haiku-4.5" or "".
+func validModel(m string) bool {
+	if len(m) > 200 {
+		return false
+	}
+	for _, c := range m {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.ContainsRune("-._/:@", c)) {
+			return false
+		}
+	}
+	return true
 }
 
 func (n *Node) create(sid, login, key string, d core.CreatedData, prompt string) error {
@@ -329,7 +345,11 @@ func (n *Node) start(s *session) error {
 	if err != nil {
 		return err
 	}
-	p, err := h.Start(Spec{Sid: s.st.Sid, Work: work, State: state, Stderr: stderr})
+	spec := Spec{Sid: s.st.Sid, Work: work, State: state, Stderr: stderr}
+	if s.st.Model != "" {
+		spec.Env = []string{"FLEET_SESSION_MODEL=" + s.st.Model}
+	}
+	p, err := h.Start(spec)
 	if err != nil {
 		stderr.Close()
 		n.commit(s, n.cmd("", core.Exited, "", core.ExitedData{Code: -1, Reason: "start: " + err.Error()}))
@@ -572,7 +592,7 @@ func (n *Node) Fork(login, sid, key string) (string, error) {
 		return "", err
 	}
 	s.mu.Lock()
-	d := core.CreatedData{Owner: login, Harness: s.st.Harness, Title: s.st.Title, ForkOf: sid, ForkAt: s.st.Head, Files: s.st.Files}
+	d := core.CreatedData{Owner: login, Harness: s.st.Harness, Model: s.st.Model, Title: s.st.Title, ForkOf: sid, ForkAt: s.st.Head, Files: s.st.Files}
 	s.mu.Unlock()
 	fid := sessionID("fork", n.cfg.Name, login, key, sid)
 	return fid, n.create(fid, login, key, d, "")

@@ -108,12 +108,12 @@ func TestFleetHandoff(t *testing.T) {
 			b := bin(t, kind)
 			w := newWorld(t, "127.0.0.1,localhost")
 			h := node.Exec{Argv: []string{exe, "agent", kind}, Env: []string{
-				"FLEET_MODEL=fake/model", "FLEET_" + strings.ToUpper(kind) + "_BIN=" + b,
+				"FLEET_MODEL=fake/node-default", "FLEET_" + strings.ToUpper(kind) + "_BIN=" + b,
 				"OPENROUTER_API_KEY=" + fakeKey, "FLEET_OPENROUTER_BASE=" + w.base,
 			}}
 			a, _ := fleetNode(t, "a", h, kind)
 			bn, _ := fleetNode(t, "b", h, kind)
-			sid, err := a.Spawn("tan", kind, "demo", "k1", "hello TOKALPHA")
+			sid, err := a.Spawn("tan", kind, "fake/session-model", "demo", "k1", "hello TOKALPHA")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -128,6 +128,19 @@ func TestFleetHandoff(t *testing.T) {
 			waitFor(t, bn, sid, "seen TOKALPHA TOKBRAVO", 60*time.Second)
 			if hs := w.trap.Hosts(); len(hs) > 0 {
 				t.Fatalf("non-model traffic: %v", hs)
+			}
+			// The model chosen at spawn wins over each node's default, on
+			// both nodes.
+			for _, r := range w.srv.Requests() {
+				if r.Model != "fake/session-model" {
+					t.Fatalf("%s sent model %q, want fake/session-model", r.Path, r.Model)
+				}
+			}
+			if st, _ := bn.State("tan", sid); st.Model != "fake/session-model" {
+				t.Fatalf("state model = %q", st.Model)
+			}
+			if _, err := bn.Spawn("tan", kind, "bad model", "x", "k9", ""); err == nil {
+				t.Fatal("accepted a model id with a space")
 			}
 			if strings.Contains(output(t, bn, sid), fakeKey) {
 				t.Fatal("API key in the session log")

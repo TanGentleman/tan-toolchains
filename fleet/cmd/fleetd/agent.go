@@ -12,6 +12,7 @@ import (
 
 // runAgent is `fleetd agent KIND [-model M] [-bin PATH] [-- CLI ARGS]`, the
 // harness fleetd registers as pi, claude and codex. Unset flags fall back to
+// FLEET_SESSION_MODEL (the model chosen at spawn, set by the node),
 // FLEET_<KIND>_MODEL, FLEET_MODEL and FLEET_<KIND>_BIN.
 func runAgent(args []string) int {
 	if len(args) == 0 {
@@ -21,7 +22,7 @@ func runAgent(args []string) int {
 	kind := args[0]
 	up := strings.ToUpper(kind)
 	fs := flag.NewFlagSet("agent", flag.ContinueOnError)
-	model := fs.String("model", firstEnv("FLEET_"+up+"_MODEL", "FLEET_MODEL"), "OpenRouter model id")
+	model := fs.String("model", firstEnv("FLEET_SESSION_MODEL", "FLEET_"+up+"_MODEL", "FLEET_MODEL"), "OpenRouter model id")
 	bin := fs.String("bin", os.Getenv("FLEET_"+up+"_BIN"), "CLI executable (default: "+kind+" on PATH)")
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
