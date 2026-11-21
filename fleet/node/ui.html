@@ -1,0 +1,102 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>fleet</title>
+<style>
+  :root { color-scheme: light dark; font: 15px/1.4 system-ui, sans-serif; }
+  body { margin: 0 auto; max-width: 46rem; padding: 0.75rem; }
+  header { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; }
+  h1 { font-size: 1.1rem; margin: 0; }
+  small, .dim { opacity: 0.65; }
+  form { display: flex; gap: 0.4rem; margin: 0.6rem 0; flex-wrap: wrap; }
+  input, select, button { font: inherit; padding: 0.45rem 0.6rem; }
+  input[name=text], input[name=prompt] { flex: 1 1 12rem; }
+  ul { list-style: none; padding: 0; margin: 0; }
+  li a { display: block; padding: 0.55rem 0; border-bottom: 1px solid #8884; text-decoration: none; color: inherit; }
+  #log { font: 13px/1.35 ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; }
+  .ev { padding: 0.2rem 0; border-bottom: 1px solid #8882; }
+  .input { color: #2a7; } .meta { opacity: 0.6; } .err { color: #c33; }
+  .bar { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+</style>
+<header><h1><a href="#">fleet</a></h1><small id="who"></small></header>
+<main id="main"></main>
+<script>
+const $ = (h) => { const t = document.createElement("template"); t.innerHTML = h.trim(); return t.content.firstChild; };
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const key = () => crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random();
+async function api(method, path, body) {
+  const r = await fetch(path, { method, headers: { "Content-Type": "application/json" }, body: body && JSON.stringify(body) });
+  const text = await r.text();
+  if (!r.ok) throw new Error(text.trim() || r.statusText);
+  return text ? JSON.parse(text) : null;
+}
+let node, es;
+const main = document.getElementById("main");
+function fail(e) { main.prepend($(`<p class="err">${esc(e.message || e)}</p>`)); }
+
+async function home() {
+  const list = await api("GET", "/v1/sessions");
+  main.replaceChildren();
+  if (node.can_spawn) {
+    const f = $(`<form><select name="harness">${node.harnesses.map((h) => `<option>${esc(h)}</option>`).join("")}</select>
+      <input name="prompt" placeholder="first prompt" required><button>Spawn</button></form>`);
+    f.onsubmit = async (e) => {
+      e.preventDefault();
+      const d = new FormData(f);
+      try { const r = await api("POST", "/v1/sessions", { harness: d.get("harness"), title: d.get("prompt").slice(0, 60), key: key(), prompt: d.get("prompt") }); location.hash = r.sid; } catch (e) { fail(e); }
+    };
+    main.append(f);
+  }
+  const ul = $("<ul></ul>");
+  for (const s of list) {
+    const where = s.running ? `running on ${s.writer}` : `idle, writer ${s.writer}`;
+    ul.append($(`<li><a href="#${s.sid}">${esc(s.title || s.sid)}<br><small>${esc(s.owner)} · ${where} · ${s.head} events${s.fork_of ? " · fork" : ""}</small></a></li>`));
+  }
+  if (!list.length) ul.append($(`<li class="dim">No sessions you can see yet.</li>`));
+  main.append(ul);
+}
+
+function render(e) {
+  let body;
+  if (e.kind === "out") {
+    let text = e.data;
+    try { const m = JSON.parse(e.data); text = m.text ?? m.message?.content ?? e.data; if (typeof text !== "string") text = JSON.stringify(text); } catch {}
+    body = esc(text);
+  } else if (e.kind === "input") body = `<span class="input">${esc(e.by)} ${esc(e.data.kind)}: ${esc(e.data.text || "")}</span>`;
+  else body = `<span class="meta">${esc(e.kind)} ${esc(e.node)} ${e.data ? esc(JSON.stringify(e.data)) : ""}</span>`;
+  return $(`<div class="ev"><small class="dim">${e.seq}</small> ${body}</div>`);
+}
+
+async function view(sid) {
+  const st = await api("GET", `/v1/sessions/${sid}`);
+  main.replaceChildren();
+  const here = st.writer === node.name;
+  main.append($(`<p><b>${esc(st.title || sid)}</b><br><small>${esc(sid)} · owner ${esc(st.owner)} · writer ${esc(st.writer)}${st.running ? " (running)" : ""}${st.fork_of ? ` · forked from <a href="#${st.fork_of}">${esc(st.fork_of)}</a>` : ""}</small></p>`));
+  const bar = $(`<div class="bar"></div>`);
+  const btn = (label, fn) => { const b = $(`<button>${label}</button>`); b.onclick = () => fn().then(() => view(sid)).catch(fail); bar.append(b); };
+  if (!here || !st.running) btn(here ? "Start" : `Resume on ${esc(node.name)}`, () => api("POST", `/v1/sessions/${sid}/resume`, {}));
+  btn("Fork", async () => { const r = await api("POST", `/v1/sessions/${sid}/fork`, { key: key() }); location.hash = r.sid; });
+  main.append(bar);
+  const log = $(`<div id="log"></div>`);
+  main.append(log);
+  if (here && st.running) {
+    const f = $(`<form><input name="text" placeholder="message" required autocomplete="off"><select name="kind"><option>prompt</option><option>steer</option><option>abort</option></select><button>Send</button></form>`);
+    f.onsubmit = async (e) => { e.preventDefault(); const d = new FormData(f); try { await api("POST", `/v1/sessions/${sid}/inputs`, { key: key(), kind: d.get("kind"), text: d.get("text") }); f.reset(); } catch (e) { fail(e); } };
+    main.append(f);
+  }
+  es = new EventSource(`/v1/sessions/${sid}/events`);
+  es.onmessage = (m) => { log.append(render(JSON.parse(m.data))); };
+}
+
+async function route() {
+  if (es) { es.close(); es = null; }
+  const sid = location.hash.slice(1);
+  try { await (sid ? view(sid) : home()); } catch (e) { fail(e); }
+}
+(async () => {
+  try { node = await api("GET", "/v1/node"); } catch (e) { return fail(e); }
+  document.getElementById("who").textContent = `${node.you} on ${node.name}`;
+  addEventListener("hashchange", route);
+  route();
+})();
+</script>

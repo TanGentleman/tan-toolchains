@@ -12,6 +12,9 @@ Read `README.md`, `pi-container/README.md` and the docs under
   is detection-only and points at the upstream project.
 - `pi-container/`: bash driver, Dockerfiles, and proxy that run Pi in an Apple
   `container` VM.
+- `fleet/`: Go daemon (`fleetd`, standard library only) that records, hands
+  off, and forks agent sessions across tailnet nodes. Protocol rules live in
+  `fleet/core` as pure functions; read `fleet/README.md` first.
 
 Do not merge or tag before `pi-container/E2E.md` passes on macOS.
 
@@ -25,10 +28,13 @@ cd enforcer && zig build check
 cd enforcer && zig build --release=small
 cd enforcer && bash test/pi-integration.sh ./zig-out/bin/enforcer  # pi required
 
-for f in pi-container/*.sh pi-container/lib/*.sh pi-container/test/*.sh enforcer/test/*.sh; do
+for f in pi-container/*.sh pi-container/lib/*.sh pi-container/test/*.sh enforcer/test/*.sh fleet/e2e/*.sh; do
   bash -n "$f"
 done
 python3 -m py_compile pi-container/proxy.py
+
+cd fleet && test -z "$(gofmt -l .)" && go vet ./... && go test -race ./...
+cd fleet && bash e2e/smoke.sh   # curl
 ```
 
 The image build context is the repo root because the image compiles
@@ -47,7 +53,11 @@ explicitly that `run.sh check` and the E2E checklist were not run.
 ## Hard boundaries
 
 - Shipped tools make no network requests. A separate process owns any network
-  layer; do not add network code to a shipped binary.
+  layer; do not add network code to a shipped binary. `fleetd` is such a
+  process: it listens on loopback only, behind `tailscale serve`, and dials
+  only configured peers and session writers.
+- `fleet/core` stays pure (no I/O, clock, or randomness) and dependency-free;
+  any protocol change lands there with a simulation or rules test.
 - In normal Pi mode, `pi-proxy` is the only route out. It tunnels GitHub and
   MITMs OpenRouter to add the key; everything else is refused.
 - `--manual` uses the container's default network and is not sandboxed by
