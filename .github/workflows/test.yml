@@ -154,7 +154,17 @@ jobs:
       - name: Vet
         run: go vet ./...
 
-      - name: Unit, simulation, and two-node tests
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 24
+
+      - name: Install agent CLIs (pinned)
+        run: |
+          npm install --prefix "$RUNNER_TEMP/clis" --no-fund --no-audit \
+            @earendil-works/pi-coding-agent@1.6.0 @anthropic-ai/claude-code@2.1.330 @openai/codex@0.171.0
+          echo "$RUNNER_TEMP/clis/node_modules/.bin" >> "$GITHUB_PATH"
+
+      - name: Unit, simulation, two-node and agent CLI tests
         run: go test -race -count=1 ./...
 
       - name: Smoke test (two fleetd processes)

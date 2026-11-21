@@ -26,6 +26,9 @@ func (l *list) String() string     { return strings.Join(*l, ",") }
 func (l *list) Set(v string) error { *l = append(*l, v); return nil }
 
 func main() {
+	if len(os.Args) > 1 && os.Args[1] == "agent" {
+		os.Exit(runAgent(os.Args[2:]))
+	}
 	if len(os.Args) > 1 && os.Args[1] == "fake" {
 		err := fake.Run(os.Stdin, os.Stdout, os.Getenv("FLEET_STATE"))
 		var code fake.ExitCode
@@ -60,6 +63,9 @@ func main() {
 		log.Fatal(err)
 	}
 	hs := map[string]node.Harness{"fake": node.Exec{Argv: []string{exe, "fake"}}}
+	for _, k := range []string{"pi", "claude", "codex"} {
+		hs[k] = node.Exec{Argv: []string{exe, "agent", k}}
+	}
 	for _, h := range harnesses {
 		k, v, ok := strings.Cut(h, "=")
 		argv := strings.Fields(v)

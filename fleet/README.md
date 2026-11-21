@@ -9,7 +9,7 @@ fork a session no matter where it started. Go standard library only.
 ```sh
 cd fleet && go build -o fleetd ./cmd/fleetd
 ./fleetd -name laptop -url https://laptop.your-tailnet.ts.net -owner you@github \
-  -harness 'mine=/path/to/adapter'   # the built-in `fake` harness is always there
+  -harness 'mine=/path/to/adapter'   # built in: fake, pi, claude, codex
 tailscale serve --bg 7433          # tailnet HTTPS + identity header -> fleetd
 ```
 
@@ -75,10 +75,49 @@ Inputs reach the harness as `{"type":kind,"id":seq,"message":text}`, which
 is Pi's RPC shape. Other harnesses get a small wrapper process.
 
 A harness must keep everything it needs to continue under `$FLEET_STATE`:
-that directory is what checkpoints carry to the next node. Real CLIs need
-an adapter for this; Pi, Claude, and Codex resume silently start fresh when
-their session file is not where (and named how) they expect. No real-CLI
-adapter ships here yet.
+that directory is what checkpoints carry to the next node.
+
+## Pi, Claude Code, Codex
+
+`fleetd` registers `pi`, `claude` and `codex` as harnesses. Each runs
+`fleetd agent KIND` (package `agent`), which runs the CLI once per turn in its
+headless JSON mode, forwards every stdout line unchanged, and keeps the CLI's
+whole home under `$FLEET_STATE`, so a checkpoint carries the conversation.
+
+```sh
+export OPENROUTER_API_KEY=sk-or-...           # stays on the node; scrubbed from output
+export FLEET_MODEL=deepseek/deepseek-v4.1-flash    # or FLEET_PI_MODEL, FLEET_CLAUDE_MODEL, ...
+./fleetd -name laptop -owner you@github ...   # then spawn with harness "claude"
+```
+
+| CLI | OpenRouter wiring | Resume |
+|---|---|---|
+| Pi | `--provider openrouter`, `OPENROUTER_API_KEY` | `--session <file>` (`--session-id` only matches the same cwd and otherwise starts fresh) |
+| Claude Code | `ANTHROPIC_BASE_URL=https://openrouter.ai/api`, `ANTHROPIC_AUTH_TOKEN=$key`, `ANTHROPIC_API_KEY=` (OpenRouter's documented setup); all model slots set to the chosen model | `--session-id` then `--resume` |
+| Codex | `model_providers.openrouter` in `$CODEX_HOME/config.toml`, `wire_api = "responses"`, `env_key = "OPENROUTER_API_KEY"` | `codex exec resume <thread>` |
+
+The adapter refuses to continue (exit 3) if the native session file is
+missing or the CLI reports a different session id, instead of letting the
+conversation restart from nothing.
+
+**Telemetry is off.** Measured with a refusing proxy (`fakeor.Trap`): with
+these settings the only traffic is model calls.
+
+- All: `DO_NOT_TRACK=1`; the child gets an allowlisted environment (no host
+  credentials) and `HOME` inside `$FLEET_STATE`.
+- Pi: `PI_TELEMETRY=0`, `PI_OFFLINE=1`, `PI_SKIP_VERSION_CHECK=1`,
+  `enableInstallTelemetry: false`.
+- Claude Code: `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, `DISABLE_TELEMETRY`,
+  `DISABLE_ERROR_REPORTING`, `DISABLE_AUTOUPDATER`, `DISABLE_UPDATES`,
+  `DISABLE_FEEDBACK_COMMAND`, `DISABLE_BUG_COMMAND`, feedback survey,
+  feature flags, marketplace auto-install and terminal-title calls off;
+  `skipWebFetchPreflight: true`.
+- Codex: `analytics`, `feedback`, `otel` exporters, update check and history
+  off; `features.plugins`, `remote_plugin`, `apps`, `memories` and bundled
+  skills off. Without those features Codex contacts github.com,
+  api.github.com and chatgpt.com at startup.
+
+Tested with pi 1.6.0, Claude Code 2.1.330, Codex 0.171.0.
 
 ## Tests
 
@@ -96,13 +135,23 @@ bash e2e/smoke.sh   # two real fleetd processes, kill -9, restart
 - `node`: two nodes over `httptest` with the in-process fake harness: spawn,
   retry, share, resume (harness state continues), dead writer -> fork,
   restart -> interrupted run.
+- `agent`: each real CLI against `fakeor`, a fake OpenRouter serving the
+  Anthropic, chat-completions and responses formats. The reply lists every
+  `TOK...` word in the request, so a resumed turn proves it carried the
+  history. Covers resume in a new directory, a two-node fleet handoff, a
+  deleted native session (must refuse), no non-model traffic, and the key
+  never in output, logs or state. Skips a CLI that is not installed
+  (`FLEET_PI_BIN` etc. or `PATH`).
+- Live, not in CI: `FLEET_LIVE=1 OPENROUTER_API_KEY=... go test -run TestLive ./agent`
+  runs each CLI against OpenRouter: turn 1 on one node, turn 2 on a copy
+  must recall a codeword; nothing but openrouter.ai may be contacted.
 
 ## Not here, on purpose
 
 - No database, broker, or Tailscale library. `tailscale serve` supplies TLS
   and identity; a node could sit behind any proxy that sets the header.
-- No harness-specific parsing in the node. A Pi/Claude/Codex/ACP adapter is
-  a stdin/stdout process.
+- No harness-specific parsing in the node. The Pi/Claude/Codex adapter is
+  a stdin/stdout process the node treats like any other.
 - No automatic failover. Two writers would need consensus; seal-or-fork
   keeps one writer without it.
 - No compaction or snapshots of the event log; fold cost is linear.
