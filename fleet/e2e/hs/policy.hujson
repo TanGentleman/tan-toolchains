@@ -1,0 +1,18 @@
+{
+  "groups": {
+    "group:friends": ["bob@"],
+    "group:viewers": ["carol@"],
+  },
+  "tagOwners": { "tag:fleet": ["tan@"] },
+  "grants": [
+    { "src": ["tan@", "group:friends", "group:viewers", "tag:fleet"], "dst": ["tag:fleet"], "ip": ["tcp:7433"] },
+    { "src": ["tan@"], "dst": ["tag:fleet"],
+      "app": { "github.com/TanGentleman/cap/fleet": [{ "role": "owner", "read": "all", "spawn": true }] } },
+    { "src": ["group:friends"], "dst": ["tag:fleet"],
+      "app": { "github.com/TanGentleman/cap/fleet": [{ "role": "friend", "read": "own", "spawn": true, "slots": 2, "runners": ["fake"] }] } },
+    { "src": ["group:viewers"], "dst": ["tag:fleet"],
+      "app": { "github.com/TanGentleman/cap/fleet": [{ "role": "viewer", "read": "shared" }] } },
+    { "src": ["tag:fleet"], "dst": ["tag:fleet"],
+      "app": { "github.com/TanGentleman/cap/fleet": [{ "archive": true }] } },
+  ],
+}

@@ -5,8 +5,10 @@ package tailnet
 import (
 	"context"
 	"fmt"
+	"log"
 	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -59,15 +61,20 @@ func whois(lc *local.Client) Identify {
 }
 
 // Embedded joins the tailnet as its own node (tsnet) and listens on addr.
-// With tls set it serves HTTPS on :443 using the tailnet's cert.
-func Embedded(hostname, dir, controlURL, addr string, tls bool) (net.Listener, Identify, func() error, error) {
-	s := &tsnet.Server{Hostname: hostname, Dir: dir, ControlURL: controlURL}
+// TS_AUTHKEY, if set, registers it without an interactive login.
+// With tls set it serves HTTPS on :443 using the tailnet's cert. The returned
+// client dials peers through the same tailnet node.
+func Embedded(hostname, dir, controlURL, addr string, tls bool) (net.Listener, Identify, *http.Client, func() error, error) {
+	s := &tsnet.Server{Hostname: hostname, Dir: dir, ControlURL: controlURL, AuthKey: os.Getenv("TS_AUTHKEY")}
+	if os.Getenv("FLEET_TSNET_LOG") != "" {
+		s.Logf = log.Printf
+	}
 	if _, err := s.Up(context.Background()); err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	lc, err := s.LocalClient()
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
 	var ln net.Listener
 	if tls {
@@ -76,9 +83,9 @@ func Embedded(hostname, dir, controlURL, addr string, tls bool) (net.Listener, I
 		ln, err = s.Listen("tcp", addr)
 	}
 	if err != nil {
-		return nil, nil, nil, err
+		return nil, nil, nil, nil, err
 	}
-	return ln, whois(lc), s.Close, nil
+	return ln, whois(lc), s.HTTPClient(), s.Close, nil
 }
 
 // Host listens on addr and asks the host's tailscaled who each peer is.

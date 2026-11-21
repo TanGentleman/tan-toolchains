@@ -77,7 +77,10 @@ func main() {
 		}
 		var id tailnet.Identify
 		var closeTS func() error
-		ln, id, closeTS, err = tailnet.Embedded(*tsHost, *tsDir, *control, *listen, *tsTLS)
+		ln, id, client, closeTS, err = tailnet.Embedded(*tsHost, *tsDir, *control, *listen, *tsTLS)
+		if client != nil {
+			client.Timeout = 30 * time.Second
+		}
 		if closeTS != nil {
 			defer closeTS()
 		}
