@@ -1,1 +1,170 @@
-<!doctype html><title>fleet</title>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>fleet</title>
+<style>
+:root{--bg:#0f1115;--fg:#e6e6e6;--mut:#8a8f98;--card:#181b22;--line:#262a33;--acc:#6aa9ff;--ok:#5fd38d;--warn:#f2c14e;--bad:#ff6b6b}
+*{box-sizing:border-box}body{margin:0;font:15px/1.4 system-ui,-apple-system,sans-serif;background:var(--bg);color:var(--fg)}
+header{display:flex;gap:8px;align-items:center;padding:10px 12px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--bg);z-index:2}
+header b{font-size:16px}header .who{margin-left:auto;color:var(--mut);font-size:13px}
+main{max-width:760px;margin:0 auto;padding:12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:10px 12px;margin:8px 0}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.s{cursor:pointer}.s .t{font-weight:600}.s .m{color:var(--mut);font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.st{font-size:12px;padding:1px 7px;border-radius:9px;border:1px solid var(--line)}
+.st.busy{color:var(--warn)}.st.running{color:var(--ok)}.st.interrupted{color:var(--bad)}.st.sealed{color:var(--mut)}
+input,select,textarea,button{font:inherit;color:var(--fg);background:#11141a;border:1px solid var(--line);border-radius:8px;padding:8px}
+textarea{width:100%;min-height:64px;resize:vertical}button{background:#1f2a3a;border-color:#2d3d55;cursor:pointer}button:disabled{opacity:.5}
+.ev{padding:6px 0;border-bottom:1px solid var(--line);white-space:pre-wrap;word-break:break-word}
+.ev .k{color:var(--mut);font-size:12px;margin-right:6px}.ev.input{color:var(--acc)}.ev.tool{font-family:ui-monospace,monospace;font-size:13px}
+.ev.sys{color:var(--mut);font-size:13px}.err{color:var(--bad)}a{color:var(--acc)}
+#log{max-height:60vh;overflow:auto}
+</style>
+</head>
+<body>
+<header><b id="node">fleet</b><a href="#" id="home">sessions</a><span class="who" id="who"></span></header>
+<main id="app"></main>
+<script>
+const qs = new URLSearchParams(location.search);
+const as = qs.get("as");
+const withAs = u => as ? u + (u.includes("?") ? "&" : "?") + "as=" + encodeURIComponent(as) : u;
+const key = () => [...crypto.getRandomValues(new Uint8Array(12))].map(b => b.toString(16).padStart(2, "0")).join("");
+const $ = (h) => { const d = document.createElement("div"); d.innerHTML = h.trim(); return d.firstChild; };
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+const app = document.getElementById("app");
+let es = null, timer = null, info = null;
+
+async function api(method, path, body) {
+  const r = await fetch(withAs(path), {method, headers: body ? {"Content-Type": "application/json"} : {}, body: body ? JSON.stringify(body) : undefined});
+  const t = await r.text();
+  let j; try { j = JSON.parse(t); } catch { j = t; }
+  if (!r.ok) throw new Error((j && j.error) || r.status);
+  return j;
+}
+
+// send retries with the same key until the node answers, so a flaky phone
+// connection can never run an input twice.
+async function send(path, body, tries = 5) {
+  for (let i = 0; ; i++) {
+    try { return await api("POST", path, body); }
+    catch (e) { if (i >= tries || !/fetch|network/i.test(e.message)) throw e; await new Promise(r => setTimeout(r, 500 * 2 ** i)); }
+  }
+}
+
+function stop() { if (es) es.close(); es = null; clearInterval(timer); }
+
+async function list() {
+  stop();
+  app.innerHTML = "";
+  const form = $(`<div class="card"><div class="row"><select id="h"></select><input id="ti" placeholder="title" style="flex:1"></div>
+    <textarea id="pr" placeholder="first prompt"></textarea><div class="row"><button id="go">start session</button><span id="fe" class="err"></span></div></div>`);
+  app.append(form);
+  (info?.harnesses || []).forEach(h => form.querySelector("#h").append(new Option(h, h)));
+  let k = key();
+  form.querySelector("#go").onclick = async (e) => {
+    e.target.disabled = true;
+    try {
+      const r = await send("/v1/sessions", {harness: form.querySelector("#h").value, title: form.querySelector("#ti").value || "untitled", key: k, prompt: form.querySelector("#pr").value});
+      k = key(); location.hash = r.session.sid;
+    } catch (err) { form.querySelector("#fe").textContent = err.message; }
+    e.target.disabled = false;
+  };
+  const box = $(`<div></div>`); app.append(box);
+  const load = async () => {
+    try {
+      const ss = await api("GET", "/v1/sessions");
+      box.innerHTML = ss.length ? "" : `<p class="ev sys">no sessions yet</p>`;
+      for (const s of ss) {
+        const c = $(`<div class="card s"><div class="row"><span class="t">${esc(s.title || s.sid)}</span><span class="st ${s.state}">${s.state}</span>
+          <span class="m">on ${esc(s.node)} · ${esc(s.owner_display)}</span></div><div class="m">${esc(s.last)}</div></div>`);
+        c.onclick = () => location.hash = s.sid; box.append(c);
+      }
+    } catch (e) { box.innerHTML = `<p class="err">${esc(e.message)}</p>`; }
+  };
+  load(); timer = setInterval(load, 3000);
+}
+
+function render(e) {
+  const d = e.data || {};
+  switch (e.kind) {
+    case "input": return d.kind === "cancel" ? `<div class="ev sys">cancel · ${esc(d.by_display)}</div>` : `<div class="ev input"><span class="k">${esc(d.by_display)} ${d.kind}</span>${esc(d.text)}</div>`;
+    case "message": return `<div class="ev"><span class="k">agent</span>${esc(d.text)}</div>`;
+    case "tool.call": return `<div class="ev tool"><span class="k">tool ${esc(d.name)}</span>${esc(JSON.stringify(d.args))}</div>`;
+    case "tool.result": return `<div class="ev tool${d.error ? " err" : ""}"><span class="k">result</span>${esc((d.text || "").slice(0, 2000))}</div>`;
+    case "run.started": return `<div class="ev sys">run ${e.run} started on ${esc(e.node)}${d.resume ? " (resumed)" : ""}</div>`;
+    case "run.sealed": return `<div class="ev sys">sealed on ${esc(e.node)}${d.to && d.to !== e.node ? " → " + esc(d.to) : ""}</div>`;
+    case "run.interrupted": return `<div class="ev sys err">interrupted: ${esc(d.reason)}${(d.unknown || []).length ? " · outcome unknown: " + esc(d.unknown.join(", ")) + " (not retried)" : ""}</div>`;
+    case "session.created": return `<div class="ev sys">created by ${esc(d.owner_display)} · ${esc(d.harness)}${d.forked_from ? ` · fork of <a href="#${esc(d.forked_from)}">${esc(d.forked_from)}</a> at ${d.forked_at}` : ""}</div>`;
+    case "share": return `<div class="ev sys">shared with ${esc(d.user)}: ${esc(d.level || "removed")}</div>`;
+    case "error": return `<div class="ev err">${esc(d.text)}</div>`;
+  }
+  return "";
+}
+
+async function view(sid) {
+  stop();
+  app.innerHTML = "";
+  const head = $(`<div class="card"><div class="row"><span class="t" id="tt"></span><span class="st" id="stt"></span><span class="m" id="mm"></span></div>
+    <div class="row" style="margin-top:8px"><button id="res">run here</button><button id="seal">seal</button><button id="fork">fork here</button>
+    <input id="su" placeholder="user" size="8"><select id="sl"><option>view</option><option>steer</option><option>admin</option></select><button id="sh">share</button></div>
+    <div id="he" class="err"></div></div>`);
+  const log = $(`<div class="card" id="log"></div>`);
+  const inp = $(`<div class="card"><textarea id="tx" placeholder="message"></textarea><div class="row"><button id="pr">send</button><button id="st">steer</button><button id="ca">cancel turn</button><span id="ie" class="err"></span></div></div>`);
+  app.append(head, log, inp);
+  const herr = m => head.querySelector("#he").textContent = m || "";
+  const refresh = async () => {
+    try {
+      const m = await api("GET", "/v1/sessions/" + sid);
+      head.querySelector("#tt").textContent = m.title || sid;
+      const st = head.querySelector("#stt"); st.textContent = m.state; st.className = "st " + m.state;
+      head.querySelector("#mm").textContent = `on ${m.node} · run ${m.run} · seq ${m.head}`;
+    } catch (e) { herr(e.message); }
+  };
+  refresh(); timer = setInterval(refresh, 3000);
+  const act = (id, path, body) => head.querySelector(id).onclick = async (e) => {
+    e.target.disabled = true; herr("");
+    try { const r = await send(path, body()); if (r.session) location.hash = r.session.sid; refresh(); } catch (err) { herr(err.message); }
+    e.target.disabled = false;
+  };
+  let fk = key();
+  act("#res", `/v1/sessions/${sid}/resume`, () => ({}));
+  act("#seal", `/v1/sessions/${sid}/seal`, () => ({}));
+  act("#fork", `/v1/sessions/${sid}/fork`, () => ({key: fk}));
+  act("#sh", `/v1/sessions/${sid}/share`, () => ({user: head.querySelector("#su").value, level: head.querySelector("#sl").value}));
+  let pending = null; // {key, kind, text}: reused until the node acknowledges it
+  const submit = kind => async () => {
+    const text = inp.querySelector("#tx").value;
+    if (!pending || pending.kind !== kind || pending.text !== text) pending = {key: key(), kind, text};
+    inp.querySelector("#ie").textContent = "";
+    try { await send(`/v1/sessions/${sid}/inputs`, pending); pending = null; if (kind !== "cancel") inp.querySelector("#tx").value = ""; refresh(); }
+    catch (e) { inp.querySelector("#ie").textContent = e.message; }
+  };
+  inp.querySelector("#pr").onclick = submit("prompt");
+  inp.querySelector("#st").onclick = submit("steer");
+  inp.querySelector("#ca").onclick = submit("cancel");
+  es = new EventSource(withAs(`/v1/sessions/${sid}/events?after=0`));
+  es.onmessage = (m) => {
+    const h = render(JSON.parse(m.data));
+    if (!h) return;
+    const stick = log.scrollTop + log.clientHeight >= log.scrollHeight - 30;
+    log.append($(h));
+    if (stick) log.scrollTop = log.scrollHeight;
+  };
+}
+
+async function route() { const h = location.hash.slice(1); h ? view(h) : list(); }
+document.getElementById("home").onclick = (e) => { e.preventDefault(); location.hash = ""; };
+window.onhashchange = route;
+(async () => {
+  try {
+    info = await api("GET", "/v1/node");
+    document.getElementById("node").textContent = info.name;
+    document.getElementById("who").textContent = (info.you.display || info.you.login) + " · " + (info.you.cap.role || "no role");
+  } catch (e) { app.innerHTML = `<p class="err">${esc(e.message)}</p>`; return; }
+  route();
+})();
+</script>
+</body>
+</html>

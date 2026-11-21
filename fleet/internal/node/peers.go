@@ -126,6 +126,38 @@ func (n *Node) pullSession(ctx context.Context, base, sid string) error {
 	return nil
 }
 
+// discover learns peer names from their /v1/node.
+func (n *Node) discover() {
+	for _, base := range n.cfg.Peers {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		var info struct {
+			Name string `json:"name"`
+		}
+		if n.peerJSON(ctx, "GET", base+"/v1/node", nil, &info) == nil && info.Name != "" {
+			n.mu.Lock()
+			n.peerURL[info.Name] = base
+			n.mu.Unlock()
+		}
+		cancel()
+	}
+}
+
+// fetch pulls a session this node has never seen from whichever peer has it.
+func (n *Node) fetch(ctx context.Context, sid string) *Session {
+	for _, base := range n.cfg.Peers {
+		var m Meta
+		if n.peerJSON(ctx, "GET", base+"/v1/sessions/"+sid, nil, &m) != nil || m.Head == 0 {
+			continue
+		}
+		if err := n.pullSession(ctx, base, sid); err != nil {
+			log.Printf("fetch %s from %s: %v", sid, base, err)
+			continue
+		}
+		return n.get(sid)
+	}
+	return nil
+}
+
 func (n *Node) pullBlob(ctx context.Context, base, sha string) error {
 	if _, err := os.Stat(n.blobPath(sha)); err == nil {
 		return nil
@@ -184,6 +216,12 @@ func (n *Node) pullRaw(ctx context.Context, base string, s *Session, run int, en
 }
 
 func (n *Node) ownerURL(name string) (string, error) {
+	n.mu.Lock()
+	_, known := n.peerURL[name]
+	n.mu.Unlock()
+	if !known {
+		n.discover()
+	}
 	n.mu.Lock()
 	base, ok := n.peerURL[name]
 	n.mu.Unlock()

@@ -317,18 +317,14 @@ func (n *Node) Input(ctx context.Context, s *Session, p authz.Principal, in harn
 		return 0, false, errors.New("key required")
 	}
 	m := s.Meta()
-	if m.Node != n.cfg.Name || m.State == "sealed" {
+	if m.Writer() != n.cfg.Name {
 		return 0, false, ErrNotOwner
-	}
-	h, err := n.cfg.Harnesses.Get(m.Harness)
-	if err != nil {
-		return 0, false, err
 	}
 	s.mu.Lock()
 	running := s.proc != nil
 	s.mu.Unlock()
 	if !running && in.Kind != "cancel" {
-		if err := n.startRun(ctx, s, h, true); err != nil {
+		if err := n.Takeover(ctx, s); err != nil {
 			return 0, false, err
 		}
 		m = s.Meta()
@@ -422,12 +418,7 @@ func (n *Node) Takeover(ctx context.Context, s *Session) error {
 // otherwise by asking the owner to seal to us and pulling up to the seal.
 func (n *Node) Resume(ctx context.Context, s *Session) error {
 	m := s.Meta()
-	if m.Node == n.cfg.Name {
-		if m.State == "sealed" {
-			if _, err := n.Seal(ctx, s, n.cfg.Name); err != nil {
-				return err
-			}
-		}
+	if m.Writer() == n.cfg.Name {
 		s.mu.Lock()
 		running := s.proc != nil
 		s.mu.Unlock()
@@ -436,7 +427,7 @@ func (n *Node) Resume(ctx context.Context, s *Session) error {
 		}
 		return n.Takeover(ctx, s)
 	}
-	base, err := n.ownerURL(m.Node)
+	base, err := n.ownerURL(m.Writer())
 	if err != nil {
 		return err
 	}
@@ -492,7 +483,7 @@ func (n *Node) Fork(ctx context.Context, parent *Session, p authz.Principal, key
 
 func (n *Node) Share(ctx context.Context, s *Session, p authz.Principal, user string, lvl authz.Level) error {
 	m := s.Meta()
-	if m.Node != n.cfg.Name {
+	if m.Writer() != n.cfg.Name {
 		return ErrNotOwner
 	}
 	seq, _, err := n.appendEv(s, m.Run, "share", p.Login, "", map[string]any{"user": user, "level": lvl}, nil)

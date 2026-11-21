@@ -115,3 +115,12 @@ func remove(xs []string, x string) []string {
 func (m Meta) authz() *authz.Session {
 	return &authz.Session{ID: m.Sid, Owner: m.Owner, Shares: m.Shares}
 }
+
+// Writer is the node that may append next: the current run's node, or the
+// node it was sealed to.
+func (m Meta) Writer() string {
+	if m.State == "sealed" && m.SealedTo != "" {
+		return m.SealedTo
+	}
+	return m.Node
+}

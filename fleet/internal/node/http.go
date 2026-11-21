@@ -89,6 +89,9 @@ func allowed(c caller, act authz.Action, m *Meta) authz.Decision {
 func (n *Node) withSession(act authz.Action, h func(http.ResponseWriter, *http.Request, caller, *Session, Meta)) handler {
 	return func(w http.ResponseWriter, r *http.Request, c caller) {
 		s := n.get(r.PathValue("sid"))
+		if (s == nil || s.j.Head() == 0) && !c.Cap.Archive && !c.forwarded {
+			s = n.fetch(r.Context(), r.PathValue("sid")) // peers never trigger fetches, so no loops
+		}
 		if s == nil || s.j.Head() == 0 {
 			httpError(w, http.StatusNotFound, errors.New("no such session"))
 			return
@@ -300,7 +303,7 @@ func (n *Node) raw(w http.ResponseWriter, r *http.Request, c caller, s *Session,
 // atOwner runs local when this node is the writer; otherwise it relays the
 // request to the writer, so a phone can talk to any node.
 func (n *Node) atOwner(w http.ResponseWriter, r *http.Request, c caller, s *Session, m Meta, body any, local func(context.Context) (any, error)) {
-	if m.Node == n.cfg.Name {
+	if m.Writer() == n.cfg.Name {
 		out, err := local(r.Context())
 		if err != nil {
 			writeErr(w, err)
@@ -314,7 +317,7 @@ func (n *Node) atOwner(w http.ResponseWriter, r *http.Request, c caller, s *Sess
 		return
 	}
 	var out json.RawMessage
-	if err := n.Forward(r.Context(), m.Node, r.URL.Path, c.Login, c.Display, body, &out); err != nil {
+	if err := n.Forward(r.Context(), m.Writer(), r.URL.Path, c.Login, c.Display, body, &out); err != nil {
 		writeErr(w, err)
 		return
 	}
