@@ -31,16 +31,18 @@ eval "$(/opt/homebrew/bin/brew shellenv)"
 brew --version
 ```
 
-## 2. Go, Node, jq
+## 2. Go, Node, Python, jq
 
-`fleet/go.mod` needs Go 1.27.4 or newer.
+`fleet/go.mod` needs Go 1.27.4 or newer. `proxy.py` (step 5's proxy test and
+step 11) needs Python 3.11 or newer; the Mac's `/usr/bin/python3` is 3.9.
 
 ```sh
-brew install go node@24 jq
-echo 'export PATH="/opt/homebrew/opt/node@24/bin:$HOME/.local/bin:$PATH"' >> ~/.zprofile
+brew install go node@24 python@3.12 jq
+echo 'export PATH="/opt/homebrew/opt/python@3.12/libexec/bin:/opt/homebrew/opt/node@24/bin:$HOME/.local/bin:$PATH"' >> ~/.zprofile
 source ~/.zprofile
 go version        # go1.27.4 or newer
 node --version    # v24.x
+python3 --version # 3.12.x
 ```
 
 If Homebrew's Go is older than 1.27.4, `go` downloads the right toolchain on
@@ -56,7 +58,7 @@ not globally, so upgrades are deliberate.
 mkdir -p ~/fleet-tools
 npm install --prefix ~/fleet-tools --no-fund --no-audit \
   @earendil-works/pi-coding-agent@1.6.0 @anthropic-ai/claude-code@2.1.330 @openai/codex@0.171.0
-ls ~/fleet-tools/node_modules/.bin/     # pi  claude  codex
+ls ~/fleet-tools/node_modules/.bin/     # includes pi, claude, codex
 ~/fleet-tools/node_modules/.bin/codex --version
 ```
 
@@ -146,7 +148,7 @@ sid=$(curl -s -H "$H" -H 'Content-Type: application/json' -X POST http://127.0.0
   -d '{"harness":"claude","title":"hello","key":"k1","prompt":"Say hi in five words."}' | jq -r .sid)
 echo $sid
 curl -sN -H "$H" -H 'Accept: text/event-stream' "http://127.0.0.1:7433/v1/sessions/$sid/events"   # Ctrl-C when done
-curl -s -H "$H" "http://127.0.0.1:7433/v1/sessions/$sid" | jq '{running, run, model, writer}'
+curl -s -H "$H" "http://127.0.0.1:7433/v1/sessions/$sid" | jq '{running, run, model, writer}'   # model null = harness default
 curl -s -H "$H" -H 'Content-Type: application/json' -X POST "http://127.0.0.1:7433/v1/sessions/$sid/inputs" \
   -d '{"key":"i1","text":"What did you just say?"}'
 curl -s -H "$H" http://127.0.0.1:7433/v1/sessions | jq '.[] | {sid, title, usage}'
@@ -159,7 +161,10 @@ the UI gets 401. Stop the hand-run `fleetd` with Ctrl-C.
 ## 8. Tailscale
 
 1. Install the standalone app from https://tailscale.com/download/macos
-   (or the Mac App Store), open it, and log in.
+   (or `brew install --cask tailscale-app`) and open it. Allow the VPN
+   configuration, then turn on the Tailscale network extension under System
+   Settings → General → Login Items & Extensions → Network Extensions (it asks
+   for your password). Then log in.
 2. Menu bar icon → Settings → CLI integration → install, so `tailscale` is
    on `PATH`. Check: `tailscale version`.
 3. Admin console → DNS (https://login.tailscale.com/admin/dns): enable
@@ -204,6 +209,10 @@ tailscale serve --bg 7433                     # https://mac1.<tailnet>.ts.net ->
 tailscale serve status
 curl -s "$URL/v1/node" | jq                   # from any tailnet device: "you" is your login
 ```
+
+macOS shows an "App Background Activity" notice for `fleetd-run`; it is
+listed under System Settings → General → Login Items & Extensions.
+Turning it off there stops launchd from starting `fleetd`.
 
 Open `https://mac1.your-tailnet.ts.net` on your phone (Tailscale app on).
 
@@ -296,6 +305,7 @@ rm -rf ~/fleet-tools ~/.config/fleet     # ~/.fleet holds every session; delete 
 | `409` on input | A turn is still running; wait for `exited`, or `POST .../abort`. |
 | Turn fails with `executable file not found` in stderr | `PATH` in `fleetd-run` lacks `~/fleet-tools/node_modules/.bin` or Node. |
 | Turn exits 1, `OPENROUTER_API_KEY is not set` | Key file missing or not readable by `fleetd-run`. |
+| `proxy: needs Python 3.11 or newer` | `python3` is the Mac's 3.9; see step 2. |
 | Turn exits 3 | The CLI's saved session is gone or changed; fork from an earlier checkpoint. |
 | `tailscale serve` refuses | HTTPS Certificates are off in the admin console (step 8.3). |
 | Service not running | `launchctl print gui/$(id -u)/dev.fleet.fleetd`, then `~/Library/Logs/fleetd.log`. |
