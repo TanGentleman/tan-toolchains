@@ -448,6 +448,8 @@ def publish_addr(bind: str) -> None:
 
 
 def main() -> None:
+    if sys.version_info < (3, 11):
+        raise SystemExit("proxy: needs Python 3.11 or newer (StreamWriter.start_tls)")
     if not 1 <= PORT <= 65535:
         raise SystemExit("proxy: PI_PROXY_PORT must be between 1 and 65535")
     clear_addr()
