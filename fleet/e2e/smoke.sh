@@ -47,6 +47,8 @@ code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Tailscale-User-Login: 
 
 api POST "$B/v1/sessions/$sid/inputs" '{"key":"i2","text":"sleep"}' >/dev/null
 wait_for "$B/v1/sessions/$sid/events" 'sleeping'
+sleep 0.5
+api GET "$B/v1/sessions/$sid" | grep -q '"running":true' || { echo "sleep turn did not keep running"; api GET "$B/v1/sessions/$sid/events"; exit 1; }
 kill -9 "${pids[1]}"
 wait "${pids[1]}" 2>/dev/null || true
 start b 17432

@@ -33,7 +33,10 @@ func main() {
 	}
 	if len(os.Args) > 1 && os.Args[1] == "fake" {
 		prompt, _ := io.ReadAll(os.Stdin)
-		code, err := fake.Run(context.Background(), os.Getenv("FLEET_STATE"), string(prompt), os.Stdout)
+		// A signal-backed context: with Background, "sleep" blocks on a nil
+		// channel and the runtime exits 2 on deadlock instead of waiting.
+		ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+		code, err := fake.Run(ctx, os.Getenv("FLEET_STATE"), string(prompt), os.Stdout)
 		if err != nil {
 			log.Print(err)
 		}
