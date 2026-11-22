@@ -243,6 +243,54 @@ func TestRefusals(t *testing.T) {
 	}
 }
 
+// Pi exits 0 when the model call fails; the turn must still fail, keep the
+// session for a retry, and not count as a completed turn.
+func TestPiModelErrorFailsTurn(t *testing.T) {
+	cli := fakeCLI(t, `cat >/dev/null
+for a; do [ "$prev" = --session-id ] && id=$a; prev=$a; done
+echo '{"type":"session","id":"'"$id"'"}'
+echo '{"type":"message_end","message":{"role":"assistant","stopReason":"error","errorMessage":"401 no auth"}}'
+exit 0`)
+	c := baseCfg(t, "pi", cli)
+	s := start(t, c)
+	_, end := s.turn("t", "hi")
+	if err := s.close(); err == nil || errors.Is(err, ErrSession) {
+		t.Fatalf("err = %v", err)
+	}
+	if end == nil || end["error"] != "pi: 401 no auth" || end["turn"] != 0.0 {
+		t.Fatalf("turn_end = %v", end)
+	}
+}
+
+// A later assistant message that ends normally (a retry within the turn)
+// decides the outcome.
+func TestPiRecoveredTurnSucceeds(t *testing.T) {
+	cli := fakeCLI(t, `cat >/dev/null
+for a; do [ "$prev" = --session-id ] && id=$a; prev=$a; done
+echo '{"type":"session","id":"'"$id"'"}'
+echo '{"type":"message_end","message":{"role":"assistant","stopReason":"error","errorMessage":"overloaded"}}'
+echo '{"type":"message_end","message":{"role":"assistant","stopReason":"stop"}}'`)
+	s := start(t, baseCfg(t, "pi", cli))
+	_, end := s.turn("t", "hi")
+	if err := s.close(); err != nil || end["turn"] != 1.0 || end["error"] != nil {
+		t.Fatalf("err = %v, turn_end = %v", err, end)
+	}
+}
+
+// Real Pi with a wrong key: the provider answers 401 and Pi still exits 0.
+func TestPiWrongKey(t *testing.T) {
+	b := bin(t, "pi")
+	w := newWorld(t, "127.0.0.1,localhost")
+	root := t.TempDir()
+	os.MkdirAll(filepath.Join(root, "work"), 0o755)
+	s := start(t, Config{Kind: "pi", Model: "fake/model", Bin: b, Key: "sk-or-v1-wrong-0123456789", Base: w.base,
+		State: filepath.Join(root, "state"), Work: filepath.Join(root, "work")})
+	_, end := s.turn("t", "hello")
+	if err := s.close(); err == nil || end == nil || end["code"] != 0.0 || end["error"] == nil {
+		t.Fatalf("wrong key accepted: err = %v, turn_end = %v\nstderr:\n%s", err, end, s.errb)
+	}
+}
+
 // A CLI that reports a different session than the one resumed is a fresh
 // conversation in disguise; the adapter must stop.
 func TestSessionMismatch(t *testing.T) {

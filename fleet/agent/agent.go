@@ -300,7 +300,8 @@ func (a *adapter) argv() ([]string, string, error) {
 	var args []string
 	switch a.c.Kind {
 	case "pi":
-		args = []string{"--mode", "json", "-p", "--provider", "openrouter", "--model", a.c.Model}
+		// --no-approve keeps the repo's .pi/extensions from running as the host user.
+		args = []string{"--mode", "json", "-p", "--no-approve", "--no-skills", "--provider", "openrouter", "--model", a.c.Model}
 		if first {
 			args = append(args, "--session-dir", a.statePath("pi", "sessions"), "--session-id", id)
 		} else {
@@ -378,7 +379,7 @@ func (a *adapter) turn(text string, stderr io.Writer) error {
 		return err
 	}
 
-	var got string
+	var got, failed string
 	var use Usage
 	br := bufio.NewReaderSize(stdout, 1<<16)
 	for {
@@ -388,6 +389,9 @@ func (a *adapter) turn(text string, stderr io.Writer) error {
 				got = reported(a.c.Kind, s)
 			}
 			use.add(usageOf(a.c.Kind, s))
+			if f, ok := piStop(a.c.Kind, s); ok {
+				failed = f
+			}
 			a.out.Write(append(s, '\n'))
 		}
 		if rerr != nil {
@@ -417,7 +421,7 @@ func (a *adapter) turn(text string, stderr io.Writer) error {
 	if err == nil && got != "" && a.nat.Session == "" {
 		a.nat.Session = got
 	}
-	if err == nil && code == 0 {
+	if err == nil && code == 0 && failed == "" {
 		a.nat.Turns++
 	}
 	if serr := a.save(); err == nil {
@@ -426,12 +430,42 @@ func (a *adapter) turn(text string, stderr io.Writer) error {
 	end := map[string]any{"type": "fleet.turn_end", "turn": a.nat.Turns, "code": code, "session": a.nat.Session, "usage": use}
 	if werr != nil {
 		end["error"] = werr.Error()
+	} else if failed != "" {
+		end["error"] = failed
 	}
 	a.emit(end)
 	if err == nil && code != 0 {
 		err = fmt.Errorf("agent: %s exited %d", a.c.Kind, code)
 	}
+	if err == nil && failed != "" {
+		err = fmt.Errorf("agent: pi turn failed (see fleet.turn_end)")
+	}
 	return err
+}
+
+// piStop reads an assistant message_end and reports whether it decides the
+// turn's outcome and, if so, why it failed. Pi exits 0 even when the model
+// call fails, so the last assistant message is the source of truth.
+func piStop(kind string, line []byte) (failed string, ok bool) {
+	var m struct {
+		Type    string `json:"type"`
+		Message struct {
+			Role       string `json:"role"`
+			StopReason string `json:"stopReason"`
+			Error      string `json:"errorMessage"`
+		} `json:"message"`
+	}
+	if kind != "pi" || json.Unmarshal(line, &m) != nil || m.Type != "message_end" || m.Message.Role != "assistant" {
+		return "", false
+	}
+	switch m.Message.StopReason {
+	case "error", "aborted":
+		if m.Message.Error != "" {
+			return "pi: " + m.Message.Error, true
+		}
+		return "pi: stopReason " + m.Message.StopReason, true
+	}
+	return "", true
 }
 
 // Usage is model tokens as the CLI reports them; input includes cached
