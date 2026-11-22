@@ -122,7 +122,7 @@ func TestFleetHandoff(t *testing.T) {
 			if err := bn.Resume(context.Background(), "tan", sid, nodeURL(t, a)); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := bn.Input("tan", sid, "i2", "prompt", "again TOKBRAVO"); err != nil {
+			if _, err := bn.Input("tan", sid, "i2", "again TOKBRAVO"); err != nil {
 				t.Fatal(err)
 			}
 			waitFor(t, bn, sid, "seen TOKALPHA TOKBRAVO", 60*time.Second)

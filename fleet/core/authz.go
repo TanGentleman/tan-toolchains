@@ -1,6 +1,9 @@
 package core
 
-import "slices"
+import (
+	"fmt"
+	"slices"
+)
 
 type Level int
 
@@ -24,8 +27,7 @@ func (l *Level) UnmarshalText(b []byte) error {
 			return nil
 		}
 	}
-	*l = None
-	return nil
+	return fmt.Errorf("level %q: want none, view, steer or admin", b)
 }
 
 // Policy is one node's access rules. Owners can do anything on this node;

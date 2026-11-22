@@ -58,22 +58,22 @@ func (n *Node) Handler() http.Handler {
 	})
 	mux.HandleFunc("GET /v1/sessions/{sid}/events", n.events)
 	mux.HandleFunc("POST /v1/sessions/{sid}/inputs", func(w http.ResponseWriter, r *http.Request) {
-		var b struct{ Key, Kind, Text string }
+		var b struct{ Key, Text string }
 		if !readJSON(w, r, &b) {
 			return
 		}
-		if b.Kind == "" {
-			b.Kind = "prompt"
-		}
-		seq, err := n.Input(login(r), r.PathValue("sid"), b.Key, b.Kind, b.Text)
+		seq, err := n.Input(login(r), r.PathValue("sid"), b.Key, b.Text)
 		reply(w, map[string]uint64{"seq": seq}, err)
 	})
+	mux.HandleFunc("POST /v1/sessions/{sid}/abort", func(w http.ResponseWriter, r *http.Request) {
+		reply(w, map[string]bool{"ok": true}, n.Abort(login(r), r.PathValue("sid")))
+	})
 	mux.HandleFunc("POST /v1/sessions/{sid}/seal", func(w http.ResponseWriter, r *http.Request) {
-		var b struct{ To string }
+		var b struct{ To, URL string }
 		if !readJSON(w, r, &b) {
 			return
 		}
-		head, err := n.Seal(login(r), r.PathValue("sid"), b.To)
+		head, err := n.Seal(r.Context(), login(r), r.PathValue("sid"), b.To, b.URL)
 		reply(w, map[string]uint64{"head": head}, err)
 	})
 	mux.HandleFunc("POST /v1/sessions/{sid}/resume", func(w http.ResponseWriter, r *http.Request) {
@@ -126,8 +126,8 @@ func (n *Node) harnessNames() []string {
 	return out
 }
 
-// events serves lines after ?after= as JSONL, or as SSE (id = seq) when the
-// client asks for text/event-stream. ?wait=1 long-polls for new lines.
+// events serves lines after ?after= (at most ?limit=) as JSONL, or as a live
+// SSE stream (id = seq) when the client asks for text/event-stream.
 func (n *Node) events(w http.ResponseWriter, r *http.Request) {
 	sid := r.PathValue("sid")
 	after, _ := strconv.ParseUint(r.URL.Query().Get("after"), 10, 64)
@@ -142,14 +142,6 @@ func (n *Node) events(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !sse {
-		if len(lines) == 0 && r.URL.Query().Get("wait") != "" {
-			select {
-			case <-changed:
-			case <-time.After(25 * time.Second):
-			case <-r.Context().Done():
-			}
-			lines, _, _ = n.Events(login(r), sid, after)
-		}
 		if limit > 0 && len(lines) > limit {
 			lines = lines[:limit]
 		}

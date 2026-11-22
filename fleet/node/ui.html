@@ -50,7 +50,7 @@ async function home() {
   }
   const ul = $("<ul></ul>");
   for (const s of list) {
-    const where = s.running ? `running on ${s.writer}` : `idle, writer ${s.writer}`;
+    const where = s.running ? `turn running on ${s.writer}` : `idle, writer ${s.writer}`;
     ul.append($(`<li><a href="#${s.sid}">${esc(s.title || s.sid)}<br><small>${esc(s.owner)} · ${where} · ${s.head} events${s.usage && s.usage.input ? ` · ${s.usage.input}/${s.usage.output} tok` : ""}${s.fork_of ? " · fork" : ""}</small></a></li>`));
   }
   if (!list.length) ul.append($(`<li class="dim">No sessions you can see yet.</li>`));
@@ -63,7 +63,7 @@ function render(e) {
     let text = e.data;
     try { const m = JSON.parse(e.data); text = m.text ?? m.message?.content ?? e.data; if (typeof text !== "string") text = JSON.stringify(text); } catch {}
     body = esc(text);
-  } else if (e.kind === "input") body = `<span class="input">${esc(e.by)} ${esc(e.data.kind)}: ${esc(e.data.text || "")}</span>`;
+  } else if (e.kind === "input") body = `<span class="input">${esc(e.by)}: ${esc(e.data.text || "")}</span>`;
   else body = `<span class="meta">${esc(e.kind)} ${esc(e.node)} ${e.data ? esc(JSON.stringify(e.data)) : ""}</span>`;
   return $(`<div class="ev"><small class="dim">${e.seq}</small> ${body}</div>`);
 }
@@ -75,14 +75,15 @@ async function view(sid) {
   main.append($(`<p><b>${esc(st.title || sid)}</b><br><small>${esc(sid)} · owner ${esc(st.owner)} · writer ${esc(st.writer)}${st.running ? " (running)" : ""}${st.fork_of ? ` · forked from <a href="#${st.fork_of}">${esc(st.fork_of)}</a>` : ""}</small></p>`));
   const bar = $(`<div class="bar"></div>`);
   const btn = (label, fn) => { const b = $(`<button>${label}</button>`); b.onclick = () => fn().then(() => view(sid)).catch(fail); bar.append(b); };
-  if (!here || !st.running) btn(here ? "Start" : `Resume on ${esc(node.name)}`, () => api("POST", `/v1/sessions/${sid}/resume`, {}));
+  if (!here) btn(`Resume on ${esc(node.name)}`, () => api("POST", `/v1/sessions/${sid}/resume`, {}));
+  if (here && st.running) btn("Abort", () => api("POST", `/v1/sessions/${sid}/abort`));
   btn("Fork", async () => { const r = await api("POST", `/v1/sessions/${sid}/fork`, { key: key() }); location.hash = r.sid; });
   main.append(bar);
   const log = $(`<div id="log"></div>`);
   main.append(log);
-  if (here && st.running) {
-    const f = $(`<form><input name="text" placeholder="message" required autocomplete="off"><select name="kind"><option>prompt</option><option>steer</option><option>abort</option></select><button>Send</button></form>`);
-    f.onsubmit = async (e) => { e.preventDefault(); const d = new FormData(f); try { await api("POST", `/v1/sessions/${sid}/inputs`, { key: key(), kind: d.get("kind"), text: d.get("text") }); f.reset(); } catch (e) { fail(e); } };
+  if (here) {
+    const f = $(`<form><input name="text" placeholder="prompt (one turn at a time)" required autocomplete="off"><button>Send</button></form>`);
+    f.onsubmit = async (e) => { e.preventDefault(); const d = new FormData(f); try { await api("POST", `/v1/sessions/${sid}/inputs`, { key: key(), text: d.get("text") }); f.reset(); } catch (e) { fail(e); } };
     main.append(f);
   }
   es = new EventSource(`/v1/sessions/${sid}/events`);

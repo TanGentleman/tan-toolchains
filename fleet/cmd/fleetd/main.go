@@ -3,9 +3,11 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"net"
 	"net/http"
@@ -30,15 +32,12 @@ func main() {
 		os.Exit(runAgent(os.Args[2:]))
 	}
 	if len(os.Args) > 1 && os.Args[1] == "fake" {
-		err := fake.Run(os.Stdin, os.Stdout, os.Getenv("FLEET_STATE"))
-		var code fake.ExitCode
-		if errors.As(err, &code) {
-			os.Exit(int(code))
-		}
+		prompt, _ := io.ReadAll(os.Stdin)
+		code, err := fake.Run(context.Background(), os.Getenv("FLEET_STATE"), string(prompt), os.Stdout)
 		if err != nil {
-			log.Fatal(err)
+			log.Print(err)
 		}
-		return
+		os.Exit(code)
 	}
 	home, _ := os.UserHomeDir()
 	var owners, spawners, peers, harnesses list
@@ -49,7 +48,7 @@ func main() {
 	flag.Var(&owners, "owner", "tailnet login with full access (repeatable)")
 	flag.Var(&spawners, "spawner", "tailnet login that may spawn sessions (repeatable)")
 	flag.Var(&peers, "peer", "node URL to copy sessions from (repeatable)")
-	flag.Var(&harnesses, "harness", `NAME=COMMAND ARGS, e.g. 'pi=pi --mode rpc --session $FLEET_STATE/pi.jsonl' (repeatable)`)
+	flag.Var(&harnesses, "harness", `NAME=COMMAND ARGS, run once per turn with the prompt on stdin; keep state in $FLEET_STATE (repeatable)`)
 	flag.Parse()
 	if *name == "" || len(owners) == 0 {
 		log.Fatal("fleetd: -name and -owner are required")

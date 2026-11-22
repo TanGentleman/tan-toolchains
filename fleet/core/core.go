@@ -10,6 +10,8 @@
 //     current writer appends, so two nodes can never append the same seq.
 //   - A keyed command (create, input, fork) with a key already in the log is
 //     a no-op that returns the original event, so client retries are safe.
+//   - A turn is one input, its output lines and one exit. Only one turn runs
+//     at a time; an input while a turn runs is refused, never queued.
 //   - Nothing is ever merged. A session whose writer is gone is forked.
 package core
 
@@ -22,12 +24,11 @@ import (
 
 const (
 	Created    = "created"    // CreatedData; the creating node is the first writer
-	Started    = "started"    // StartedData; a run (harness process) began on Node
-	Input      = "input"      // InputData; sent to the harness's stdin
+	Input      = "input"      // InputData; starts a turn: one harness process, prompt on stdin
 	Out        = "out"        // one harness stdout line, stored as a JSON string
 	OutB64     = "out.b64"    // a stdout line that is not valid UTF-8, base64
-	Exited     = "exited"     // ExitedData; the run ended
-	Checkpoint = "checkpoint" // CheckpointData; harness state files, by hash
+	Exited     = "exited"     // ExitedData; the turn's process ended
+	Checkpoint = "checkpoint" // CheckpointData; harness state files after a turn, by hash
 	Sealed     = "sealed"     // SealedData; the writer hands the session to To
 	Shared     = "shared"     // SharedData
 )
@@ -55,18 +56,14 @@ type CreatedData struct {
 	Harness string `json:"harness"`
 	Model   string `json:"model,omitempty"` // passed to the harness on every node
 	Title   string `json:"title,omitempty"`
+	URL     string `json:"url,omitempty"` // where the writer can be reached
 	ForkOf  string `json:"fork_of,omitempty"`
 	ForkAt  uint64 `json:"fork_at,omitempty"`
 	Files   []File `json:"files,omitempty"`
 }
 
-type StartedData struct {
-	URL string `json:"url,omitempty"` // where the writer can be reached
-}
-
 type InputData struct {
-	Kind string `json:"kind"` // prompt | steer | abort
-	Text string `json:"text,omitempty"`
+	Text string `json:"text"`
 }
 
 type ExitedData struct {
@@ -79,7 +76,8 @@ type CheckpointData struct {
 }
 
 type SealedData struct {
-	To string `json:"to"`
+	To  string `json:"to"`
+	URL string `json:"url"` // where To can be reached
 }
 
 type SharedData struct {
@@ -99,10 +97,9 @@ type State struct {
 	ForkAt    uint64           `json:"fork_at,omitempty"`
 	Writer    string           `json:"writer"`
 	WriterURL string           `json:"writer_url,omitempty"`
-	Running   bool             `json:"running"`
-	Run       int              `json:"run"`
-	RunNode   string           `json:"run_node,omitempty"` // node of the latest run
-	Files     []File           `json:"files,omitempty"`    // latest harness state
+	Running   bool             `json:"running"`         // a turn is in progress
+	Run       int              `json:"run"`             // number of the latest turn
+	Files     []File           `json:"files,omitempty"` // harness state after the latest turn
 	Shares    map[string]Level `json:"shares,omitempty"`
 	Updated   string           `json:"updated,omitempty"`
 
@@ -111,8 +108,8 @@ type State struct {
 
 var (
 	ErrNotWriter  = errors.New("this node is not the session's writer")
-	ErrRunning    = errors.New("session is running")
-	ErrNotRunning = errors.New("session is not running")
+	ErrRunning    = errors.New("a turn is running")
+	ErrNotRunning = errors.New("no turn is running")
 	ErrBadEvent   = errors.New("event breaks the session rules")
 )
 
@@ -142,17 +139,13 @@ func Apply(s *State, e Event) error {
 		}
 		s.Sid, s.Owner, s.Harness, s.Model, s.Title = e.Sid, d.Owner, d.Harness, d.Model, d.Title
 		s.ForkOf, s.ForkAt, s.Files = d.ForkOf, d.ForkAt, d.Files
-		s.Writer = e.Node
-	case Started:
-		if s.Running {
-			return fmt.Errorf("%w: started while running", ErrBadEvent)
+		s.Writer, s.WriterURL = e.Node, d.URL
+	case Input:
+		if s.Running || e.Run != s.Run+1 {
+			return fmt.Errorf("%w: input %d while turn %d running=%v", ErrBadEvent, e.Run, s.Run, s.Running)
 		}
-		var d StartedData
-		if err := json.Unmarshal(e.Data, &d); err != nil {
-			return err
-		}
-		s.Running, s.Run, s.RunNode, s.WriterURL = true, e.Run, e.Node, d.URL
-	case Input, Out, OutB64:
+		s.Running, s.Run = true, e.Run
+	case Out, OutB64:
 		if !s.Running || e.Run != s.Run {
 			return fmt.Errorf("%w: %s outside run", ErrBadEvent, e.Kind)
 		}
@@ -175,7 +168,7 @@ func Apply(s *State, e Event) error {
 		if err := json.Unmarshal(e.Data, &d); err != nil {
 			return err
 		}
-		s.Writer, s.WriterURL = d.To, ""
+		s.Writer, s.WriterURL = d.To, d.URL
 	case Shared:
 		var d SharedData
 		if err := json.Unmarshal(e.Data, &d); err != nil {
@@ -243,24 +236,18 @@ func Decide(s *State, c Cmd) (e Event, dup uint64, err error) {
 		return Event{}, 0, fmt.Errorf("%w (writer is %s)", ErrNotWriter, s.Writer)
 	}
 	switch c.Kind {
-	case Started:
+	case Input:
 		if s.Running {
 			return Event{}, 0, ErrRunning
 		}
 		e.Run = s.Run + 1
-	case Input, Out, Exited:
+	case Out, Exited:
 		if !s.Running {
 			return Event{}, 0, ErrNotRunning
 		}
 	case Sealed:
 		if s.Running {
 			return Event{}, 0, ErrRunning
-		}
-	}
-	if c.Kind == Input {
-		d, _ := c.Data.(InputData)
-		if d.Kind != "prompt" && d.Kind != "steer" && d.Kind != "abort" {
-			return Event{}, 0, fmt.Errorf("input kind %q", d.Kind)
 		}
 	}
 	switch {

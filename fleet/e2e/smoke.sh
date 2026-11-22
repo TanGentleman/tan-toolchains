@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Two real fleetd processes on loopback with the built-in fake harness run
-# as a subprocess: spawn on a, resume on b, kill -9 b, restart it.
+# as one subprocess per turn: spawn on a, resume on b, kill -9 b in the
+# middle of a turn, restart it, and continue from the last checkpoint.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 tmp=$(mktemp -d)
@@ -30,6 +31,7 @@ start b 17432
 
 sid=$(api POST $A/v1/sessions '{"harness":"fake","title":"smoke","key":"k1","prompt":"hello"}' | field sid)
 wait_for "$A/v1/sessions/$sid/events" 'turn\\":1'
+wait_for "$A/v1/sessions/$sid" '"running":false'
 again=$(api POST $A/v1/sessions '{"harness":"fake","title":"smoke","key":"k1","prompt":"hello"}' | field sid)
 [ "$again" = "$sid" ] || { echo "retried spawn made a new session"; exit 1; }
 code=$(curl -s -o /dev/null -w '%{http_code}' "$A/v1/sessions/$sid")
@@ -38,15 +40,17 @@ code=$(curl -s -o /dev/null -w '%{http_code}' "$A/v1/sessions/$sid")
 api POST "$B/v1/sessions/$sid/resume" "{\"from\":\"$A\"}" >/dev/null
 api POST "$B/v1/sessions/$sid/inputs" '{"key":"i1","text":"two"}' >/dev/null
 wait_for "$B/v1/sessions/$sid/events" 'turn\\":2'
+wait_for "$B/v1/sessions/$sid" '"running":false'
 wait_for "$A/v1/sessions/$sid" '"writer":"b"'
 code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Tailscale-User-Login: tan' -d '{"key":"x","text":"no"}' "$A/v1/sessions/$sid/inputs")
 [ "$code" = 409 ] || { echo "old writer accepted input: $code"; exit 1; }
 
+api POST "$B/v1/sessions/$sid/inputs" '{"key":"i2","text":"sleep"}' >/dev/null
+wait_for "$B/v1/sessions/$sid/events" 'sleeping'
 kill -9 "${pids[1]}"
 wait "${pids[1]}" 2>/dev/null || true
 start b 17432
 wait_for "$B/v1/sessions/$sid/events" 'node restarted'
-api POST "$B/v1/sessions/$sid/resume" '{}' >/dev/null
-api POST "$B/v1/sessions/$sid/inputs" '{"key":"i2","text":"three"}' >/dev/null
+api POST "$B/v1/sessions/$sid/inputs" '{"key":"i3","text":"three"}' >/dev/null
 wait_for "$B/v1/sessions/$sid/events" 'turn\\":3'
 echo "smoke: ok ($sid)"

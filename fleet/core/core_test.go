@@ -47,36 +47,42 @@ func TestRules(t *testing.T) {
 		return seq
 	}
 	must(do(t, a, Cmd{Node: "a", By: "tan", Kind: Created, Key: "k", Data: CreatedData{Owner: "tan", Harness: "fake"}}))
-	if _, err := do(t, a, Cmd{Node: "a", Kind: Input, Data: InputData{Kind: "prompt"}}); !errors.Is(err, ErrNotRunning) {
-		t.Fatalf("input before start: %v", err)
+	if _, err := do(t, a, Cmd{Node: "a", Kind: Out, Line: []byte("x")}); !errors.Is(err, ErrNotRunning) {
+		t.Fatalf("output outside a turn: %v", err)
 	}
-	must(do(t, a, Cmd{Node: "a", Kind: Started, Data: StartedData{}}))
-	if _, err := do(t, a, Cmd{Node: "a", Kind: Started, Data: StartedData{}}); !errors.Is(err, ErrRunning) {
-		t.Fatalf("double start: %v", err)
-	}
-	if _, err := do(t, a, Cmd{Node: "b", Kind: Input, Data: InputData{Kind: "prompt"}}); !errors.Is(err, ErrNotWriter) {
+	if _, err := do(t, a, Cmd{Node: "b", Kind: Input, Data: InputData{}}); !errors.Is(err, ErrNotWriter) {
 		t.Fatalf("input from non-writer: %v", err)
 	}
-	first := must(do(t, a, Cmd{Node: "a", By: "tan", Kind: Input, Key: "i1", Data: InputData{Kind: "prompt", Text: "hi"}}))
-	if again := must(do(t, a, Cmd{Node: "a", By: "tan", Kind: Input, Key: "i1", Data: InputData{Kind: "prompt", Text: "hi"}})); again != first || a.st.Head != first {
+	first := must(do(t, a, Cmd{Node: "a", By: "tan", Kind: Input, Key: "i1", Data: InputData{Text: "hi"}}))
+	if again := must(do(t, a, Cmd{Node: "a", By: "tan", Kind: Input, Key: "i1", Data: InputData{Text: "hi"}})); again != first || a.st.Head != first {
 		t.Fatalf("retried key appended: first %d again %d head %d", first, again, a.st.Head)
 	}
-	if seq := must(do(t, a, Cmd{Node: "a", By: "bob", Kind: Input, Key: "i1", Data: InputData{Kind: "prompt"}})); seq == first {
-		t.Fatal("keys must be scoped per caller")
+	if _, err := do(t, a, Cmd{Node: "a", By: "tan", Kind: Input, Key: "i2", Data: InputData{}}); !errors.Is(err, ErrRunning) {
+		t.Fatalf("second input during a turn: %v", err)
 	}
 	must(do(t, a, Cmd{Node: "a", Kind: Out, Line: []byte{0xff, 'x'}}))
 	if k := json.RawMessage(a.lines[len(a.lines)-1]); !bytes.Contains(k, []byte(`"kind":"out.b64"`)) {
 		t.Fatalf("invalid UTF-8 must be kept as base64: %s", k)
 	}
 	if _, err := do(t, a, Cmd{Node: "a", Kind: Sealed, Data: SealedData{To: "b"}}); !errors.Is(err, ErrRunning) {
-		t.Fatalf("seal while running: %v", err)
+		t.Fatalf("seal during a turn: %v", err)
 	}
 	must(do(t, a, Cmd{Node: "a", Kind: Exited, Data: ExitedData{}}))
-	must(do(t, a, Cmd{Node: "a", Kind: Sealed, Data: SealedData{To: "b"}}))
-	if _, err := do(t, a, Cmd{Node: "a", Kind: Started, Data: StartedData{}}); !errors.Is(err, ErrNotWriter) {
+	if seq := must(do(t, a, Cmd{Node: "a", By: "bob", Kind: Input, Key: "i1", Data: InputData{}})); seq == first {
+		t.Fatal("keys must be scoped per caller")
+	}
+	if a.st.Run != 2 {
+		t.Fatalf("run = %d, want 2", a.st.Run)
+	}
+	must(do(t, a, Cmd{Node: "a", Kind: Exited, Data: ExitedData{}}))
+	must(do(t, a, Cmd{Node: "a", Kind: Sealed, Data: SealedData{To: "b", URL: "http://b"}}))
+	if a.st.WriterURL != "http://b" {
+		t.Fatalf("writer url = %q", a.st.WriterURL)
+	}
+	if _, err := do(t, a, Cmd{Node: "a", Kind: Input, Data: InputData{}}); !errors.Is(err, ErrNotWriter) {
 		t.Fatalf("old writer kept writing after seal: %v", err)
 	}
-	must(do(t, a, Cmd{Node: "b", Kind: Started, Data: StartedData{}}))
+	must(do(t, a, Cmd{Node: "b", Kind: Input, Data: InputData{}}))
 
 	// A forged line from a node that is not the writer is refused on copy.
 	forged := Event{Seq: a.st.Head + 1, Sid: "s1", Node: "a", Run: a.st.Run, Kind: Out, Data: json.RawMessage(`"x"`)}
@@ -98,6 +104,14 @@ func TestPolicy(t *testing.T) {
 	}
 	if !p.CanSpawn("amy") || p.CanSpawn("bob") || p.CanSpawn("") {
 		t.Error("CanSpawn")
+	}
+	// An unknown level is an error, not a silent revoke.
+	var l Level
+	if err := l.UnmarshalText([]byte("Admin")); err == nil {
+		t.Error("accepted level Admin")
+	}
+	if err := l.UnmarshalText([]byte("steer")); err != nil || l != Steer {
+		t.Errorf("steer: %v %v", l, err)
 	}
 }
 
@@ -172,15 +186,15 @@ func simulate(t *testing.T, seed uint64, nodes []string, steps int) (string, int
 			var c Cmd
 			switch rng.IntN(6) {
 			case 0:
-				c = Cmd{Kind: Started, Data: StartedData{}}
+				c = Cmd{Kind: Checkpoint, Data: CheckpointData{Files: []File{{Name: "f", Sha: fmt.Sprint(rng.IntN(3))}}}}
 			case 1:
-				c = Cmd{Kind: Input, Key: fmt.Sprint(rng.IntN(4)), Data: InputData{Kind: "prompt"}}
+				c = Cmd{Kind: Input, Key: fmt.Sprint(rng.IntN(8)), Data: InputData{Text: "x"}}
 			case 2:
 				c = Cmd{Kind: Out, Line: []byte("x")}
 			case 3:
 				c = Cmd{Kind: Exited, Data: ExitedData{}}
 			case 4:
-				c = Cmd{Kind: Sealed, Data: SealedData{To: pick(nodes)}}
+				c = Cmd{Kind: Sealed, Data: SealedData{To: pick(nodes), URL: "http://x"}}
 			case 5:
 				c = Cmd{Kind: Shared, Data: SharedData{User: "bob", Level: View}}
 			}

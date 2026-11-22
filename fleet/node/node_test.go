@@ -5,9 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -29,9 +34,11 @@ func startNode(t *testing.T, name, data string) *testNode {
 	tn.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { h.ServeHTTP(w, r) }))
 	tn.cfg = Config{
 		Name: name, URL: tn.srv.URL, Data: data,
-		Policy:    core.Policy{Owners: []string{"tan"}},
-		Harnesses: map[string]Harness{"fake": Func(fake.Run)},
-		Client:    &http.Client{Timeout: 5 * time.Second},
+		Policy: core.Policy{Owners: []string{"tan"}},
+		Harnesses: map[string]Harness{"fake": Func(func(ctx context.Context, t Turn, w io.Writer) (int, error) {
+			return fake.Run(ctx, t.State, t.Prompt, w)
+		})},
+		Client: &http.Client{Timeout: 5 * time.Second},
 	}
 	n, err := New(tn.cfg)
 	if err != nil {
@@ -77,7 +84,8 @@ func waitTurns(t *testing.T, n *Node, sid string, want ...int) {
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		got := replies(t, n, sid)
-		if len(got) >= len(want) {
+		st, _ := n.State("tan", sid)
+		if len(got) >= len(want) && !st.Running {
 			for i := range want {
 				if got[i] != want[i] {
 					t.Fatalf("turns %v, want %v", got, want)
@@ -122,8 +130,20 @@ func post(t *testing.T, url, login, body string) (int, string) {
 	return resp.StatusCode, b.String()
 }
 
+func waitIdle(t *testing.T, n *Node, sid string) core.State {
+	t.Helper()
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if st, _ := n.State("tan", sid); !st.Running {
+			return st
+		}
+	}
+	t.Fatal("turn never ended")
+	return core.State{}
+}
+
 // TestHandoff walks one session across two nodes: spawn on a, retry safely,
-// share read-only, resume on b (a seals), lose b and fork on a, restart a.
+// share read-only, refuse a bogus seal, resume on b (a seals), lose b and
+// fork on a from b's last finished turn, restart a.
 func TestHandoff(t *testing.T) {
 	a := startNode(t, "a", t.TempDir())
 	b := startNode(t, "b", t.TempDir())
@@ -138,14 +158,15 @@ func TestHandoff(t *testing.T) {
 	if again, _ := a.Spawn("tan", "fake", "", "demo", "k1", "hello"); again != sid {
 		t.Fatalf("retried spawn made %s", again)
 	}
-	s1, _ := a.Input("tan", sid, "i1", "prompt", "two")
-	s2, _ := a.Input("tan", sid, "i1", "prompt", "two")
+	s1, _ := a.Input("tan", sid, "i1", "two")
+	s2, _ := a.Input("tan", sid, "i1", "two")
 	if s1 == 0 || s1 != s2 {
 		t.Fatalf("retried input: %d then %d", s1, s2)
 	}
 	waitTurns(t, a.Node, sid, 1, 2)
 
-	// Default deny, then read-only share.
+	// Default deny, then read-only share. An unknown level is refused, not
+	// read as a revoke.
 	if code, _ := get(t, a.srv.URL+"/v1/sessions/"+sid, ""); code != http.StatusUnauthorized {
 		t.Fatalf("no identity: %d", code)
 	}
@@ -155,6 +176,9 @@ func TestHandoff(t *testing.T) {
 	if err := a.Share("tan", sid, "bob", core.View); err != nil {
 		t.Fatal(err)
 	}
+	if code, _ := post(t, a.srv.URL+"/v1/sessions/"+sid+"/share", "tan", `{"user":"bob","level":"Admin"}`); code != http.StatusBadRequest {
+		t.Fatalf("unknown level: %d", code)
+	}
 	if code, _ := get(t, a.srv.URL+"/v1/sessions/"+sid+"/events", "bob"); code != http.StatusOK {
 		t.Fatalf("viewer read: %d", code)
 	}
@@ -162,30 +186,48 @@ func TestHandoff(t *testing.T) {
 		t.Fatalf("viewer write: %d", code)
 	}
 
-	// Resume on b: a stops, checkpoints, seals; b copies and continues the
-	// harness state (turn 3, not turn 1).
+	// A seal to a node that is not at that URL is refused; a keeps writing.
+	if code, body := post(t, a.srv.URL+"/v1/sessions/"+sid+"/seal", "tan", `{"to":"nope","url":"`+b.srv.URL+`"}`); code == http.StatusOK {
+		t.Fatalf("sealed to a node that does not exist: %s", body)
+	}
+	if _, err := a.Input("tan", sid, "i2", "three"); err != nil {
+		t.Fatal(err)
+	}
+	waitTurns(t, a.Node, sid, 1, 2, 3)
+
+	// Resume on b: a seals; b copies the log and checkpoint, and its next
+	// turn continues the harness state (turn 4, not turn 1).
 	if code, body := post(t, b.srv.URL+"/v1/sessions/"+sid+"/resume", "tan", `{"from":"`+a.srv.URL+`"}`); code != http.StatusOK {
 		t.Fatalf("resume on b: %d %s", code, body)
 	}
-	if _, err := b.Input("tan", sid, "i2", "prompt", "three"); err != nil {
+	if _, err := b.Input("tan", sid, "i3", "four"); err != nil {
 		t.Fatal(err)
 	}
-	waitTurns(t, b.Node, sid, 1, 2, 3)
-	if _, err := a.Input("tan", sid, "i3", "prompt", "nope"); !errors.Is(err, core.ErrNotWriter) {
+	waitTurns(t, b.Node, sid, 1, 2, 3, 4)
+	if _, err := a.Input("tan", sid, "i4", "nope"); !errors.Is(err, core.ErrNotWriter) {
 		t.Fatalf("old writer accepted input: %v", err)
+	}
+	if _, err := b.Input("tan", sid, "i5", "five"); err != nil {
+		t.Fatal(err)
+	}
+	waitTurns(t, b.Node, sid, 1, 2, 3, 4, 5)
+	if err := a.Pull(context.Background(), b.srv.URL, sid, "tan"); err != nil {
+		t.Fatal(err)
 	}
 	aLines, _, _ := a.Events("tan", sid, 0)
 	bLines, _, _ := b.Events("tan", sid, 0)
+	if len(aLines) != len(bLines) {
+		t.Fatalf("copy has %d lines, writer %d", len(aLines), len(bLines))
+	}
 	for i := range aLines {
 		if !bytes.Equal(aLines[i], bLines[i]) {
 			t.Fatalf("copies differ at seq %d", i+1)
 		}
 	}
 
-	// b vanishes mid-run. a cannot take the session back, but can fork it
-	// from the last checkpoint it holds (after turn 2).
+	// b vanishes. a cannot take the session back, but can fork it, and the
+	// fork continues from b's last finished turn (6, not a stale 1).
 	b.srv.Close()
-	b.Close()
 	if err := a.Resume(context.Background(), "tan", sid, ""); !errors.Is(err, ErrUnreachable) {
 		t.Fatalf("resume from dead writer: %v", err)
 	}
@@ -193,32 +235,97 @@ func TestHandoff(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Input("tan", fid, "i4", "prompt", "fork"); err != nil {
+	if _, err := a.Input("tan", fid, "i6", "fork"); err != nil {
 		t.Fatal(err)
 	}
-	waitTurns(t, a.Node, fid, 3)
+	waitTurns(t, a.Node, fid, 6)
 
-	// a restarts: the fork's run is recorded as interrupted, not re-run.
+	// a restarts: the fork carries on from its checkpoint.
 	a.Close()
 	a2, err := New(a.cfg)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer a2.Close()
-	st, _ := a2.State("tan", fid)
-	if st.Running {
-		t.Fatal("run still marked running after restart")
-	}
-	if _, err := a2.Input("tan", fid, "i5", "prompt", "x"); !errors.Is(err, core.ErrNotRunning) {
-		t.Fatalf("input after restart: %v", err)
-	}
-	if err := a2.Resume(context.Background(), "tan", fid, ""); err != nil {
+	if _, err := a2.Input("tan", fid, "i7", "again"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a2.Input("tan", fid, "i5", "prompt", "again"); err != nil {
+	waitTurns(t, a2, fid, 6, 7)
+}
+
+// TestBusyAndAbort: one turn at a time; an input during a turn is refused,
+// abort kills the turn and records it, and the next turn starts from the
+// last checkpoint.
+func TestBusyAndAbort(t *testing.T) {
+	a := startNode(t, "a", t.TempDir())
+	sid, err := a.Spawn("tan", "fake", "", "demo", "k1", "hello")
+	if err != nil {
 		t.Fatal(err)
 	}
-	waitTurns(t, a2, fid, 3, 4)
+	waitTurns(t, a.Node, sid, 1)
+	if _, err := a.Input("tan", sid, "i1", "sleep"); err != nil {
+		t.Fatal(err)
+	}
+	if code, _ := post(t, a.srv.URL+"/v1/sessions/"+sid+"/inputs", "tan", `{"key":"i2","text":"two"}`); code != http.StatusConflict {
+		t.Fatalf("input during a turn: %d", code)
+	}
+	if code, body := post(t, a.srv.URL+"/v1/sessions/"+sid+"/abort", "tan", ``); code != http.StatusOK {
+		t.Fatalf("abort: %d %s", code, body)
+	}
+	st := waitIdle(t, a.Node, sid)
+	lines, _, _ := a.Events("tan", sid, st.Head-1)
+	if !strings.Contains(string(lines[0]), `"reason":"aborted"`) {
+		t.Fatalf("last event %s", lines[0])
+	}
+	if _, err := a.Input("tan", sid, "i2", "two"); err != nil {
+		t.Fatal(err)
+	}
+	waitTurns(t, a.Node, sid, 1, 2)
+	if _, err := a.Input("tan", sid, "i3", "exit 7"); err != nil {
+		t.Fatal(err)
+	}
+	st = waitIdle(t, a.Node, sid)
+	lines, _, _ = a.Events("tan", sid, st.Head-1)
+	if !strings.Contains(string(lines[0]), `"code":7`) {
+		t.Fatalf("exit code not recorded: %s", lines[0])
+	}
+}
+
+// TestExecAbortKillsGroup: aborting an Exec turn kills the harness and
+// anything it started (an adapter's CLI), not just the direct child.
+func TestExecAbortKillsGroup(t *testing.T) {
+	data := t.TempDir()
+	n, err := New(Config{Name: "a", Data: data, Policy: core.Policy{Owners: []string{"tan"}},
+		Harnesses: map[string]Harness{"sh": Exec{Argv: []string{"sh", "-c", `sleep 30 & echo $! > child; echo started; wait`}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer n.Close()
+	sid, err := n.Spawn("tan", "sh", "", "", "k1", "go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	pidFile := filepath.Join(data, "sessions", sid, "work", "child")
+	var pid int
+	for deadline := time.Now().Add(5 * time.Second); pid == 0; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("harness never started")
+		}
+		b, _ := os.ReadFile(pidFile)
+		pid, _ = strconv.Atoi(strings.TrimSpace(string(b)))
+	}
+	start := time.Now()
+	if err := n.Abort("tan", sid); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(start); d > 3*time.Second {
+		t.Fatalf("abort took %v", d)
+	}
+	time.Sleep(50 * time.Millisecond)
+	if err := syscall.Kill(pid, 0); err == nil {
+		syscall.Kill(pid, syscall.SIGKILL)
+		t.Fatal("grandchild survived abort")
+	}
 }
 
 // TestBackgroundPull: a node listed as a peer copies sessions it can see

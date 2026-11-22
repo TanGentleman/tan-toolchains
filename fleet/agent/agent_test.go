@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"errors"
@@ -12,7 +11,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/TanGentleman/tan-toolchains/fleet/fakeor"
 )
@@ -57,67 +55,38 @@ func newWorld(t *testing.T, noProxy string) *world {
 	return w
 }
 
-// session drives one adapter process, one turn at a time.
+// session runs turns of one adapter config and keeps every output line.
 type session struct {
-	t     *testing.T
-	in    *io.PipeWriter
-	lines chan string
-	done  chan error
-	all   []string
-	errb  *bytes.Buffer
+	t    *testing.T
+	c    Config
+	all  []string
+	errb *bytes.Buffer
+	err  error
 }
 
 func start(t *testing.T, c Config) *session {
-	inR, inW := io.Pipe()
-	outR, outW := io.Pipe()
-	s := &session{t: t, in: inW, lines: make(chan string, 4096), done: make(chan error, 1), errb: &bytes.Buffer{}}
-	go func() {
-		err := Run(c, inR, outW, s.errb)
-		outW.Close()
-		inR.Close()
-		s.done <- err
-	}()
-	go func() {
-		sc := bufio.NewScanner(outR)
-		sc.Buffer(make([]byte, 1<<20), 16<<20)
-		for sc.Scan() {
-			s.lines <- sc.Text()
-		}
-		close(s.lines)
-	}()
-	return s
+	return &session{t: t, c: c, errb: &bytes.Buffer{}}
 }
 
-// turn sends a prompt and returns its output lines through fleet.turn_end.
+// turn runs one prompt and returns its output lines and fleet.turn_end.
 func (s *session) turn(id, text string) (out []string, end map[string]any) {
-	b, _ := json.Marshal(map[string]string{"type": "prompt", "id": id, "message": text})
-	go s.in.Write(append(b, '\n'))
-	timeout := time.After(120 * time.Second)
-	for {
-		select {
-		case l, ok := <-s.lines:
-			if !ok {
-				return out, nil
-			}
-			s.all = append(s.all, l)
-			out = append(out, l)
-			var m map[string]any
-			if json.Unmarshal([]byte(l), &m) == nil && m["type"] == "fleet.turn_end" {
-				return out, m
-			}
-		case <-timeout:
-			s.t.Fatalf("turn %s timed out; stderr:\n%s", id, s.errb)
+	var b bytes.Buffer
+	if s.err = Run(s.c, text, &b, s.errb); s.err != nil {
+		s.t.Logf("turn %s: %v", id, s.err)
+	}
+	for _, l := range strings.Split(strings.TrimSpace(b.String()), "\n") {
+		s.all = append(s.all, l)
+		out = append(out, l)
+		var m map[string]any
+		if json.Unmarshal([]byte(l), &m) == nil && m["type"] == "fleet.turn_end" {
+			end = m
 		}
 	}
+	return out, end
 }
 
-func (s *session) close() error {
-	s.in.Close()
-	for l := range s.lines {
-		s.all = append(s.all, l)
-	}
-	return <-s.done
-}
+// close returns the last turn's error.
+func (s *session) close() error { return s.err }
 
 func copyDir(t *testing.T, src, dst string) {
 	t.Helper()
@@ -263,13 +232,13 @@ func TestRefusals(t *testing.T) {
 	} {
 		cc := c
 		mut(&cc)
-		if err := Run(cc, strings.NewReader(""), io.Discard, io.Discard); err == nil {
+		if err := Run(cc, "", io.Discard, io.Discard); err == nil {
 			t.Errorf("%s: accepted", name)
 		}
 	}
 	os.MkdirAll(c.State, 0o700)
 	os.WriteFile(filepath.Join(c.State, "agent.json"), []byte(`{"kind":"pi","session":"x"}`), 0o600)
-	if err := Run(c, strings.NewReader(""), io.Discard, io.Discard); err == nil || !strings.Contains(err.Error(), "belongs to") {
+	if err := Run(c, "", io.Discard, io.Discard); err == nil || !strings.Contains(err.Error(), "belongs to") {
 		t.Errorf("state from another kind: %v", err)
 	}
 }

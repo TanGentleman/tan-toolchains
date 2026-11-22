@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -11,7 +12,8 @@ import (
 )
 
 // runAgent is `fleetd agent KIND [-model M] [-bin PATH] [-- CLI ARGS]`, the
-// harness fleetd registers as pi, claude and codex. Unset flags fall back to
+// harness fleetd registers as pi, claude and codex. It runs one turn with
+// the prompt read from stdin. Unset flags fall back to
 // FLEET_SESSION_MODEL (the model chosen at spawn, set by the node),
 // FLEET_<KIND>_MODEL, FLEET_MODEL and FLEET_<KIND>_BIN.
 func runAgent(args []string) int {
@@ -27,11 +29,16 @@ func runAgent(args []string) int {
 	if err := fs.Parse(args[1:]); err != nil {
 		return 2
 	}
-	err := agent.Run(agent.Config{
+	prompt, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "fleetd agent:", err)
+		return 1
+	}
+	err = agent.Run(agent.Config{
 		Kind: kind, Model: *model, Bin: *bin, Args: fs.Args(),
 		State: os.Getenv("FLEET_STATE"), Work: os.Getenv("FLEET_WORK"),
 		Key: os.Getenv("OPENROUTER_API_KEY"), Base: os.Getenv("FLEET_OPENROUTER_BASE"),
-	}, os.Stdin, os.Stdout, os.Stderr)
+	}, string(prompt), os.Stdout, os.Stderr)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "fleetd agent:", err)
 		if errors.Is(err, agent.ErrSession) {

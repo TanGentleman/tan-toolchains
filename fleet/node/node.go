@@ -1,17 +1,17 @@
-// Package node is fleetd: it runs the sessions it writes, keeps a local copy
-// of every session it has seen, and moves a session to another node by
-// sealing it there. All session rules live in core; this package only does
-// the I/O around core.Decide and core.Apply.
+// Package node is fleetd: it runs turns of the sessions it writes, keeps a
+// local copy of every session it has seen, and moves a session to another
+// node by sealing it there. All session rules live in core; this package
+// only does the I/O around core.Decide and core.Apply.
 package node
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"net/http"
 	"os"
@@ -52,15 +52,14 @@ type Node struct {
 }
 
 type session struct {
-	usage    Usage // derived from fleet.turn_end lines; never logged
-	mu       sync.Mutex
-	dir      string
-	log      *store.Log
-	st       core.State
-	broken   error
-	proc     Proc
-	stopping bool
-	pumped   chan struct{}
+	usage  Usage // derived from fleet.turn_end lines; never logged
+	mu     sync.Mutex
+	dir    string
+	log    *store.Log
+	st     core.State
+	broken error
+	cancel context.CancelFunc // set while a turn runs
+	done   chan struct{}      // closed when that turn's exit is recorded
 }
 
 var (
@@ -98,8 +97,9 @@ func New(cfg Config) (*Node, error) {
 			return nil, fmt.Errorf("session %s: %w", e.Name(), err)
 		}
 		s.mu.Lock()
-		// A run this node was writing died with the old process. Record that;
-		// the inputs it had are never re-sent.
+		// A turn this node was running died with the old process. Record
+		// that; its input is never re-sent, and the next turn starts from
+		// the last checkpoint, not from whatever the dead turn left behind.
 		if s.st.Running && s.st.Writer == cfg.Name {
 			_, err = n.commit(s, n.cmd("", core.Exited, "", core.ExitedData{Code: -1, Reason: "node restarted"}))
 		}
@@ -117,13 +117,13 @@ func New(cfg Config) (*Node, error) {
 
 func (n *Node) Name() string { return n.cfg.Name }
 
-// Close stops runs (recording their exit) and the pull loop.
+// Close aborts running turns (recording their exit) and stops the pull loop.
 func (n *Node) Close() {
 	n.once.Do(func() {
 		close(n.stop)
 		n.wg.Wait()
 		for _, s := range n.list() {
-			n.stopRun(s)
+			n.abort(s)
 			s.log.Close()
 		}
 	})
@@ -306,124 +306,132 @@ func (n *Node) create(sid, login, key string, d core.CreatedData, prompt string)
 		return nil
 	}
 	s.st.Sid = sid
+	d.URL = n.cfg.URL
 	if _, err := n.commit(s, n.cmd(login, core.Created, key, d)); err != nil {
 		return err
 	}
-	if err := n.start(s); err != nil {
-		return err
-	}
 	if prompt != "" {
-		_, err = n.input(s, login, key+"/prompt", "prompt", prompt)
+		_, err = n.input(s, login, key+"/prompt", prompt)
 	}
 	return err
 }
 
-// start begins a run. s.mu must be held and this node must be the writer.
-func (n *Node) start(s *session) error {
-	if s.st.Running {
-		return nil
+// turn runs one harness process for the input just committed, then records
+// its checkpoint and exit in one append. It owns the state dir while it runs.
+func (n *Node) turn(ctx context.Context, s *session, done chan struct{}, h Harness, run int, t Turn, files []core.File) {
+	defer close(done)
+	t.State, t.Work = filepath.Join(s.dir, "state"), filepath.Join(s.dir, "work")
+	state, work := t.State, t.Work
+	code, reason := -1, ""
+	var snap []core.File
+	err := n.restore(state, files)
+	if err == nil {
+		err = os.MkdirAll(work, 0o755)
 	}
-	h, ok := n.cfg.Harnesses[s.st.Harness]
-	if !ok {
-		return fmt.Errorf("unknown harness %q", s.st.Harness)
-	}
-	state := filepath.Join(s.dir, "state")
-	if s.st.RunNode != n.cfg.Name {
-		// The last run was elsewhere (or never happened): rebuild the
-		// harness state from the latest checkpoint.
-		if err := n.restore(state, s.st.Files); err != nil {
-			return err
-		}
-	}
-	work := filepath.Join(s.dir, "work")
-	if err := os.MkdirAll(work, 0o755); err != nil {
-		return err
-	}
-	if _, err := n.commit(s, n.cmd("", core.Started, "", core.StartedData{URL: n.cfg.URL})); err != nil {
-		return err
-	}
-	stderr, err := os.OpenFile(filepath.Join(s.dir, fmt.Sprintf("stderr-%d.log", s.st.Run)), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
 	if err != nil {
-		return err
-	}
-	spec := Spec{Sid: s.st.Sid, Work: work, State: state, Stderr: stderr}
-	if s.st.Model != "" {
-		spec.Env = []string{"FLEET_SESSION_MODEL=" + s.st.Model}
-	}
-	p, err := h.Start(spec)
-	if err != nil {
-		stderr.Close()
-		n.commit(s, n.cmd("", core.Exited, "", core.ExitedData{Code: -1, Reason: "start: " + err.Error()}))
-		return err
-	}
-	s.proc, s.stopping, s.pumped = p, false, make(chan struct{})
-	go n.pump(s, p, stderr)
-	return nil
-}
-
-// pump records harness output in batches, one fsync per batch.
-func (n *Node) pump(s *session, p Proc, stderr io.Closer) {
-	defer stderr.Close()
-	lines := p.Lines()
-	for line := range lines {
-		batch := []core.Cmd{n.out(line)}
-	drain:
-		for len(batch) < 512 {
-			select {
-			case l, ok := <-lines:
-				if !ok {
-					break drain
-				}
-				batch = append(batch, n.out(l))
-			default:
-				break drain
-			}
+		reason = "restore: " + err.Error()
+	} else {
+		stderr, _ := os.OpenFile(filepath.Join(s.dir, fmt.Sprintf("stderr-%d.log", run)), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+		if stderr != nil {
+			t.Stderr = stderr
+			defer stderr.Close()
 		}
-		s.mu.Lock()
-		n.commit(s, batch...)
-		s.mu.Unlock()
+		out := &outWriter{n: n, s: s}
+		code, err = h.Run(ctx, t, out)
+		out.flush()
+		switch {
+		case ctx.Err() != nil:
+			reason = "aborted"
+		case err != nil:
+			reason = err.Error()
+		}
+		// Whatever the harness left is the session's state now, even after
+		// a failed or aborted turn: the log says the turn happened.
+		if snap, err = n.snapshot(state); err != nil {
+			reason += "; checkpoint: " + err.Error()
+		}
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	reason := "harness exited"
-	if s.stopping {
-		reason = "stopped"
+	var cmds []core.Cmd
+	if snap != nil && !slices.Equal(snap, s.st.Files) {
+		cmds = append(cmds, n.cmd("", core.Checkpoint, "", core.CheckpointData{Files: snap}))
 	}
-	n.checkpoint(s)
-	n.commit(s, n.cmd("", core.Exited, "", core.ExitedData{Code: p.Code(), Reason: reason}))
-	s.proc = nil
-	close(s.pumped)
+	cmds = append(cmds, n.cmd("", core.Exited, "", core.ExitedData{Code: code, Reason: strings.TrimPrefix(reason, "; ")}))
+	n.commit(s, cmds...)
+	s.cancel = nil
+}
+
+// outWriter records harness stdout, one event per line. Each Write commits
+// the complete lines it holds with one fsync.
+type outWriter struct {
+	n   *Node
+	s   *session
+	buf []byte
+}
+
+func (w *outWriter) Write(p []byte) (int, error) {
+	w.buf = append(w.buf, p...)
+	var cmds []core.Cmd
+	for {
+		i := bytes.IndexByte(w.buf, '\n')
+		if i < 0 {
+			break
+		}
+		if line := bytes.TrimRight(w.buf[:i], "\r"); len(line) > 0 {
+			cmds = append(cmds, w.n.out(line))
+		}
+		w.buf = w.buf[i+1:]
+	}
+	if len(cmds) == 0 {
+		return len(p), nil
+	}
+	w.s.mu.Lock()
+	defer w.s.mu.Unlock()
+	if _, err := w.n.commit(w.s, cmds...); err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
+func (w *outWriter) flush() {
+	if len(w.buf) > 0 {
+		w.Write([]byte{'\n'})
+	}
 }
 
 func (n *Node) out(line []byte) core.Cmd {
 	c := n.cmd("", core.Out, "", nil)
-	c.Line = line
+	c.Line = append([]byte(nil), line...)
 	return c
 }
 
-// stopRun ends the current run, if any, and waits until its exit is recorded.
-func (n *Node) stopRun(s *session) {
+// abort cancels the running turn, if any, and waits until its exit is
+// recorded.
+func (n *Node) abort(s *session) {
 	s.mu.Lock()
-	p, done := s.proc, s.pumped
-	if p != nil {
-		s.stopping = true
-	}
+	cancel, done := s.cancel, s.done
 	s.mu.Unlock()
-	if p != nil {
-		p.Stop()
+	if cancel != nil {
+		cancel()
 		<-done
 	}
 }
 
-// checkpoint stores the harness state files as blobs and records them if
-// they changed. s.mu must be held.
-func (n *Node) checkpoint(s *session) error {
-	root := filepath.Join(s.dir, "state")
-	var files []core.File
+// Abort kills the running turn of sid. It is a no-op when none is running.
+func (n *Node) Abort(login, sid string) error {
+	s, err := n.session(login, sid, core.Steer)
+	if err != nil {
+		return err
+	}
+	n.abort(s)
+	return nil
+}
+
+// snapshot stores the files under root as blobs and lists them by name.
+func (n *Node) snapshot(root string) ([]core.File, error) {
+	files := []core.File{}
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil
-		}
 		if err != nil || !d.Type().IsRegular() {
 			return err
 		}
@@ -440,17 +448,11 @@ func (n *Node) checkpoint(s *session) error {
 		files = append(files, core.File{Name: filepath.ToSlash(rel), Sha: sha, Size: size})
 		return nil
 	})
-	if err != nil {
-		return err
-	}
 	sort.Slice(files, func(i, j int) bool { return files[i].Name < files[j].Name })
-	if slices.Equal(files, s.st.Files) {
-		return nil
-	}
-	_, err = n.commit(s, n.cmd("", core.Checkpoint, "", core.CheckpointData{Files: files}))
-	return err
+	return files, err
 }
 
+// restore replaces dir with exactly the checkpointed files.
 func (n *Node) restore(dir string, files []core.File) error {
 	if err := os.RemoveAll(dir); err != nil {
 		return err
@@ -477,9 +479,9 @@ func (n *Node) restore(dir string, files []core.File) error {
 	return nil
 }
 
-// Input records an input and then sends it to the harness. A retried key
-// returns the first seq and is not sent again.
-func (n *Node) Input(login, sid, key, kind, text string) (uint64, error) {
+// Input records a prompt and runs it as a turn. A retried key returns the
+// first seq and runs nothing; an input while a turn runs is ErrRunning.
+func (n *Node) Input(login, sid, key, text string) (uint64, error) {
 	if key == "" {
 		return 0, errors.New("key required")
 	}
@@ -489,61 +491,68 @@ func (n *Node) Input(login, sid, key, kind, text string) (uint64, error) {
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	return n.input(s, login, key, kind, text)
+	return n.input(s, login, key, text)
 }
 
-func (n *Node) input(s *session, login, key, kind, text string) (uint64, error) {
+func (n *Node) input(s *session, login, key, text string) (uint64, error) {
+	h, ok := n.cfg.Harnesses[s.st.Harness]
+	if !ok && s.st.Writer == n.cfg.Name {
+		return 0, fmt.Errorf("unknown harness %q", s.st.Harness)
+	}
 	before := s.st.Head
-	seqs, err := n.commit(s, n.cmd(login, core.Input, key, core.InputData{Kind: kind, Text: text}))
+	seqs, err := n.commit(s, n.cmd(login, core.Input, key, core.InputData{Text: text}))
 	if err != nil {
 		return 0, err
 	}
 	if seqs[0] <= before {
 		return seqs[0], nil // duplicate
 	}
-	line, _ := json.Marshal(map[string]string{"type": kind, "id": key, "message": text})
-	if err := s.proc.Send(line); err != nil {
-		return seqs[0], fmt.Errorf("recorded at seq %d, but the harness did not take it: %w", seqs[0], err)
-	}
+	ctx, cancel := context.WithCancel(context.Background())
+	s.cancel, s.done = cancel, make(chan struct{})
+	t := Turn{Sid: s.st.Sid, Prompt: text, Model: s.st.Model}
+	go n.turn(ctx, s, s.done, h, s.st.Run, t, s.st.Files)
 	return seqs[0], nil
 }
 
-// Seal ends the run and makes node `to` the writer. Returns the new head.
-func (n *Node) Seal(login, sid, to string) (uint64, error) {
-	if to == "" {
-		return 0, errors.New("to required")
+// Seal aborts any running turn and makes node `to`, reachable at url, the
+// writer. It first checks that url answers as `to`, so a typo cannot hand
+// the session to a node that does not exist. Returns the new head.
+func (n *Node) Seal(ctx context.Context, login, sid, to, url string) (uint64, error) {
+	if to == "" || url == "" {
+		return 0, errors.New("to and url required")
 	}
 	s, err := n.session(login, sid, core.Steer)
 	if err != nil {
 		return 0, err
 	}
 	s.mu.Lock()
-	if s.st.Writer != n.cfg.Name {
-		defer s.mu.Unlock()
-		if s.st.Writer == to {
-			return s.st.Head, nil // already sealed to `to`: a retry
-		}
-		return 0, fmt.Errorf("%w (writer is %s)", core.ErrNotWriter, s.st.Writer)
-	}
+	writer, head := s.st.Writer, s.st.Head
 	s.mu.Unlock()
-	n.stopRun(s)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := n.checkpoint(s); err != nil {
+	switch {
+	case writer == to:
+		return head, nil // already sealed to `to`: a retry
+	case writer != n.cfg.Name:
+		return 0, fmt.Errorf("%w (writer is %s)", core.ErrNotWriter, writer)
+	}
+	var info struct{ Name string }
+	if err := n.call(ctx, http.MethodGet, url+"/v1/node", login, nil, &info); err != nil {
 		return 0, err
 	}
-	if to == n.cfg.Name {
-		return s.st.Head, nil
+	if info.Name != to {
+		return 0, fmt.Errorf("%s is node %q, not %q", url, info.Name, to)
 	}
-	if _, err := n.commit(s, n.cmd(login, core.Sealed, "", core.SealedData{To: to})); err != nil {
+	n.abort(s)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, err := n.commit(s, n.cmd(login, core.Sealed, "", core.SealedData{To: to, URL: url})); err != nil {
 		return 0, err
 	}
 	return s.st.Head, nil
 }
 
-// Resume makes this node the writer and starts a run. If another node is
-// the writer it asks that node to seal to this one, then copies the log.
-// from is the writer's URL when this node has no copy yet.
+// Resume makes this node the writer: it asks the current writer to seal to
+// this node, then copies the log and checkpoint. from is the writer's URL
+// when this node has no copy yet.
 func (n *Node) Resume(ctx context.Context, login, sid, from string) error {
 	s, err := n.session(login, sid, core.Steer)
 	if errors.Is(err, ErrNotFound) && from != "" && validSid(sid) {
@@ -558,24 +567,22 @@ func (n *Node) Resume(ctx context.Context, login, sid, from string) error {
 	s.mu.Lock()
 	writer, url := s.st.Writer, s.st.WriterURL
 	s.mu.Unlock()
-	if writer != n.cfg.Name {
-		if url == "" {
-			url = from
-		}
-		if url == "" {
-			return fmt.Errorf("%w: no URL for writer %s", ErrUnreachable, writer)
-		}
-		var res struct{ Head uint64 }
-		if err := n.call(ctx, http.MethodPost, url+"/v1/sessions/"+sid+"/seal", login, map[string]string{"to": n.cfg.Name}, &res); err != nil {
-			return err
-		}
-		if err := n.Pull(ctx, url, sid, login); err != nil {
-			return err
-		}
+	if writer == n.cfg.Name {
+		return nil
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	return n.start(s)
+	if n.cfg.URL == "" {
+		return errors.New("this node has no -url, so the writer cannot hand off to it")
+	}
+	if url == "" {
+		url = from
+	}
+	if url == "" {
+		return fmt.Errorf("%w: no URL for writer %s", ErrUnreachable, writer)
+	}
+	if err := n.call(ctx, http.MethodPost, url+"/v1/sessions/"+sid+"/seal", login, map[string]string{"to": n.cfg.Name, "url": n.cfg.URL}, nil); err != nil {
+		return err
+	}
+	return n.Pull(ctx, url, sid, login)
 }
 
 // Fork starts a new session from the latest checkpoint of a local copy. The
@@ -596,6 +603,7 @@ func (n *Node) Fork(login, sid, key string) (string, error) {
 	d := core.CreatedData{Owner: login, Harness: s.st.Harness, Model: s.st.Model, Title: s.st.Title, ForkOf: sid, ForkAt: s.st.Head, Files: s.st.Files}
 	s.mu.Unlock()
 	fid := sessionID("fork", n.cfg.Name, login, key, sid)
+	// Files are the state after the last finished turn this copy holds.
 	return fid, n.create(fid, login, key, d, "")
 }
 

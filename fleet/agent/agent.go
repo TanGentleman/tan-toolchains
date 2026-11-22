@@ -1,7 +1,7 @@
 // Package agent adapts real coding-agent CLIs (Pi, Claude Code, Codex) to
-// fleet's harness contract. It reads {"type":"prompt"|"steer"|"abort","id",
-// "message"} lines on stdin and runs the CLI once per turn in its headless
-// JSON mode, forwarding every stdout line unchanged.
+// fleet's harness contract: one turn per process. Run passes the prompt to
+// the CLI's headless JSON mode on stdin, forwards every stdout line
+// unchanged, and ends with a {"type":"fleet.turn_end"} line.
 //
 // Everything the CLI needs to continue lives under Config.State, so the
 // directory fleet checkpoints is the conversation. Each turn after the first
@@ -28,8 +28,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
-	"syscall"
 )
 
 const DefaultBase = "https://openrouter.ai/api"
@@ -82,17 +80,15 @@ type adapter struct {
 	c   Config
 	nat native
 	out *lineWriter
-
-	mu   sync.Mutex
-	cur  *exec.Cmd
-	quit bool
 }
 
 // ErrSession means the CLI's native session is gone or changed. The adapter
 // exits rather than let the conversation restart from nothing.
 var ErrSession = errors.New("agent: native session missing or changed")
 
-func Run(c Config, in io.Reader, out, errw io.Writer) error {
+// Run runs one turn. It returns ErrSession when the native session is gone
+// or changed, and the CLI's failure as an error.
+func Run(c Config, prompt string, out, errw io.Writer) error {
 	if _, ok := kindEnv[c.Kind]; !ok {
 		return fmt.Errorf("agent: unknown kind %q (want pi, claude or codex)", c.Kind)
 	}
@@ -116,60 +112,12 @@ func Run(c Config, in io.Reader, out, errw io.Writer) error {
 	if err := a.configure(); err != nil {
 		return err
 	}
-	a.emit(map[string]any{"type": "fleet.ready", "kind": c.Kind, "model": c.Model, "session": a.nat.Session, "turns": a.nat.Turns})
-
-	type msg struct{ Type, ID, Message string }
-	msgs := make(chan msg, 64)
-	go func() {
-		sc := bufio.NewScanner(in)
-		sc.Buffer(make([]byte, 1<<20), 16<<20)
-		for sc.Scan() {
-			var m msg
-			if err := json.Unmarshal(sc.Bytes(), &m); err != nil {
-				a.emit(map[string]any{"type": "fleet.error", "error": "bad input: " + err.Error()})
-				continue
-			}
-			if m.Type == "abort" {
-				a.kill()
-				a.emit(map[string]any{"type": "fleet.aborted", "id": m.ID})
-				continue
-			}
-			msgs <- m
-		}
-		a.mu.Lock()
-		a.quit = true
-		a.mu.Unlock()
-		a.kill()
-		close(msgs)
-	}()
-	stderr := &lineWriter{w: errw, secret: c.Key}
-	for m := range msgs {
-		switch m.Type {
-		case "prompt", "steer":
-			if err := a.turn(m.ID, m.Message, stderr); err != nil {
-				a.emit(map[string]any{"type": "fleet.error", "id": m.ID, "error": err.Error()})
-				if errors.Is(err, ErrSession) {
-					return err
-				}
-			}
-		default:
-			a.emit(map[string]any{"type": "fleet.error", "id": m.ID, "error": "unknown type " + m.Type})
-		}
-	}
-	return nil
+	return a.turn(prompt, &lineWriter{w: errw, secret: c.Key})
 }
 
 func (a *adapter) emit(v any) {
 	b, _ := json.Marshal(v)
 	a.out.Write(append(b, '\n'))
-}
-
-func (a *adapter) kill() {
-	a.mu.Lock()
-	defer a.mu.Unlock()
-	if a.cur != nil && a.cur.Process != nil {
-		syscall.Kill(-a.cur.Process.Pid, syscall.SIGKILL)
-	}
 }
 
 func (a *adapter) statePath(p ...string) string {
@@ -411,7 +359,7 @@ func reported(kind string, line []byte) string {
 	return ""
 }
 
-func (a *adapter) turn(id, text string, stderr io.Writer) error {
+func (a *adapter) turn(text string, stderr io.Writer) error {
 	args, want, err := a.argv()
 	if err != nil {
 		return err
@@ -422,23 +370,13 @@ func (a *adapter) turn(id, text string, stderr io.Writer) error {
 	cmd.Env = a.env()
 	cmd.Stdin = strings.NewReader(text)
 	cmd.Stderr = stderr
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return err
 	}
-	a.mu.Lock()
-	if a.quit {
-		a.mu.Unlock()
-		return errors.New("agent: shutting down")
-	}
 	if err := cmd.Start(); err != nil {
-		a.mu.Unlock()
 		return err
 	}
-	a.cur = cmd
-	a.mu.Unlock()
-	a.emit(map[string]any{"type": "fleet.turn_start", "id": id, "turn": a.nat.Turns + 1, "session": a.nat.Session})
 
 	var got string
 	var use Usage
@@ -457,9 +395,6 @@ func (a *adapter) turn(id, text string, stderr io.Writer) error {
 		}
 	}
 	werr := cmd.Wait()
-	a.mu.Lock()
-	a.cur = nil
-	a.mu.Unlock()
 	code := cmd.ProcessState.ExitCode()
 	if a.c.Kind == "codex" {
 		// `codex exec resume` reports the thread's running total.
@@ -488,11 +423,14 @@ func (a *adapter) turn(id, text string, stderr io.Writer) error {
 	if serr := a.save(); err == nil {
 		err = serr
 	}
-	end := map[string]any{"type": "fleet.turn_end", "id": id, "turn": a.nat.Turns, "code": code, "session": a.nat.Session, "usage": use}
+	end := map[string]any{"type": "fleet.turn_end", "turn": a.nat.Turns, "code": code, "session": a.nat.Session, "usage": use}
 	if werr != nil {
 		end["error"] = werr.Error()
 	}
 	a.emit(end)
+	if err == nil && code != 0 {
+		err = fmt.Errorf("agent: %s exited %d", a.c.Kind, code)
+	}
 	return err
 }
 
@@ -535,16 +473,14 @@ func usageOf(kind string, line []byte) Usage {
 	return Usage{}
 }
 
-// lineWriter serializes whole lines and scrubs the API key from them.
+// lineWriter scrubs the API key from what it writes. Callers write whole
+// lines, so the key is never split across writes.
 type lineWriter struct {
-	mu     sync.Mutex
 	w      io.Writer
 	secret string
 }
 
 func (l *lineWriter) Write(p []byte) (int, error) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
 	q := p
 	if l.secret != "" && bytes.Contains(p, []byte(l.secret)) {
 		q = bytes.ReplaceAll(p, []byte(l.secret), []byte("[redacted]"))
