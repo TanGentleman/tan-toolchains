@@ -13,7 +13,7 @@ cd fleet && go build -o fleetd ./cmd/fleetd
 tailscale serve --bg 7433          # tailnet HTTPS + identity header -> fleetd
 ```
 
-Open `https://laptop.your-tailnet.ts.net` on your phone. A second machine runs
+Open `https://laptop.your-tailnet.ts.net` on your phone. Every macOS setup step and command: [docs/macos.md](docs/macos.md). A second machine runs
 its own `fleetd` with `-peer https://laptop...` to keep copies of every
 session it can see.
 
