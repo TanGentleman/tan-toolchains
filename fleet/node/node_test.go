@@ -151,14 +151,14 @@ func TestHandoff(t *testing.T) {
 	a := startNode(t, "a", t.TempDir())
 	b := startNode(t, "b", t.TempDir())
 
-	sid, err := a.Spawn("tan", "fake", "", "demo", "k1", "hello")
+	sid, err := a.Spawn("tan", "k1", "hello", core.CreatedData{Harness: "fake", Model: "", Title: "demo"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	waitTurns(t, a.Node, sid, 1)
 
 	// Retried requests change nothing.
-	if again, _ := a.Spawn("tan", "fake", "", "demo", "k1", "hello"); again != sid {
+	if again, _ := a.Spawn("tan", "k1", "hello", core.CreatedData{Harness: "fake", Model: "", Title: "demo"}); again != sid {
 		t.Fatalf("retried spawn made %s", again)
 	}
 	s1, _ := a.Input("tan", sid, "i1", "two")
@@ -261,7 +261,7 @@ func TestHandoff(t *testing.T) {
 // last checkpoint.
 func TestBusyAndAbort(t *testing.T) {
 	a := startNode(t, "a", t.TempDir())
-	sid, err := a.Spawn("tan", "fake", "", "demo", "k1", "hello")
+	sid, err := a.Spawn("tan", "k1", "hello", core.CreatedData{Harness: "fake", Model: "", Title: "demo"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -304,7 +304,7 @@ func TestExecAbortKillsGroup(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer n.Close()
-	sid, err := n.Spawn("tan", "sh", "", "", "k1", "go")
+	sid, err := n.Spawn("tan", "k1", "go", core.CreatedData{Harness: "sh", Model: "", Title: ""})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -335,7 +335,7 @@ func TestExecAbortKillsGroup(t *testing.T) {
 // without anyone asking, so they stay viewable when the writer goes away.
 func TestBackgroundPull(t *testing.T) {
 	a := startNode(t, "a", t.TempDir())
-	sid, err := a.Spawn("tan", "fake", "", "demo", "k1", "hello")
+	sid, err := a.Spawn("tan", "k1", "hello", core.CreatedData{Harness: "fake", Model: "", Title: "demo"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -356,7 +356,7 @@ func TestBackgroundPull(t *testing.T) {
 
 func TestModelFollowsSessionAndForks(t *testing.T) {
 	a := startNode(t, "a", t.TempDir())
-	sid, err := a.Spawn("tan", "fake", "openai/gpt-5-nano", "demo", "k1", "hello")
+	sid, err := a.Spawn("tan", "k1", "hello", core.CreatedData{Harness: "fake", Model: "openai/gpt-5-nano", Title: "demo"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -371,7 +371,7 @@ func TestModelFollowsSessionAndForks(t *testing.T) {
 		}
 	}
 	for _, bad := range []string{"has space", "new\nline", strings.Repeat("x", 201)} {
-		if _, err := a.Spawn("tan", "fake", bad, "demo", "k-"+bad, ""); err == nil {
+		if _, err := a.Spawn("tan", "k-"+bad, "", core.CreatedData{Harness: "fake", Model: bad, Title: "demo"}); err == nil {
 			t.Errorf("accepted model %q", bad)
 		}
 	}
@@ -461,7 +461,7 @@ func TestExecDropAndModes(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer n.Close()
-	sid, err := n.Spawn("tan", "sh", "", "", "k1", "go")
+	sid, err := n.Spawn("tan", "k1", "go", core.CreatedData{Harness: "sh", Model: "", Title: ""})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -519,7 +519,7 @@ esac`
 		t.Fatal(err)
 	}
 	defer n.Close()
-	sid, err := n.Spawn("tan", "sh", "", "", "k1", "first")
+	sid, err := n.Spawn("tan", "k1", "first", core.CreatedData{Harness: "sh", Model: "", Title: ""})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -576,7 +576,7 @@ func TestCloseAbortsInParallel(t *testing.T) {
 	}
 	var sids []string
 	for i := range 3 {
-		sid, err := n.Spawn("tan", "sh", "", "", fmt.Sprint("k", i), "go")
+		sid, err := n.Spawn("tan", fmt.Sprint("k", i), "go", core.CreatedData{Harness: "sh"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -597,4 +597,89 @@ func TestCloseAbortsInParallel(t *testing.T) {
 	if d := time.Since(start); d > 2500*time.Millisecond {
 		t.Fatalf("Close took %v for 3 turns with a 1s grace", d)
 	}
+}
+
+func TestRepoTurnResult(t *testing.T) {
+	sha1, sha2 := strings.Repeat("a1", 20), strings.Repeat("b2", 20)
+	data := t.TempDir()
+	// The prompt is the result file's content; "-" writes nothing.
+	sh := `env | grep '^FLEET_' > "$FLEET_WORK/env-$FLEET_SID"; p=$(cat); [ "$p" = - ] || printf '%s' "$p" > "$FLEET_RESULT"; [ "$p" != fail ] || exit 3`
+	n, err := New(Config{Name: "a", Data: data, Policy: core.Policy{Owners: []string{"tan"}},
+		Harnesses: map[string]Harness{"sh": Exec{Argv: []string{"sh", "-c", sh}}},
+		Sandboxes: map[string]string{"sh": "test-box"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer n.Close()
+	for _, bad := range []core.CreatedData{{Harness: "sh", Repo: "nope"}, {Harness: "sh", Branch: "main"}, {Harness: "sh", Repo: "o/r", Branch: "-x"}} {
+		if _, err := n.Spawn("tan", "bad-"+bad.Repo+bad.Branch, "", bad); err == nil {
+			t.Errorf("spawned %+v", bad)
+		}
+	}
+	sid, err := n.Spawn("tan", "k1", fmt.Sprintf(`{"commit":%q,"base":%q}`, sha2, sha1), core.CreatedData{Harness: "sh", Repo: "o/r", Branch: "dev"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	st := waitIdle(t, n, sid)
+	if st.Sandbox != "test-box" || st.Base != sha1 || st.Commit != sha2 {
+		t.Fatalf("after turn 1: %+v", st)
+	}
+	b, _ := os.ReadFile(filepath.Join(data, "sessions", sid, "work", "env-"+sid))
+	for _, want := range []string{"FLEET_REPO=o/r", "FLEET_BRANCH=dev", "FLEET_PUSH=fleet/" + sid, "FLEET_RESULT=" + filepath.Join(data, "sessions", sid, "result-1.json")} {
+		if !strings.Contains(string(b), want) {
+			t.Errorf("turn 1 env lacks %s:\n%s", want, b)
+		}
+	}
+	if strings.Contains(string(b), "FLEET_BASE=") {
+		t.Error("turn 1 got a base before one was recorded")
+	}
+
+	turn := func(prompt string) core.State {
+		t.Helper()
+		if _, err := n.Input("tan", sid, prompt, prompt); err != nil {
+			t.Fatal(err)
+		}
+		return waitIdle(t, n, sid)
+	}
+	for _, bad := range []string{`not json`, `{"commit":"abc"}`, `{"commit":"` + strings.ToUpper(sha2) + `"}`, `{"commit":"` + sha2 + `","base":"` + sha2 + `"}`} {
+		if st := turn(bad); st.Commit != sha2 || st.Base != sha1 {
+			t.Fatalf("result %s was not ignored: %+v", bad, st)
+		}
+		if r := lastExit(t, n, sid); !strings.Contains(r.Reason, "result ignored") || r.Commit != "" {
+			t.Fatalf("result %s: exit %+v", bad, r)
+		}
+	}
+	if st := turn("-"); st.Commit != sha2 {
+		t.Fatalf("no result file changed the commit: %+v", st)
+	}
+	b, _ = os.ReadFile(filepath.Join(data, "sessions", sid, "work", "env-"+sid))
+	if !strings.Contains(string(b), "FLEET_BASE="+sha1) {
+		t.Errorf("later turns lack the recorded base:\n%s", b)
+	}
+
+	fid, err := n.Fork("tan", sid, "f1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs, _ := n.State("tan", fid)
+	if fs.Repo != "o/r" || fs.Branch != "dev" || fs.Base != sha2 || fs.Commit != "" || fs.Sandbox != "test-box" {
+		t.Fatalf("fork must start from the parent's last pushed commit: %+v", fs)
+	}
+}
+
+func lastExit(t *testing.T, n *Node, sid string) core.ExitedData {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(n.cfg.Data, "sessions", sid, "events.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var x core.ExitedData
+	for _, line := range strings.Split(strings.TrimSpace(string(b)), "\n") {
+		var e core.Event
+		if json.Unmarshal([]byte(line), &e) == nil && e.Kind == core.Exited {
+			x = core.ExitedData{}
+			json.Unmarshal(e.Data, &x)
+		}
+	}
+	return x
 }

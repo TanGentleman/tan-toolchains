@@ -39,19 +39,21 @@ async function home() {
   main.replaceChildren();
   if (node.can_spawn) {
     const f = $(`<form><select name="harness">${node.harnesses.map((h) => `<option>${esc(h)}</option>`).join("")}</select>
+      <input name="repo" placeholder="owner/repo (optional)" autocapitalize="off">
+      <input name="branch" placeholder="branch (default: the repo's default)" autocapitalize="off">
       <input name="model" placeholder="model (optional)">
       <input name="prompt" placeholder="first prompt" required><button>Spawn</button></form>`);
     f.onsubmit = async (e) => {
       e.preventDefault();
       const d = new FormData(f);
-      try { const r = await api("POST", "/v1/sessions", { harness: d.get("harness"), model: d.get("model").trim(), title: d.get("prompt").slice(0, 60), key: key(), prompt: d.get("prompt") }); location.hash = r.sid; } catch (e) { fail(e); }
+      try { const r = await api("POST", "/v1/sessions", { harness: d.get("harness"), model: d.get("model").trim(), repo: d.get("repo").trim(), branch: d.get("branch").trim(), title: d.get("prompt").slice(0, 60), key: key(), prompt: d.get("prompt") }); location.hash = r.sid; } catch (e) { fail(e); }
     };
     main.append(f);
   }
   const ul = $("<ul></ul>");
   for (const s of list) {
     const where = s.running ? `turn running on ${s.writer}` : `idle, writer ${s.writer}`;
-    ul.append($(`<li><a href="#${s.sid}">${esc(s.title || s.sid)}<br><small>${esc(s.owner)} · ${where} · ${s.head} events${s.usage && s.usage.input ? ` · ${s.usage.input}/${s.usage.output} tok` : ""}${s.fork_of ? " · fork" : ""}</small></a></li>`));
+    ul.append($(`<li><a href="#${s.sid}">${esc(s.title || s.sid)}<br><small>${esc(s.owner)} · ${where} · ${s.head} events${s.usage && s.usage.input ? ` · ${s.usage.input}/${s.usage.output} tok` : ""}${s.repo ? ` · ${esc(s.repo)}${s.commit ? "@" + esc(s.commit.slice(0, 8)) : ""}` : ""}${s.fork_of ? " · fork" : ""}</small></a></li>`));
   }
   if (!list.length) ul.append($(`<li class="dim">No sessions you can see yet.</li>`));
   main.append(ul);

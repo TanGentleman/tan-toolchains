@@ -6,6 +6,7 @@ package node
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -33,8 +34,9 @@ type Config struct {
 	Data      string
 	Policy    core.Policy
 	Harnesses map[string]Harness
-	Peers     []string // base URLs to copy sessions from
-	PeerLogin string   // login sent on background pulls
+	Sandboxes map[string]string // harness name -> what isolates it, recorded on created
+	Peers     []string          // base URLs to copy sessions from
+	PeerLogin string            // login sent on background pulls
 	PullEvery time.Duration
 	Client    *http.Client
 	Now       func() time.Time
@@ -278,21 +280,53 @@ func (n *Node) session(login, sid string, lvl core.Level) (*session, error) {
 
 // Spawn creates a session owned by login and starts it. The same login and
 // key always name the same session, so a retried spawn changes nothing.
-func (n *Node) Spawn(login, harness, model, title, key, prompt string) (string, error) {
+func (n *Node) Spawn(login, key, prompt string, d core.CreatedData) (string, error) {
 	if !n.cfg.Policy.CanSpawn(login) {
 		return "", ErrForbidden
 	}
 	if key == "" {
 		return "", errors.New("key required")
 	}
-	if _, ok := n.cfg.Harnesses[harness]; !ok {
-		return "", fmt.Errorf("unknown harness %q", harness)
+	if _, ok := n.cfg.Harnesses[d.Harness]; !ok {
+		return "", fmt.Errorf("unknown harness %q", d.Harness)
 	}
-	if !validModel(model) {
-		return "", fmt.Errorf("bad model %q", model)
+	if !validModel(d.Model) {
+		return "", fmt.Errorf("bad model %q", d.Model)
+	}
+	if d.Repo != "" && !core.IsRepo(d.Repo) || d.Branch != "" && !core.IsBranch(d.Branch) || d.Repo == "" && d.Branch != "" {
+		return "", fmt.Errorf("bad repo %q or branch %q", d.Repo, d.Branch)
 	}
 	sid := sessionID("spawn", n.cfg.Name, login, key)
-	return sid, n.create(sid, login, key, core.CreatedData{Owner: login, Harness: harness, Model: model, Title: title}, prompt)
+	d = core.CreatedData{Owner: login, Harness: d.Harness, Model: d.Model, Title: d.Title, Repo: d.Repo, Branch: d.Branch,
+		Sandbox: n.cfg.Sandboxes[d.Harness]}
+	return sid, n.create(sid, login, key, d, prompt)
+}
+
+// readResult reads the commit and base a harness reports in $FLEET_RESULT.
+// A missing file means nothing was pushed; anything malformed is ignored,
+// and bad says why.
+func readResult(path, base string) (r core.ExitedData, bad string) {
+	b, err := os.ReadFile(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return r, ""
+	}
+	var v struct{ Commit, Base string }
+	switch {
+	case err != nil:
+		return r, err.Error()
+	case len(b) > 4096:
+		return r, "over 4 KiB"
+	case json.Unmarshal(b, &v) != nil:
+		return r, "not JSON"
+	case v.Commit != "" && !core.IsCommit(v.Commit) || v.Base != "" && !core.IsCommit(v.Base):
+		return r, "commit and base must be full lowercase hex ids"
+	case v.Base != "" && base != "" && v.Base != base:
+		return r, "base differs from the session's"
+	}
+	if base != "" {
+		v.Base = ""
+	}
+	return core.ExitedData{Commit: v.Commit, Base: v.Base}, ""
 }
 
 // validModel accepts ids like "anthropic/claude-haiku-4.5" or "".
@@ -337,9 +371,15 @@ func (n *Node) turn(ctx context.Context, s *session, done chan struct{}, h Harne
 	state, work := t.State, t.Work
 	code, reason := -1, ""
 	var snap []core.File
+	var res core.ExitedData
 	err := n.restore(state, files)
 	if err == nil {
 		err = os.MkdirAll(work, 0o700)
+	}
+	if err == nil && t.Result != "" {
+		if err = os.Remove(t.Result); errors.Is(err, os.ErrNotExist) {
+			err = nil
+		}
 	}
 	if err != nil {
 		reason = "restore: " + err.Error()
@@ -365,6 +405,12 @@ func (n *Node) turn(ctx context.Context, s *session, done chan struct{}, h Harne
 			if snap, err = n.snapshot(state); err != nil {
 				reason += "; checkpoint: " + err.Error()
 			}
+			if t.Result != "" {
+				var bad string
+				if res, bad = readResult(t.Result, t.Base); bad != "" {
+					reason += "; result ignored: " + bad
+				}
+			}
 		}
 	}
 	s.mu.Lock()
@@ -373,7 +419,7 @@ func (n *Node) turn(ctx context.Context, s *session, done chan struct{}, h Harne
 	if snap != nil && !slices.Equal(snap, s.st.Files) {
 		cmds = append(cmds, n.cmd("", core.Checkpoint, "", core.CheckpointData{Files: snap}))
 	}
-	cmds = append(cmds, n.cmd("", core.Exited, "", core.ExitedData{Code: code, Reason: strings.TrimPrefix(reason, "; ")}))
+	cmds = append(cmds, n.cmd("", core.Exited, "", core.ExitedData{Code: code, Reason: strings.TrimPrefix(reason, "; "), Commit: res.Commit, Base: res.Base}))
 	n.commit(s, cmds...)
 	s.cancel = nil
 }
@@ -525,7 +571,11 @@ func (n *Node) input(s *session, login, key, text string) (uint64, error) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel, s.done = cancel, make(chan struct{})
-	t := Turn{Sid: s.st.Sid, Prompt: text, Model: s.st.Model}
+	t := Turn{Sid: s.st.Sid, Prompt: text, Model: s.st.Model, Repo: s.st.Repo, Branch: s.st.Branch, Base: s.st.Base}
+	if t.Repo != "" {
+		t.Push = "fleet/" + s.st.Sid
+		t.Result = filepath.Join(s.dir, fmt.Sprintf("result-%d.json", s.st.Run))
+	}
 	go n.turn(ctx, s, s.done, h, s.st.Run, t, s.st.Files)
 	return seqs[0], nil
 }
@@ -616,7 +666,8 @@ func (n *Node) Fork(login, sid, key string) (string, error) {
 		return "", err
 	}
 	s.mu.Lock()
-	d := core.CreatedData{Owner: login, Harness: s.st.Harness, Model: s.st.Model, Title: s.st.Title, ForkOf: sid, ForkAt: s.st.Head, Files: s.st.Files}
+	d := core.CreatedData{Owner: login, Harness: s.st.Harness, Model: s.st.Model, Title: s.st.Title, ForkOf: sid, ForkAt: s.st.Head, Files: s.st.Files,
+		Repo: s.st.Repo, Branch: s.st.Branch, Base: cmp.Or(s.st.Commit, s.st.Base), Sandbox: s.st.Sandbox}
 	s.mu.Unlock()
 	fid := sessionID("fork", n.cfg.Name, login, key, sid)
 	// Files are the state after the last finished turn this copy holds.

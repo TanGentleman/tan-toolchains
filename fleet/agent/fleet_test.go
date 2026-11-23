@@ -113,7 +113,7 @@ func TestFleetHandoff(t *testing.T) {
 			}}
 			a, _ := fleetNode(t, "a", h, kind)
 			bn, _ := fleetNode(t, "b", h, kind)
-			sid, err := a.Spawn("tan", kind, "fake/session-model", "demo", "k1", "hello TOKALPHA")
+			sid, err := a.Spawn("tan", "k1", "hello TOKALPHA", core.CreatedData{Harness: kind, Model: "fake/session-model", Title: "demo"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -145,7 +145,7 @@ func TestFleetHandoff(t *testing.T) {
 			if st, _ := bn.State("tan", sid); st.Model != "fake/session-model" {
 				t.Fatalf("state model = %q", st.Model)
 			}
-			if _, err := bn.Spawn("tan", kind, "bad model", "x", "k9", ""); err == nil {
+			if _, err := bn.Spawn("tan", "k9", "", core.CreatedData{Harness: kind, Model: "bad model", Title: "x"}); err == nil {
 				t.Fatal("accepted a model id with a space")
 			}
 			if strings.Contains(output(t, bn, sid), fakeKey) {
