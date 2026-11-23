@@ -11,6 +11,11 @@ The default `full` image has Pi, git, gh, ripgrep, fd, Zig 0.17.0, Neovim 0.12.6
 Requires macOS 26, Apple silicon, Homebrew, `container`, and `jq`; nothing
 else on the Mac. The image builds its own tools.
 
+In a new account on a Mac where another user installed Homebrew, `brew` is not
+on `PATH`. Add it first:
+`echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile`, then open a
+new terminal. Only the admin who owns `/opt/homebrew` can `brew install`.
+
 ```bash
 brew install container jq
 container system start

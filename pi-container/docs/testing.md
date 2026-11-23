@@ -56,3 +56,8 @@ behind `proxy.py`; `./build.sh fleet` runs the Go tests again on the Mac.
 VM it probes `fleetd`, the Mac, the tailnet and the internet by IP, using
 `test/fleet-probe.sh`, which `test-fleet-probe.sh` tests here. Where each fleet
 check runs: [fleet/docs/macos.md, step 8](../../fleet/docs/macos.md#8-verify-before-relying-on-it).
+
+`test/release.sh` runs the release gate in [E2E.md](../E2E.md#release) and
+writes `release.json`. `PI_RELEASE_DIR` (default `/Users/Shared/pi-release`)
+moves its records; `test-release.sh` covers the redaction, the gate and the
+report.

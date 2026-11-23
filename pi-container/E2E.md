@@ -226,3 +226,28 @@ Not here: fleet (`pic serve`, `pi-ctr`) has its own checklist,
 - [ ] All checks pass.
 - [ ] Note anything skipped and why.
 - [ ] Merge to `main` and tag only after this checklist is complete.
+
+## Release
+
+A release is an annotated tag `vX.Y.Z` on a commit that passed this checklist
+and fleet step 8, with `release.json` (versions, pins, image digest, every
+check) attached to its GitHub release. `test/release.sh` records each stage in
+`/Users/Shared/pi-release/<sha>/` and redacts keys, tokens, emails and tailnet
+names from its output and files. A FAIL or skip in any stage, a missing stage,
+red CI, or a different SHA closes the gate.
+
+1. Main account: push the candidate commit and wait for CI. Stop `pic serve`
+   and run `container system stop`. Create the throwaway repo and its token
+   (Setup above).
+2. New macOS account: follow the root README through `brew install` and
+   `git clone`, then `git checkout <sha>` and, from `pi-container/`, run
+   `test/release.sh fresh`. It checks the versions and that this account has
+   no pi-container or fleet state, before `container system start`.
+3. Same account: finish the README setup with the throwaway token, then
+   `test/release.sh verify --repo OWNER/REPO` and `test/release.sh manual`.
+   Run `container system stop` when done.
+4. Main account, same SHA: `container system start`, `pic serve`, spawn a
+   session, then `test/release.sh fleet SID`.
+5. Main account: `test/release.sh report`, then
+   `test/release.sh publish vX.Y.Z --push`. It uses your own git and `gh`
+   credentials; the env file's token cannot push here. Delete the test account.
