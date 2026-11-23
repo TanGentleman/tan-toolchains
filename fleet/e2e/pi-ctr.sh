@@ -88,7 +88,7 @@ c1=$(tip "fleet/$sid")
 say "$sid" i2 "write two"
 c2=$(tip "fleet/$sid")
 [ "$(git -C "$tmp/gh/o/r.git" rev-parse "$c2^")" = "$c1" ] && [ "$(st "$sid" commit)" = "$c2" ] || fail "turn 2 did not continue fleet/$sid"
-[ "$(git -C "$tmp/gh/o/r.git" show "$c2:notes.txt" | wc -l)" = 2 ] || fail "turn 2 lost turn 1's change"
+[ "$(git -C "$tmp/gh/o/r.git" show "$c2:notes.txt" | wc -l)" -eq 2 ] || fail "turn 2 lost turn 1's change"
 [ "$(st "$sid" base)" = "$dev" ] || fail "base changed"
 
 # A failed Pi turn still pushes: its transcript is kept, so its code is too.
@@ -127,7 +127,7 @@ has "$sid" '"aborted"' || fail "abort not recorded"
 say "$sid" i6 "write three"
 c4=$(tip "fleet/$sid")
 [ "$(git -C "$tmp/gh/o/r.git" rev-parse "$c4^")" = "$c3" ] || fail "turn after abort did not continue"
-[ "$(ls "$home/.fleet/sessions/$sid/state/pi/sessions" | wc -l)" = 1 ] || fail "pi started a second session file"
+[ "$(ls "$home/.fleet/sessions/$sid/state/pi/sessions" | wc -l)" -eq 1 ] || fail "pi started a second session file"
 [ "$(grep -c '"type":"message"' "$home/.fleet/sessions/$sid/state/pi/sessions/"*.jsonl)" = 9 ] || fail "transcript should hold 9 turns (the aborted one is dropped)"
 
 # A fork starts from the parent's last pushed commit, on its own branch.
