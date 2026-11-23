@@ -19,7 +19,6 @@ import (
 	"time"
 
 	"github.com/TanGentleman/tan-toolchains/fleet/core"
-	"github.com/TanGentleman/tan-toolchains/fleet/fake"
 )
 
 type testNode struct {
@@ -38,7 +37,7 @@ func startNode(t *testing.T, name, data string) *testNode {
 		Name: name, URL: tn.srv.URL, Data: data,
 		Owners: []string{"tan"},
 		Harnesses: map[string]Harness{"fake": Func(func(ctx context.Context, t Turn, w io.Writer) (int, error) {
-			return fake.Run(ctx, t.State, t.Prompt, w)
+			return fakeRun(ctx, t.State, t.Prompt, w)
 		})},
 	}
 	n, err := New(tn.cfg)
@@ -158,6 +157,12 @@ func TestLifecycle(t *testing.T) {
 	if again, _ := a.Spawn("tan", "k1", "hello", core.CreatedData{Harness: "fake", Title: "demo"}); again != sid {
 		t.Fatalf("retried spawn made %s", again)
 	}
+	// With one harness, an empty one means it.
+	if did, err := a.Spawn("tan", "k-default", "", core.CreatedData{}); err != nil {
+		t.Fatal(err)
+	} else if st, _ := a.State(did); st.Harness != "fake" {
+		t.Fatalf("default harness %q", st.Harness)
+	}
 	s1, _ := a.Input("tan", sid, "i1", "two")
 	s2, _ := a.Input("tan", sid, "i1", "two")
 	if s1 == 0 || s1 != s2 {
@@ -256,7 +261,7 @@ func TestExecAbortKillsGroup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pidFile := filepath.Join(data, "sessions", sid, "work", "child")
+	pidFile := filepath.Join(data, "sessions", sid, "state", "child")
 	var pid int
 	for deadline := time.Now().Add(5 * time.Second); pid == 0; time.Sleep(10 * time.Millisecond) {
 		if time.Now().After(deadline) {
@@ -413,10 +418,13 @@ func TestExecDropAndModes(t *testing.T) {
 	if strings.Contains(env, "sk-or-v1-real") {
 		t.Fatal("harness saw OPENROUTER_API_KEY")
 	}
-	for _, want := range []string{"FLEET_TEST_KEEP=kept", "FLEET_TEST_ADDED=added", "FLEET_SID=" + sid, "FLEET_WORK=", "FLEET_STATE="} {
+	for _, want := range []string{"FLEET_TEST_KEEP=kept", "FLEET_TEST_ADDED=added", "FLEET_SID=" + sid, "FLEET_STATE="} {
 		if !strings.Contains(env, want) {
 			t.Errorf("harness env lacks %s", want)
 		}
+	}
+	if strings.Contains(env, "FLEET_WORK=") {
+		t.Error("harness got FLEET_WORK; turns have no host working folder")
 	}
 	files := 0
 	filepath.WalkDir(data, func(p string, d os.DirEntry, err error) error {
@@ -428,7 +436,7 @@ func TestExecDropAndModes(t *testing.T) {
 			t.Errorf("%s: %v, open to others", p, perm)
 		}
 		files++
-		if d.IsDir() && (d.Name() == "state" || d.Name() == "work") {
+		if d.IsDir() && d.Name() == "state" {
 			return filepath.SkipDir // the harness's own files; the 0700 dirs above cover them
 		}
 		return nil
@@ -443,17 +451,17 @@ func TestExecDropAndModes(t *testing.T) {
 // checkpointed: the next turn sees the state of the last finished one.
 // A harness that ignores SIGTERM is killed after the grace period.
 func TestAbortKeepsCheckpoint(t *testing.T) {
-	data := t.TempDir()
+	data, work := t.TempDir(), t.TempDir()
 	script := `read p
 case "$p" in
 first) echo one > "$FLEET_STATE/f" ;;
-partial) echo half > "$FLEET_STATE/f"; trap 'echo term > "$FLEET_WORK/term"; exit 143' TERM
-  touch "$FLEET_WORK/started"; sleep 30 & wait ;;
-stubborn) trap '' TERM; touch "$FLEET_WORK/started"; sleep 30 & wait; sleep 30 ;;
+partial) echo half > "$FLEET_STATE/f"; trap 'echo term > "$OUT/term"; exit 143' TERM
+  touch "$OUT/started"; sleep 30 & wait ;;
+stubborn) trap '' TERM; touch "$OUT/started"; sleep 30 & wait; sleep 30 ;;
 *) echo "state=$(cat "$FLEET_STATE/f")" ;;
 esac`
 	n, err := New(Config{Name: "a", Data: data, Owners: []string{"tan"},
-		Harnesses: map[string]Harness{"sh": Exec{Argv: []string{"sh", "-c", script}, Grace: 300 * time.Millisecond}}})
+		Harnesses: map[string]Harness{"sh": Exec{Argv: []string{"sh", "-c", script}, Env: []string{"OUT=" + work}, Grace: 300 * time.Millisecond}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -463,7 +471,6 @@ esac`
 		t.Fatal(err)
 	}
 	before := waitIdle(t, n, sid).Files
-	work := filepath.Join(data, "sessions", sid, "work")
 	abortWhenStarted := func(key, prompt string) time.Duration {
 		os.Remove(filepath.Join(work, "started"))
 		if _, err := n.Input("tan", sid, key, prompt); err != nil {
@@ -507,9 +514,10 @@ esac`
 // TestCloseAbortsInParallel: shutdown stops every running turn at once, so
 // turns that ignore SIGTERM cost one grace period in total, not one each.
 func TestCloseAbortsInParallel(t *testing.T) {
-	data := t.TempDir()
+	data, out := t.TempDir(), t.TempDir()
 	n, err := New(Config{Name: "a", Data: data, Owners: []string{"tan"},
-		Harnesses: map[string]Harness{"sh": Exec{Argv: []string{"sh", "-c", `trap '' TERM; touch "$FLEET_WORK/started"; sleep 30`}, Grace: time.Second}}})
+		Harnesses: map[string]Harness{"sh": Exec{Argv: []string{"sh", "-c", `trap '' TERM; touch "$OUT/started-$FLEET_SID"; sleep 30`},
+			Env: []string{"OUT=" + out}, Grace: time.Second}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -523,7 +531,7 @@ func TestCloseAbortsInParallel(t *testing.T) {
 	}
 	for _, sid := range sids {
 		for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
-			if _, err := os.Stat(filepath.Join(data, "sessions", sid, "work", "started")); err == nil {
+			if _, err := os.Stat(filepath.Join(out, "started-"+sid)); err == nil {
 				break
 			}
 			if time.Now().After(deadline) {
@@ -540,11 +548,11 @@ func TestCloseAbortsInParallel(t *testing.T) {
 
 func TestRepoTurnResult(t *testing.T) {
 	sha1, sha2 := strings.Repeat("a1", 20), strings.Repeat("b2", 20)
-	data := t.TempDir()
+	data, out := t.TempDir(), t.TempDir()
 	// The prompt is the result file's content; "-" writes nothing.
-	sh := `env | grep '^FLEET_' > "$FLEET_WORK/env-$FLEET_SID"; p=$(cat); [ "$p" = - ] || printf '%s' "$p" > "$FLEET_RESULT"; [ "$p" != fail ] || exit 3`
+	sh := `env | grep '^FLEET_' > "$OUT/env-$FLEET_SID"; p=$(cat); [ "$p" = - ] || printf '%s' "$p" > "$FLEET_RESULT"; [ "$p" != fail ] || exit 3`
 	n, err := New(Config{Name: "a", Data: data, Owners: []string{"tan"},
-		Harnesses: map[string]Harness{"sh": Exec{Argv: []string{"sh", "-c", sh}}},
+		Harnesses: map[string]Harness{"sh": Exec{Argv: []string{"sh", "-c", sh}, Env: []string{"OUT=" + out}}},
 		Sandboxes: map[string]string{"sh": "test-box"}})
 	if err != nil {
 		t.Fatal(err)
@@ -563,7 +571,7 @@ func TestRepoTurnResult(t *testing.T) {
 	if st.Sandbox != "test-box" || st.Base != sha1 || st.Commit != sha2 {
 		t.Fatalf("after turn 1: %+v", st)
 	}
-	b, _ := os.ReadFile(filepath.Join(data, "sessions", sid, "work", "env-"+sid))
+	b, _ := os.ReadFile(filepath.Join(out, "env-"+sid))
 	for _, want := range []string{"FLEET_REPO=o/r", "FLEET_BRANCH=dev", "FLEET_PUSH=fleet/" + sid, "FLEET_RESULT=" + filepath.Join(data, "sessions", sid, "result-1.json")} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("turn 1 env lacks %s:\n%s", want, b)
@@ -600,7 +608,7 @@ func TestRepoTurnResult(t *testing.T) {
 	if st := turn("-"); st.Commit != sha2 {
 		t.Fatalf("no result file changed the commit: %+v", st)
 	}
-	b, _ = os.ReadFile(filepath.Join(data, "sessions", sid, "work", "env-"+sid))
+	b, _ = os.ReadFile(filepath.Join(out, "env-"+sid))
 	if !strings.Contains(string(b), "FLEET_BASE="+sha1) {
 		t.Errorf("later turns lack the recorded base:\n%s", b)
 	}

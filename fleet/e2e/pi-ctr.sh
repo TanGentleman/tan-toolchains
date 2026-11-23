@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# fleetd's built-in pi-ctr harness end to end, with no Mac: real fleetd, real
+# fleetd and its pi-ctr harness end to end, with no Mac: real fleetd, real
 # pi-container run.sh and pi-ctr, a fake `container` that runs the command
 # here (test/fake-container.sh, FAKE_CONTAINER_EXEC), a fake Pi, and a local
-# bare repo standing in for GitHub through git's insteadOf.
+# bare repo standing in for GitHub through git's insteadOf. Also: owners
+# only, retries, abort, and kill -9 of fleetd in the middle of a turn.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 fleet=$(pwd -P)
@@ -48,12 +49,17 @@ printf '#!/usr/bin/env bash\nexport FAKE_CONTAINER_WORLD=%q FAKE_CONTAINER_LOG=%
 chmod +x "$tmp/bin/pi-ctr-spy" "$tmp/container"
 
 U=http://127.0.0.1:17441
-env HOME="$home" OPENROUTER_API_KEY="$real" PI_CTR_MAX_FILE_BYTES=1000 FLEET_PI_CTR_BIN="$tmp/bin/pi-ctr-spy" \
-  CONTAINER_CLI="$tmp/container" \
-  "$tmp/fleetd" -name a -url $U -listen 127.0.0.1:17441 -owner tan 2>>"$tmp/fleetd.log" &
-pid=$!
 api() { curl -fsS -X "$1" -H 'Tailscale-User-Login: tan' -H 'Content-Type: application/json' ${3:+-d "$3"} "$U$2"; }
-for _ in $(seq 50); do api GET /v1/node >/dev/null 2>&1 && break; sleep 0.1; done
+# fleetd gets the real key in its environment; it must reach no turn.
+start_fleetd() {
+  env HOME="$home" OPENROUTER_API_KEY="$real" PI_CTR_MAX_FILE_BYTES=1000 FLEET_PI_CTR_BIN="$tmp/bin/pi-ctr-spy" \
+    CONTAINER_CLI="$tmp/container" \
+    "$tmp/fleetd" -name a -url $U -listen 127.0.0.1:17441 -owner tan 2>>"$tmp/fleetd.log" &
+  pid=$!
+  for _ in $(seq 50); do api GET /v1/node >/dev/null 2>&1 && return; sleep 0.1; done
+  echo "pi-ctr: fleetd did not start"; cat "$tmp/fleetd.log"; exit 1
+}
+start_fleetd
 fail() { echo "pi-ctr: FAIL: $*"; echo "--- fleetd log"; tail -20 "$tmp/fleetd.log"; tail -n 15 "$home"/.fleet/sessions/*/stderr-*.log; exit 1; }
 idle() { # sid
   for _ in $(seq 200); do
@@ -83,6 +89,13 @@ c1=$(tip "fleet/$sid")
 [ "$(st "$sid" sandbox)" = pi-container ] || fail "created does not record the sandbox"
 [ "$(git -C "$tmp/gh/o/r.git" rev-parse "$c1^")" = "$dev" ] || fail "turn 1 did not start from dev"
 [ "$(git -C "$tmp/gh/o/r.git" show "$c1:notes.txt")" = "write one" ] || fail "turn 1's change missing"
+
+# A retried spawn names the same session; only owners get in.
+again=$(api POST /v1/sessions '{"harness":"pi-ctr","repo":"o/r","branch":"dev","key":"k1","prompt":"write one"}' | jq -r .sid)
+[ "$again" = "$sid" ] || fail "retried spawn made $again"
+code() { curl -s -o /dev/null -w '%{http_code}' ${2:+-H "Tailscale-User-Login: $2"} "$U$1"; }
+[ "$(code "/v1/sessions/$sid")" = 401 ] || fail "no identity was not 401"
+[ "$(code "/v1/sessions/$sid" bob)" = 403 ] || fail "a stranger was not 403"
 
 # Turn 2 continues fleet/<sid> on a fresh clone; base stays.
 say "$sid" i2 "write two"
@@ -150,6 +163,21 @@ grep -q '^PI_CODING_AGENT_DIR=' "$tmp/pi-ctr.env" && fail "pi-ctr got a writable
 for f in "$tmp/pi-ctr.env" "$disk/env.log" "$tmp/container.log"; do
   ! grep -qF "$real" "$f" || fail "the real key reached $f"
 done
+
+# fleetd dies mid-turn (kill -9) and restarts: the turn is recorded as
+# exited, its input is not re-run, and the next turn resumes the transcript
+# and the branch. A killed fleetd leaves its turn's processes behind; stop
+# them, as a person would after a crash.
+before=$(tip "fleet/$sid")
+api POST "/v1/sessions/$sid/inputs" '{"key":"i7","text":"sleep"}' >/dev/null
+for _ in $(seq 100); do events "$sid" | grep -q sleeping && break; sleep 0.05; done
+kill -9 "$pid"; wait "$pid" 2>/dev/null || true
+pkill -9 -f "$tmp/" 2>/dev/null || true
+start_fleetd
+has "$sid" 'node restarted' || fail "the dead turn was not recorded"
+say "$sid" i8 "write four"
+[ "$(git -C "$tmp/gh/o/r.git" rev-parse "$(tip "fleet/$sid")^")" = "$before" ] || fail "turn after restart did not continue the branch"
+[ "$(ls "$home/.fleet/sessions/$sid/state/pi/sessions" | wc -l)" -eq 1 ] || fail "restart started a second session file"
 
 events "$sid" > "$tmp/events"
 ms=$(grep -o 'first_output_ms[^,]*' "$tmp/events" | tr -d '\\"' | sed 's/first_output_ms://' | sort -n | tr '\n' ' ')

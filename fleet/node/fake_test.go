@@ -1,9 +1,4 @@
-// Package fake is a deterministic harness for tests. Each turn reads the
-// prompt and bumps a turn counter kept in the state directory, so a test can
-// tell whether a turn on another node really continued from the checkpoint:
-// the turn number keeps counting. "exit N" exits with N; "sleep" blocks
-// until the turn is cancelled.
-package fake
+package node
 
 import (
 	"context"
@@ -14,14 +9,18 @@ import (
 	"path/filepath"
 )
 
-type state struct {
+// fakeRun is a deterministic in-process harness. Each turn bumps a turn
+// counter kept in the state directory, so a test can tell whether a turn
+// continued from the checkpoint: the turn number keeps counting. "exit N"
+// exits with N; "sleep" blocks until the turn is cancelled.
+type fakeState struct {
 	Turns int      `json:"turns"`
 	Seen  []string `json:"seen"`
 }
 
-func Run(ctx context.Context, dir, prompt string, out io.Writer) (int, error) {
+func fakeRun(ctx context.Context, dir, prompt string, out io.Writer) (int, error) {
 	path := filepath.Join(dir, "fake.json")
-	var st state
+	var st fakeState
 	if b, err := os.ReadFile(path); err == nil {
 		if err := json.Unmarshal(b, &st); err != nil {
 			return 1, err

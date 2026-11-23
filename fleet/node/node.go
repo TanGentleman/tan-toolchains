@@ -247,6 +247,11 @@ func (n *Node) Spawn(login, key, prompt string, d core.CreatedData) (string, err
 	if key == "" {
 		return "", errors.New("key required")
 	}
+	if d.Harness == "" && len(n.cfg.Harnesses) == 1 {
+		for h := range n.cfg.Harnesses {
+			d.Harness = h // the only one: pi-ctr in fleetd
+		}
+	}
 	if _, ok := n.cfg.Harnesses[d.Harness]; !ok {
 		return "", fmt.Errorf("unknown harness %q", d.Harness)
 	}
@@ -329,15 +334,12 @@ func (n *Node) create(sid, login, key string, d core.CreatedData, prompt string)
 // its checkpoint and exit in one append. It owns the state dir while it runs.
 func (n *Node) turn(ctx context.Context, s *session, done chan struct{}, h Harness, run int, t Turn, files []core.File) {
 	defer close(done)
-	t.State, t.Work = filepath.Join(s.dir, "state"), filepath.Join(s.dir, "work")
-	state, work := t.State, t.Work
+	t.State = filepath.Join(s.dir, "state")
+	state := t.State
 	code, reason := -1, ""
 	var snap []core.File
 	var res core.ExitedData
 	err := n.restore(state, files)
-	if err == nil {
-		err = os.MkdirAll(work, 0o700)
-	}
 	if err == nil && t.Result != "" {
 		if err = os.Remove(t.Result); errors.Is(err, os.ErrNotExist) {
 			err = nil

@@ -1,250 +1,163 @@
 # fleet
 
-`fleetd` runs coding-agent sessions on one machine, records every byte the
-agent prints, and lets your tailnet devices view, prompt and fork them. Go
-standard library only.
+Spawn and steer Pi sessions on one Mac from any device on your tailnet,
+such as your phone. Each turn runs Pi inside pi-container's locked VM on a
+fresh clone of a repo you pick, and pushes the result to a `fleet/<session>`
+branch. `fleetd` records every line Pi prints. Go standard library only.
 
-## Quick start
+Setup on a Mac, every step: [docs/macos.md](docs/macos.md).
 
-```sh
-cd fleet && go build -o fleetd ./cmd/fleetd
-./fleetd -name laptop -url https://laptop.your-tailnet.ts.net -owner you@github \
-  -harness 'mine=/path/to/adapter'   # built in: pi-ctr
-tailscale serve --bg 7433          # tailnet HTTPS + identity header -> fleetd
-```
+## Words
 
-Open `https://laptop.your-tailnet.ts.net` on your phone. On a Mac, `pic serve` does all of this; every step: [docs/macos.md](docs/macos.md).
+| Word | Means |
+|---|---|
+| `pic serve` | How you start a node: checks the Mac, then runs `fleetd` and `tailscale serve` in the foreground. Ctrl-C stops both. |
+| `fleetd` | The daemon: sessions, event logs, API and phone UI, on `127.0.0.1:7433`. |
+| `pi-ctr` | The one harness: `pi-container/pi-ctr` runs one turn of Pi in the VM. `fleetd` starts it through its own `fleetd pi-ctr` subcommand. |
+| session | A transcript (Pi's session file, checkpointed after each turn) plus, with a repo, the branch `fleet/<sid>`. |
+| turn | One prompt, one Pi run, one push. One at a time per session. |
+| node | One Mac running `pic serve`. Nodes don't talk to each other. |
 
-`fleetd` listens on loopback only and refuses anything else: it trusts the
-`Tailscale-User-Login` header, which `tailscale serve` sets and strips from
-clients. Without serve (e.g. `curl` on the box) you must send the header
-yourself.
+## A turn
 
-## Model
+1. You send a prompt (spawn, or the session page). `fleetd` records it.
+2. `fleetd` rebuilds the session's state folder from the last checkpoint
+   and runs `pi-ctr`, which starts a fresh VM on the `pi-locked` network
+   with only that folder mounted.
+3. With a repo: the VM clones it and checks out `fleet/<sid>`, or on the
+   first turn (and a fork's first turn) the session's base.
+4. Pi runs on the transcript so far. Every line it prints is stored as is.
+5. With a repo: everything is staged, the push guardrails run (no file over
+   10 MiB, nothing that looks like a GitHub token), and the turn commits and
+   pushes to `fleet/<sid>`.
+6. Only Pi's session file and `agent.json` are kept and checkpointed. The VM,
+   its disk and the clone are gone.
 
-Five pieces. Everything else is an adapter.
+A failed Pi turn is still pushed, since its transcript is kept. An aborted
+turn (abort, or `fleetd` stopping) gets SIGTERM, then SIGKILL after 3 s,
+pushes nothing, and the session goes back to its last checkpoint.
 
-| Piece | Package | What it is |
-| ----- | ------- | ---------- |
-| Event log | `core` | One append-only JSONL file per session. Each line: `seq`, `sid`, `node`, `run` (turn), `kind`, `data`. |
-| Rules | `core` | `Decide(state, cmd) -> event` and `Apply(state, event)`. Pure, no I/O; the whole protocol. |
-| Store | `store` | Append = write + fsync, then visible. Torn tails are cut on open; a line the rules reject makes open fail. Blobs by SHA-256. |
-| Harness | `node` | One process per turn: prompt on stdin, lines on stdout, exit code. `$FLEET_STATE` is its state dir. |
-| Node | `node` | Runs each session's turns, serves the API and UI. |
+## Spawn
 
-Rules the code enforces, each with a test:
+| Field | Empty means |
+|---|---|
+| prompt | Create the session without a first turn. |
+| repo (`OWNER/REPO`) | **Scratch: no clone, and anything Pi writes is gone after each turn.** Only the transcript survives. |
+| branch | The repo's default branch. Fixed at spawn; later turns continue `fleet/<sid>`. |
+| model (OpenRouter id) | `defaultModel` in the profile's `settings.json` (`thinkingmachines/inkling-2-small` when `pic` creates it). |
 
-- **Raw first.** Each stdout line is stored as-is (`out`, or `out.b64` for
-  bytes that are not UTF-8). Parsing Pi/ACP/AG-UI messages is a reader's
-  job, so schemas can change without migrating logs.
-- **Durable before visible.** Readers only see fsynced lines.
-- **Retries are free.** Spawn, input, and fork carry a caller key; a
-  repeated key returns the original result.
-- **One turn at a time.** An input starts a turn; another input before its
-  `exited` gets 409, never a queue.
-- **Checkpoint every turn.** After each turn the node stores `$FLEET_STATE`
-  as blobs (`checkpoint`), and rebuilds the directory from the latest
-  checkpoint before the next one.
-- **No silent re-run.** A turn that dies with its node is recorded as
-  `exited` on restart; its input is never re-sent and its partial state is
-  dropped. The same goes for an aborted turn, including one stopped by
-  fleetd shutting down: it gets SIGTERM, 3 s later SIGKILL, and no checkpoint.
-- **Fork, never merge.** A fork is a new session from the parent's last
-  checkpoint and pushed commit; the parent is untouched.
-- **Owners only.** `-owner` logins can do everything; every other caller
-  gets 403. There are no per-session shares.
+The UI fills in a title from the prompt and a fresh retry key.
 
-## What access means
+## Security model
 
-An owner can run anything a turn can: a `pi-ctr` turn can do anything
-inside its VM, spend your OpenRouter key and push to the token's repos; a
-custom `-harness` runs on the Mac as you. Add only logins you would give a
-shell. A friend who wants their own agents runs their own node.
-
-**Loopback is the credential.** `fleetd` believes `Tailscale-User-Login` on
-any request to its loopback port that passes the `Host` check, so any
-process on the machine can act as an owner, including a custom harness's
-turn. A `pi-ctr` turn's network is `pi-locked`, which is meant to stop it
-reaching the Mac's port 7433 (checked on a Mac in
-[pi-container/E2E.md](../pi-container/E2E.md)).
+- **The turn is the sandbox.** Pi and every command it runs are inside
+  pi-container's VM, on `pi-locked`, whose only way out is `pi-proxy`:
+  GitHub and `openrouter.ai`. Pi has the placeholder key; the proxy adds the
+  real one. `fleetd` never has the real key: `pic serve` refuses to start
+  with it in the environment, `fleetd` drops it for the turn anyway, and
+  `pi-ctr` refuses a real one.
+- **The VM gets one writable folder:** the session's state folder
+  (transcript and `agent.json`), plus read-only `settings.json` and the
+  proxy's CA. Not `~/.fleet`, not other sessions, not your home.
+- **The GitHub token is in the VM,** so anything a turn runs can use it. Use
+  a fine-grained token: selected repos, Contents read/write, nothing else
+  ([macos.md step 4](docs/macos.md#4-keys)). Without Workflows permission
+  GitHub refuses a push that changes `.github/workflows`. A public repo's
+  `fleet/<sid>` branches are public.
+- **Owners only.** `fleetd -owner` logins (`pic serve` uses yours) can do
+  everything; anyone else gets 403. An owner can run anything a turn can, so
+  add only people you would give a shell. A friend who wants agents runs
+  their own node.
+- **Identity is a header.** `tailscale serve` sets `Tailscale-User-Login`
+  and strips any the client sent. `fleetd` listens on loopback only, so any
+  process on the Mac can send the header and act as an owner. That is safe
+  only because turns run in the VM, which must not reach the Mac's port
+  7433 or the tailnet; [pi-container/E2E.md](../pi-container/E2E.md) checks
+  this on a Mac.
+- **A web page can't reach it.** Requests must carry `Host` of the `-url`
+  name or the listen address (`421` otherwise, so DNS rebinding fails) and
+  POSTs must be `application/json` (`415` otherwise, so a cross-site form
+  fails).
+- **`~/.fleet` is private:** 0700 folders, 0600 files.
 
 ## API
 
-All routes need `Tailscale-User-Login` and a `Host` of the `-url` host or the
-`-listen` address (`421` otherwise), so a DNS-rebinding page can't reach
-`fleetd`. POSTs need `Content-Type: application/json` (`415` otherwise), so a
-cross-site form can't either.
+Every route needs an owner's `Tailscale-User-Login`. Bodies are JSON.
 
 | Route | Does |
 | ----- | ---- |
-| `GET /v1/node` | name, caller, harnesses |
-| `GET /v1/sessions` | sessions the caller can see |
-| `POST /v1/sessions` | `{harness,model,repo,branch,title,key,prompt}` spawn; `model` (optional) is stored in the log and passed to the harness as `$FLEET_SESSION_MODEL` on every node; `repo` (`OWNER/REPO`) and `branch` likewise as `$FLEET_REPO` and `$FLEET_BRANCH` |
-| `GET /v1/sessions/{sid}` | folded state |
+| `GET /v1/node` | name, URL, caller, harnesses |
+| `GET /v1/sessions` | every session, newest first, with token `usage` |
+| `POST /v1/sessions` | `{key,prompt,repo,branch,model,title}` spawn; a repeated `key` returns the same session |
+| `GET /v1/sessions/{sid}` | folded state: `running`, `run`, `repo`, `branch`, `base`, `commit`, ... |
 | `GET /v1/sessions/{sid}/events?after=N` | raw lines (JSONL; live SSE with `Accept: text/event-stream`) |
 | `POST /v1/sessions/{sid}/inputs` | `{key,text}` run one turn; 409 while a turn runs |
-| `POST /v1/sessions/{sid}/abort` | kill the running turn |
-| `POST /v1/sessions/{sid}/fork` | `{key}` new session from the newest checkpoint |
+| `POST /v1/sessions/{sid}/abort` | stop the running turn |
+| `POST /v1/sessions/{sid}/fork` | `{key}` new session from the last checkpoint and the last pushed commit |
 
-A harness is any command (`-harness 'name=cmd args'`). Each turn it gets
-the prompt on stdin and `$FLEET_SID`, `$FLEET_STATE`, `$FLEET_WORK`
-(working directory, not replicated) and `$FLEET_SESSION_MODEL`. A session
-with a repo also gets `$FLEET_REPO`, `$FLEET_BRANCH`, `$FLEET_BASE` (the
-commit to start from when `$FLEET_PUSH` doesn't exist yet), `$FLEET_PUSH`
-(`fleet/<sid>`) and `$FLEET_RESULT`, a file where it may write
-`{"commit","base","error"}`: the commit it pushed, the base it started from
-on the first turn, and a one-line reason for a failed turn. fleetd records
-them in `exited` and ignores a malformed file. All of that comes with
-fleetd's environment without `OPENROUTER_API_KEY` unless `-harness-key name`
-is set. Every other variable in fleetd's environment does reach it.
-A custom name can't reuse the built-in `pi-ctr`.
-It must keep
-everything it needs for the next turn under `$FLEET_STATE`: that directory
-is what checkpoints carry to the next node. Abort sends its process group
-SIGTERM, then SIGKILL after 3 s.
+Pi's own lines arrive as `out` events. `fleetd pi-ctr` adds one
+`{"type":"fleet.turn_end"}` per turn (turn number, exit code, Pi's session
+id, token `usage`, `first_output_ms` from process start, so including the VM
+start, and `ms`), and `pi-ctr` one `{"type":"pi_ctr.push"}` with the commit
+or the reason a push was refused.
 
-## pi-ctr
+## Event log
 
-The built-in harness. Each turn runs `fleetd agent pi-ctr`, which is Pi's
-adapter (resume by session file, session-id checks, failed-turn detection,
-usage) with `pi-container/pi-ctr` in place of the `pi` binary. `pi-ctr` runs
-Pi through `run.sh --fleet-state $FLEET_STATE`, pi-container's normal mode:
-`pi-locked` network, proxy, placeholder key, read-only `settings.json`.
+Each session is `~/.fleet/sessions/<sid>/events.jsonl`, one JSON event per
+line: `seq`, `sid`, `node`, `run` (turn), `t`, `by`, `kind`, `key`, `data`.
+Kinds: `created`, `input`, `out` (or `out.b64` for bytes that are not
+UTF-8), `checkpoint` (state files by SHA-256, stored in `~/.fleet/blobs`),
+`exited` (code, reason, pushed `commit`). `core` holds the rules as two pure
+functions, `Decide` (command to event) and `Apply` (fold an event into
+state); each rule has a test:
 
-- **Key.** `fleetd` drops `OPENROUTER_API_KEY` for this harness and the
-  adapter passes the placeholder; `pi-ctr` refuses a real one. The proxy
-  reads the key from pi-container's env file. `pic serve` refuses to start
-  `fleetd` with the key in its environment.
-- **State.** Only `$FLEET_STATE` is mounted, read-write at the same path.
-  Pi's agent dir and the clone live on the VM's disk. After the turn,
-  `pi-ctr` deletes everything in `$FLEET_STATE` except `agent.json` and
-  `pi/sessions/*.jsonl`, so a checkpoint never carries an extension or a
-  symlink.
-- **Code.** See [macos.md step 7](docs/macos.md#7-spawn-from-the-phone):
-  fresh clone, `fleet/<sid>` or the base, push guardrails, failed turns
-  pushed, aborted ones not. `created` records `repo`, `branch`, `base` and
-  `sandbox: pi-container`; each `exited` records the pushed `commit`. Usage
-  stays in the adapter's `fleet.turn_end` line, which also has
-  `first_output_ms` (process start to Pi's first line, so it includes the
-  VM start) and `ms`.
-
-## Pi, Claude Code, Codex on the host
-
-These run on the host and are not registered by default; add one with
-`-harness "pi=/path/to/fleetd agent pi" -harness-key pi` (likewise `claude`,
-`codex`). Each runs `fleetd agent KIND` (package `agent`) once per turn, which runs the CLI in its
-headless JSON mode, forwards every stdout line unchanged, and keeps the CLI's
-whole home under `$FLEET_STATE`, so a checkpoint carries the conversation.
-
-```sh
-export OPENROUTER_API_KEY=sk-or-...           # stays on the node; scrubbed from output
-export FLEET_MODEL=thinkingmachines/inkling-2-small  # or FLEET_PI_MODEL, FLEET_CLAUDE_MODEL, ...
-./fleetd -name laptop -owner you@github ...   # then spawn with harness "claude"
-```
-
-| CLI | OpenRouter wiring | Resume |
-|---|---|---|
-| Pi | `--provider openrouter`, `OPENROUTER_API_KEY` | `--session <file>` (`--session-id` only matches the same cwd and otherwise starts fresh) |
-| Claude Code | `ANTHROPIC_BASE_URL=https://openrouter.ai/api`, `ANTHROPIC_AUTH_TOKEN=$key`, `ANTHROPIC_API_KEY=` (OpenRouter's documented setup); all model slots set to the chosen model | `--session-id` then `--resume` |
-| Codex | `model_providers.openrouter` in `$CODEX_HOME/config.toml`, `wire_api = "responses"`, `env_key = "OPENROUTER_API_KEY"` | `codex exec resume <thread>` |
-
-Each turn ends with `{"type":"fleet.turn_end","usage":{"input","output"}}`,
-the model tokens the CLI reported for that turn (Codex reports a running
-thread total; the adapter subtracts the previous one, kept in `agent.json`).
-`GET /v1/sessions` sums these per session as `usage`, rebuilt from the log on
-every node. Tokens, not dollars: each CLI prices OpenRouter models from its
-own table, so their cost fields are not trusted.
-
-The adapter refuses to continue (exit 3) if the native session file is
-missing or the CLI reports a different session id, instead of letting the
-conversation restart from nothing.
-
-**Telemetry is off.** Measured with a refusing proxy (`fakeor.Trap`): with
-these settings the only traffic is model calls.
-
-- All: `DO_NOT_TRACK=1`; the child gets an allowlisted environment (no host
-  credentials) and `HOME` inside `$FLEET_STATE`.
-- Pi: `PI_TELEMETRY=0`, `PI_OFFLINE=1`, `PI_SKIP_VERSION_CHECK=1`,
-  `enableInstallTelemetry: false`.
-- Claude Code: `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC`, `DISABLE_TELEMETRY`,
-  `DISABLE_ERROR_REPORTING`, `DISABLE_AUTOUPDATER`, `DISABLE_UPDATES`,
-  `DISABLE_FEEDBACK_COMMAND`, `DISABLE_BUG_COMMAND`, feedback survey,
-  feature flags, marketplace auto-install and terminal-title calls off;
-  `skipWebFetchPreflight: true`.
-- Codex: `analytics`, `feedback`, `otel` exporters, update check and history
-  off; `features.plugins`, `remote_plugin`, `apps`, `memories` and bundled
-  skills off. Without those features Codex contacts github.com,
-  api.github.com and chatgpt.com at startup.
-
-Tested with pi 1.6.0, Claude Code 2.1.330, Codex 0.171.0.
-
-### Behind the pi-container proxy
-
-The adapters run unchanged behind `pi-container/proxy.py`, so the node never
-holds the real key. Give `fleetd` what `run.sh` gives Pi:
-
-```sh
-OPENROUTER_API_KEY=sk-or-v1-placeholder   # proxy.py swaps in the real key
-HTTPS_PROXY=http://<proxy>:8888 HTTP_PROXY=http://<proxy>:8888
-NO_PROXY=localhost,127.0.0.1,::1          # never openrouter.ai
-SSL_CERT_FILE=/etc/pi-proxy-ca/ca.pem NODE_EXTRA_CA_CERTS=/etc/pi-proxy-ca/ca.pem
-```
-
-The adapter passes the proxy and CA variables through (Codex reads
-`SSL_CERT_FILE` or `CODEX_CA_CERTIFICATE`) and sets `NODE_USE_ENV_PROXY=1`
-so Pi's fetch uses the proxy. Model calls are the only traffic: the proxy
-log shows no GitHub tunnels and no denials. `TestBehindV5Proxy` runs the real
-`proxy.py` on loopback against `fakeor`, which accepts only the key the proxy
-holds; `TestLiveBehindV5Proxy` does the same against openrouter.ai.
-
-### Pi with its tools in a sandbox (archived)
-
-The experimental `pi-sbx` harness (Pi on the host, its tools in an
-external-sandbox-v86 guest) was removed once `pi-ctr` put Pi itself in a VM.
-Findings: [docs/sandbox.md](docs/sandbox.md); code: commit 13f1542.
+- **Durable before visible.** A line is fsynced before any reader sees it.
+  A crash can only leave a torn last line, which is cut on load. A complete
+  line that breaks the rules (for example from an older `fleetd`) makes the
+  node refuse to start and name the session; nothing is cut.
+- **Retries are free.** Spawn, input and fork carry a caller key; a repeated
+  key returns the original result.
+- **One turn at a time.** Another input before `exited` gets 409, never a
+  queue.
+- **No silent re-run.** A turn that dies with `fleetd` is recorded as
+  `exited` ("node restarted") when it starts again; its input is not re-sent.
+- **Fork, never merge.** A fork is a new session; the parent is untouched.
 
 ## Tests
 
+No container, network or key needed. From `fleet/`, with Go:
+
 ```sh
-gofmt -l . && go vet ./... && go test -race ./...
-bash e2e/smoke.sh   # a real fleetd, kill -9 mid-turn, restart
-bash e2e/pi-ctr.sh  # pi-ctr turns through real run.sh, a fake container and a local bare repo
+test -z "$(gofmt -l .)" && go vet ./... && go test -race ./...
+bash e2e/pi-ctr.sh      # also needs git, jq and curl
 ```
 
-- `core`: rules table, plus random commands on one session (200 seeds x
-  600 steps): Decide never returns an event Apply refuses, the live state
-  equals a fold of the log, and a seed replays byte for byte.
-- `store`: the log cut at every byte offset reopens to exactly its complete
-  lines; a rejected complete line makes open fail and changes nothing.
-- `node`: a node over `httptest` with the in-process fake harness: spawn,
-  retry, owners only, fork from the last finished turn, restart; busy input, abort,
-  exit codes; abort stops an `Exec` harness's whole process group, lets it
-  handle SIGTERM, and keeps the last checkpoint.
-- `e2e/smoke.sh`: a real `fleetd` process, including `kill -9` in the
-  middle of a turn.
-- `agent`: each real CLI against `fakeor`, a fake OpenRouter serving the
-  Anthropic, chat-completions and responses formats. The reply lists every
-  `TOK...` word in the request, so a resumed turn proves it carried the
-  history. Covers resume in a new directory, a
-  deleted native session (must refuse), no non-model traffic, and the key
-  never in output, logs or state. Skips a CLI that is not installed
-  (`FLEET_PI_BIN` etc. or `PATH`).
-- Live, not in CI: `FLEET_LIVE=1 OPENROUTER_API_KEY=... go test -run TestLive ./agent`
-  runs each CLI against OpenRouter: turn 2, from a copy of turn 1's state,
-  must recall a codeword; nothing but openrouter.ai may be contacted.
+| Test | Covers |
+|---|---|
+| `core` | Each rule; 200 seeds of random commands where `Decide` never yields an event `Apply` refuses, the fold equals the live state, and a seed replays byte for byte; repo, branch and commit validation. |
+| `store` | The log cut at every byte reopens to its complete lines; a rejected line makes open fail and changes nothing. |
+| `node` | Spawn, retries, owners only, fork, restart, busy input, abort (SIGTERM, then SIGKILL, whole process group, last checkpoint kept), shutdown in parallel, private file modes, the turn's environment, `Host` and `Content-Type` refusals, the result file. |
+| `agent` | Pi's arguments and resume by file; refusing a missing, changed or new session file; failed model calls. **With `pi` installed** (or `FLEET_PI_BIN`), real Pi behind the real `pi-container/proxy.py` and a fake OpenRouter: resume from a copied state folder, no traffic but model calls, the key never in output or state, a wrong key fails the turn. Without `pi`, `python3` or `openssl` these skip. |
+| `fakeor` | The fake OpenRouter itself. |
+| `e2e/pi-ctr.sh` | Real `fleetd`, real `run.sh` and `pi-ctr`, a fake `container` and fake Pi, a local bare repo as GitHub: turns, branch and base, failed and aborted turns, every push guardrail, what the checkpoint keeps, forks, the real key never reaching a turn, owners only, `kill -9` of `fleetd` mid-turn and restart. |
 
-## Not here, on purpose
+CI runs all of the above with Pi installed. Opt-in, never in CI:
+`FLEET_LIVE=1 OPENROUTER_API_KEY=... go test -run TestLive ./agent` runs two
+real turns against OpenRouter through `proxy.py` (`FLEET_LIVE_MODEL`
+overrides the model). The checks only a Mac can do (the real VM, network
+and phone) are in [docs/macos.md](docs/macos.md) and
+[pi-container/E2E.md](../pi-container/E2E.md).
 
-- No database, broker, or Tailscale library. `tailscale serve` supplies TLS
-  and identity; a node could sit behind any proxy that sets the header.
-- No harness-specific parsing in the node, except summing the optional
-  `fleet.turn_end` usage line. The Pi/Claude/Codex adapter is a command the
-  node treats like any other.
-- No long-lived harness process, steering mid-turn, or input queue. A turn
-  is a process; that is what makes every turn a checkpoint.
-- No replication between nodes. Code moves through git (`fleet/<sid>`);
+## Not here
+
+- **No replication or handoff.** Code travels through git (`fleet/<sid>`);
   each node keeps its own sessions.
-- No compaction or snapshots of the event log; fold cost is linear.
-
-`core` is the part to port (e.g. to Zig): a small state machine with no
-dependencies, and its rules tests are its spec.
+- **One repo per session.** A turn clones exactly one.
+- **Scratch sessions keep no files.** Use a repo to keep work.
+- **A crashed `fleetd` leaves its running turn behind.** After `kill -9` or
+  a power loss, the turn's processes may still be running; the restart
+  records the turn as exited but doesn't stop them. `container ls` shows a
+  leftover VM; `container stop` it.
+- **No long-lived Pi, steering mid-turn, or input queue.** A turn is a
+  process; that is what makes every turn a checkpoint.
+- **No compaction of the event log;** loading is linear in its size.

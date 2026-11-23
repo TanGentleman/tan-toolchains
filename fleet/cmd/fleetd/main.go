@@ -1,24 +1,21 @@
-// fleetd runs agent sessions on this machine and serves them to the tailnet
-// through `tailscale serve`, which supplies each caller's identity.
+// fleetd runs Pi sessions on this machine, one pi-ctr turn at a time, and
+// serves them to the tailnet through `tailscale serve`, which supplies each
+// caller's identity. Start it with `pic serve`.
 package main
 
 import (
-	"context"
 	"errors"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
-	"slices"
 	"strings"
 	"syscall"
 
-	"github.com/TanGentleman/tan-toolchains/fleet/fake"
 	"github.com/TanGentleman/tan-toolchains/fleet/node"
 )
 
@@ -28,29 +25,16 @@ func (l *list) String() string     { return strings.Join(*l, ",") }
 func (l *list) Set(v string) error { *l = append(*l, v); return nil }
 
 func main() {
-	if len(os.Args) > 1 && os.Args[1] == "agent" {
-		os.Exit(runAgent(os.Args[2:]))
-	}
-	if len(os.Args) > 1 && os.Args[1] == "fake" {
-		prompt, _ := io.ReadAll(os.Stdin)
-		// A signal-backed context: with Background, "sleep" blocks on a nil
-		// channel and the runtime exits 2 on deadlock instead of waiting.
-		ctx, _ := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-		code, err := fake.Run(ctx, os.Getenv("FLEET_STATE"), string(prompt), os.Stdout)
-		if err != nil {
-			log.Print(err)
-		}
-		os.Exit(code)
+	if len(os.Args) > 1 && os.Args[1] == "pi-ctr" {
+		os.Exit(runPiCtr(os.Args[2:]))
 	}
 	home, _ := os.UserHomeDir()
-	var owners, harnesses, keyed list
+	var owners list
 	name := flag.String("name", "", "node name (required)")
 	url := flag.String("url", "", "this node's tailnet URL, e.g. https://laptop.tailnet.ts.net; its host is accepted in Host")
 	data := flag.String("data", filepath.Join(home, ".fleet"), "data directory")
 	listen := flag.String("listen", "127.0.0.1:7433", "loopback address; put `tailscale serve` in front")
 	flag.Var(&owners, "owner", "tailnet login allowed to use this node; nobody else is (repeatable)")
-	flag.Var(&harnesses, "harness", `NAME=COMMAND ARGS, run once per turn with the prompt on stdin; keep state in $FLEET_STATE (repeatable)`)
-	flag.Var(&keyed, "harness-key", "custom harness NAME that gets OPENROUTER_API_KEY; others don't (repeatable)")
 	flag.Parse()
 	if *name == "" || len(owners) == 0 {
 		log.Fatal("fleetd: -name and -owner are required")
@@ -63,36 +47,13 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	// pi-ctr is the one built-in harness: Pi in pi-container, whose proxy
-	// holds the real key, so the harness never gets fleetd's copy. Tests add
-	// `-harness "fake=fleetd fake"`; host CLIs are `-harness "pi=fleetd agent pi"`.
-	builtin := []string{"pi-ctr"}
-	hs := map[string]node.Harness{"pi-ctr": node.Exec{Argv: []string{exe, "agent", "pi-ctr"}, Drop: []string{"OPENROUTER_API_KEY"}}}
-	for _, h := range harnesses {
-		k, v, ok := strings.Cut(h, "=")
-		argv := strings.Fields(v)
-		if !ok || k == "" || len(argv) == 0 {
-			log.Fatalf("fleetd: bad -harness %q", h)
-		}
-		if _, dup := hs[k]; dup {
-			log.Fatalf("fleetd: -harness %q: %s is already a harness (%s is built in)", h, k, strings.Join(builtin, ", "))
-		}
-		h := node.Exec{Argv: argv}
-		if !slices.Contains(keyed, k) {
-			h.Drop = []string{"OPENROUTER_API_KEY"}
-		}
-		hs[k] = h
-	}
-	for _, k := range keyed {
-		if _, ok := hs[k].(node.Exec); !ok || slices.Contains(builtin, k) {
-			log.Fatalf("fleetd: -harness-key %q is not a custom -harness", k)
-		}
-	}
+	// The one harness: Pi in pi-container, whose proxy holds the real key,
+	// so the turn never gets a copy from fleetd's environment.
 	n, err := node.New(node.Config{
-		Name: *name, URL: *url, Data: *data, Harnesses: hs,
+		Name: *name, URL: *url, Data: *data, Owners: owners,
+		Harnesses: map[string]node.Harness{"pi-ctr": node.Exec{Argv: []string{exe, "pi-ctr"}, Drop: []string{"OPENROUTER_API_KEY"}}},
 		Sandboxes: map[string]string{"pi-ctr": "pi-container"},
 		Hosts:     []string{*listen, net.JoinHostPort("localhost", port)},
-		Owners:    owners,
 	})
 	if err != nil {
 		log.Fatal(err)

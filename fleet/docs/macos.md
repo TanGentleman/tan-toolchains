@@ -157,7 +157,6 @@ Ctrl-C `pic serve`, then check `tailscale serve status` shows no config.
 
 Open `$URL` on the phone with the Tailscale app on. Fill in:
 
-- **harness**: `pi-ctr`, the only one unless you add `-harness`
 - **repo**: `you/your-repo` (one the token can push to). Empty means no
   clone: Pi works in an empty `/work` on the VM's disk, nothing from the Mac
   is mounted, and its files are gone after the turn. Only the transcript
@@ -200,8 +199,7 @@ cd ~/src/tan-toolchains && git pull && cd pi-container && ./build.sh && ./build.
 ```
 
 To remove: stop `pic serve` and delete `~/.fleet` (every session) and
-`~/.config/pi-container/env`. Host CLIs (`fleetd agent pi`, `claude`,
-`codex`) still work as custom harnesses, outside the VM; see the fleet README.
+`~/.config/pi-container/env`.
 
 ## Troubleshooting
 

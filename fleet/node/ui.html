@@ -38,7 +38,7 @@ async function home() {
   const list = await api("GET", "/v1/sessions");
   main.replaceChildren();
   {
-    const f = $(`<form><select name="harness">${node.harnesses.map((h) => `<option>${esc(h)}</option>`).join("")}</select>
+    const f = $(`<form>
       <input name="repo" placeholder="owner/repo (optional)" autocapitalize="off">
       <input name="branch" placeholder="branch (default: the repo's default)" autocapitalize="off">
       <input name="model" placeholder="model (optional)">
@@ -46,7 +46,7 @@ async function home() {
     f.onsubmit = async (e) => {
       e.preventDefault();
       const d = new FormData(f);
-      try { const r = await api("POST", "/v1/sessions", { harness: d.get("harness"), model: d.get("model").trim(), repo: d.get("repo").trim(), branch: d.get("branch").trim(), title: d.get("prompt").slice(0, 60), key: key(), prompt: d.get("prompt") }); location.hash = r.sid; } catch (e) { fail(e); }
+      try { const r = await api("POST", "/v1/sessions", { model: d.get("model").trim(), repo: d.get("repo").trim(), branch: d.get("branch").trim(), title: d.get("prompt").slice(0, 60), key: key(), prompt: d.get("prompt") }); location.hash = r.sid; } catch (e) { fail(e); }
     };
     main.append(f);
   }

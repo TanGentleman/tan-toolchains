@@ -12,9 +12,10 @@ Read `README.md`, `pi-container/README.md` and the docs under
   is detection-only and points at the upstream project.
 - `pi-container/`: bash driver, Dockerfiles, and proxy that run Pi in an Apple
   `container` VM.
-- `fleet/`: Go daemon (`fleetd`, standard library only) that records, hands
-  off, and forks agent sessions across tailnet nodes. Protocol rules live in
-  `fleet/core` as pure functions; read `fleet/README.md` first.
+- `fleet/`: Go daemon (`fleetd`, standard library only) that runs Pi
+  sessions on one Mac, one `pi-ctr` turn at a time in pi-container's VM, for
+  owners on the tailnet. Protocol rules live in `fleet/core` as pure
+  functions; read `fleet/README.md` first.
 
 Do not merge or tag before `pi-container/E2E.md` passes on macOS.
 
@@ -34,7 +35,7 @@ done
 python3 -m py_compile pi-container/proxy.py
 
 cd fleet && test -z "$(gofmt -l .)" && go vet ./... && go test -race ./...
-cd fleet && bash e2e/smoke.sh   # curl
+cd fleet && bash e2e/pi-ctr.sh  # git, jq, curl; no container
 ```
 
 The image build context is the repo root because the image compiles
@@ -56,9 +57,10 @@ explicitly that `run.sh check` and the E2E checklist were not run.
   layer; do not add network code to a shipped binary. `fleetd` is such a
   process: it listens on loopback only, behind `tailscale serve`, and dials
   nothing; its turns reach the network only through `pi-proxy`.
-- `fleet/agent` (Pi/Claude/Codex adapters) must keep each CLI's telemetry,
-  update checks and other non-model traffic off; `go test ./agent` asserts
-  it with a refusing proxy. Live check, never in CI:
+- `fleetd` runs only `pi-ctr`: Pi in pi-container's normal mode. Do not add
+  harnesses that run an agent on the host. `go test ./agent` runs real Pi
+  behind the real `proxy.py` and fails on any traffic but model calls. Live
+  check, never in CI:
   `FLEET_LIVE=1 OPENROUTER_API_KEY=... go test -run TestLive ./agent`.
 - `fleet/core` stays pure (no I/O, clock, or randomness) and dependency-free;
   any protocol change lands there with a simulation or rules test.

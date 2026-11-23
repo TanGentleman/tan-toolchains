@@ -158,17 +158,17 @@ jobs:
         with:
           node-version: 24
 
-      - name: Install agent CLIs (pinned)
+      - name: Install Pi (the image's pin)
         run: |
-          npm install --prefix "$RUNNER_TEMP/clis" --no-fund --no-audit \
-            @earendil-works/pi-coding-agent@1.6.0 @anthropic-ai/claude-code@2.1.330 @openai/codex@0.171.0
+          v=$(sed -n 's/^ARG PI_VERSION=//p' ../pi-container/Dockerfile)
+          npm install --prefix "$RUNNER_TEMP/clis" --no-fund --no-audit "@earendil-works/pi-coding-agent@$v"
           echo "$RUNNER_TEMP/clis/node_modules/.bin" >> "$GITHUB_PATH"
 
-      - name: Unit, simulation, two-node and agent CLI tests
+      - name: Unit tests, and real Pi behind proxy.py
         run: go test -race -count=1 ./...
 
-      - name: Smoke test (two fleetd processes)
-        run: bash e2e/smoke.sh
+      - name: pi-ctr end to end (fake container)
+        run: bash e2e/pi-ctr.sh
 
   zigpeek:
     name: zigpeek (${{ matrix.os }})

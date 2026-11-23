@@ -14,9 +14,8 @@ import (
 
 // A Harness runs one turn of an agent: one process, the prompt on stdin,
 // every stdout line recorded verbatim. Whatever must carry over to the next
-// turn, on this node or another, lives in Turn.State: the node rebuilds that
-// directory from the latest checkpoint before each turn and checkpoints it
-// after.
+// turn lives in Turn.State: the node rebuilds that directory from the latest
+// checkpoint before each turn and checkpoints it after.
 type Harness interface {
 	Run(ctx context.Context, t Turn, stdout io.Writer) (code int, err error)
 }
@@ -25,8 +24,7 @@ type Turn struct {
 	Sid    string
 	Prompt string
 	Model  string // chosen at spawn; "" means the harness default
-	State  string // harness-owned files, checkpointed and moved on handoff
-	Work   string // working directory; not replicated
+	State  string // harness-owned files, checkpointed; also the working directory
 	Repo   string // OWNER/REPO to clone, "" for none
 	Branch string // branch chosen at spawn
 	Base   string // commit to start from when Push doesn't exist yet
@@ -35,7 +33,7 @@ type Turn struct {
 	Stderr io.Writer
 }
 
-// Exec runs a command per turn. $FLEET_SID, $FLEET_STATE and $FLEET_WORK in
+// Exec runs a command per turn in Turn.State. $FLEET_SID and $FLEET_STATE in
 // Argv are expanded, and the same names are set in the environment, plus
 // $FLEET_SESSION_MODEL when the session has a model, and $FLEET_REPO,
 // $FLEET_BRANCH, $FLEET_BASE, $FLEET_PUSH and $FLEET_RESULT when it has a repo. Cancelling ctx sends
@@ -48,7 +46,7 @@ type Exec struct {
 }
 
 func (h Exec) Run(ctx context.Context, t Turn, stdout io.Writer) (int, error) {
-	vars := map[string]string{"FLEET_SID": t.Sid, "FLEET_STATE": t.State, "FLEET_WORK": t.Work}
+	vars := map[string]string{"FLEET_SID": t.Sid, "FLEET_STATE": t.State}
 	for k, v := range map[string]string{"FLEET_REPO": t.Repo, "FLEET_BRANCH": t.Branch, "FLEET_BASE": t.Base, "FLEET_PUSH": t.Push, "FLEET_RESULT": t.Result} {
 		if v != "" {
 			vars[k] = v
@@ -64,7 +62,7 @@ func (h Exec) Run(ctx context.Context, t Turn, stdout io.Writer) (int, error) {
 		})
 	}
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	cmd.Dir = t.Work
+	cmd.Dir = t.State
 	for _, kv := range os.Environ() {
 		if k, _, _ := strings.Cut(kv, "="); !slices.Contains(h.Drop, k) {
 			cmd.Env = append(cmd.Env, kv)
@@ -105,7 +103,7 @@ func (h Exec) Run(ctx context.Context, t Turn, stdout io.Writer) (int, error) {
 	return 0, nil
 }
 
-// Func runs a harness in-process; tests use it with fake.Run.
+// Func runs a harness in-process; tests use it.
 type Func func(ctx context.Context, t Turn, stdout io.Writer) (int, error)
 
 func (f Func) Run(ctx context.Context, t Turn, stdout io.Writer) (int, error) {

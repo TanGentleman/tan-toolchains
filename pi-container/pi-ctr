@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # pi-ctr: one fleet turn of Pi in pi-container's normal mode.
 #
-# fleetd's pi-ctr harness (`fleetd agent pi-ctr -bin pi-ctr`) runs this in
+# fleetd's pi-ctr harness (`fleetd pi-ctr`) runs this in
 # place of the pi binary, with Pi's arguments and the prompt on stdin. It runs
 # Pi through `run.sh --fleet-state $FLEET_STATE`: placeholder key, pi-locked
 # network, proxy. Only $FLEET_STATE is mounted; the clone and Pi's agent dir
