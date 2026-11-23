@@ -7,8 +7,7 @@ binaries run on macOS and do not use its network.
 
 - The egress lock runs inside the VM and trusts its kernel: a kernel exploit
   in a turn could remove the rules. A host-side `pf` rule that lets the
-  `pi-locked` subnets reach only the proxy, or `tailscale set
-  --accept-dns=false`, would add a second layer.
+  `pi-locked` subnets reach only the proxy would add a second layer.
 - The proxy does not identify clients. Every Pi instance on a profile's network
   can spend that profile's OpenRouter key. Authenticate proxy clients if
   untrusted containers join the network.
