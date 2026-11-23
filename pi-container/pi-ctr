@@ -20,9 +20,10 @@
 # $FLEET_STATE, so nothing else the container wrote reaches a checkpoint.
 #
 # With $FLEET_SID the container is named fleet-$FLEET_SID, and run.sh removes
-# a leftover of that name before starting. `pi-ctr --stop` removes it and
-# fails if it is still there; fleetd runs it for a turn a crashed fleetd left
-# running.
+# a leftover of that name before starting. `pi-ctr --stop` removes it; fleetd
+# runs it for a turn a crashed fleetd left running. It succeeds only when it
+# can confirm the container is gone: with the container system not answering,
+# it fails rather than guess.
 set -uo pipefail
 
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
@@ -35,6 +36,11 @@ esac
 if [ "${1:-}" = --stop ]; then
   [ -n "$name" ] || { echo "pi-ctr: --stop needs FLEET_SID" >&2; exit 2; }
   cli=${CONTAINER_CLI:-container}
+  # A failed inspect means absent only while the runtime answers.
+  if ! "$cli" system status >/dev/null 2>&1; then
+    echo "pi-ctr: the container system is not answering; cannot confirm $name is stopped" >&2
+    exit 1
+  fi
   "$cli" delete --force "$name" >/dev/null 2>&1 || true
   if "$cli" inspect "$name" >/dev/null 2>&1; then
     echo "pi-ctr: container $name is still there after delete" >&2

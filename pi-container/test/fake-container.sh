@@ -15,6 +15,11 @@
 #   run.stdout                      optional stdout for `run`
 #   fail/<key>                      presence forces exit 1 for that key
 #
+# With FAKE_CONTAINER_DELETE_REMOVES=1, `delete NAME` removes
+# containers/NAME.json, as the real CLI removes the container. Off by
+# default: run.sh's proxy recreation would then wait for an address the fake
+# never writes.
+#
 # FAKE_CONTAINER_EXEC=DIR makes `run` execute its command on this machine
 # instead: each run gets a fresh DIR/run.N standing in for the container's
 # disk, a "/work" path in the command and -w is rewritten to DIR/run.N/work, HOME is
@@ -139,7 +144,13 @@ case $cmd in
     ;;
   exec) fail_if exec ;;
   system) fail_if system ;;
-  start|stop|delete|build|builder|logs) fail_if "$cmd" ;;
+  delete)
+    fail_if delete
+    for a in "$@"; do
+      case $a in -*) ;; *) [ "${FAKE_CONTAINER_DELETE_REMOVES:-}" != 1 ] || [ -z "$world" ] || rm -f "$world/containers/$a.json" ;; esac
+    done
+    ;;
+  start|stop|build|builder|logs) fail_if "$cmd" ;;
   *)
     printf 'fake-container: unhandled command: %s\n' "$cmd" >&2
     exit 1

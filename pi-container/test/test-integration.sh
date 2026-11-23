@@ -750,6 +750,36 @@ case_fleet_state() {
   log_lacks "run --" "refused fleet turns start no container"
 }
 
+# ------------------------------------------------------------- pi-ctr --stop
+# fleetd runs `pi-ctr --stop` for a turn whose fleetd died. It must succeed
+# only when the container is confirmed gone.
+case_pi_ctr_stop() {
+  new_case pictrstop
+  stop() { run_it env FLEET_SID="$1" CONTAINER_CLI="$fake" FAKE_CONTAINER_WORLD="$world" FAKE_CONTAINER_LOG="$logfile" FAKE_CONTAINER_DELETE_REMOVES=1 \
+    bash "$root/pi-ctr" --stop; }
+  printf '[{"id":"fleet-s1","status":{"state":"running"}}]' > "$world/containers/fleet-s1.json"
+  stop s1
+  expect_status 0 "stops a leftover turn container"
+  [ ! -e "$world/containers/fleet-s1.json" ] && pass || fail "the container is gone"
+  log_has "CALL delete --force fleet-s1" "deleted by name"
+  stop s1
+  expect_status 0 "nothing to stop is success"
+  printf '[{"id":"fleet-s2","status":{"state":"running"}}]' > "$world/containers/fleet-s2.json"
+  mkdir -p "$world/fail" && touch "$world/fail/delete"
+  stop s2
+  expect_status 1 "a delete that leaves the container fails"
+  rm "$world/fail/delete"
+  touch "$world/fail/system"
+  rm -f "$world/containers/fleet-s2.json"
+  stop s2
+  expect_status 1 "a container system that does not answer fails, not success"
+  rm "$world/fail/system"
+  stop ''
+  expect_status 2 "needs FLEET_SID"
+  stop 'BAD;x'
+  expect_status 2 "refuses a bad FLEET_SID"
+}
+
 # --------------------------------------------- proxy container unknown state
 case_proxy_unknown_state() {
   new_case proxyunknown
@@ -844,7 +874,7 @@ for c in case_normal_run case_check_enforcer case_tokenless_run case_tokenless_c
          case_clear_list_dead_profile \
          case_nuke_agent case_nuke_agent_without_image case_nuke_clones_scoped \
          case_nuke_profile case_nuke_profile_rejects_instance \
-         case_option_guards case_nuke_all_builder_failure case_mount_guards case_fleet_state; do
+         case_option_guards case_nuke_all_builder_failure case_mount_guards case_fleet_state case_pi_ctr_stop; do
   "$c"
 done
 
