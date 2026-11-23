@@ -72,8 +72,8 @@ The UI fills in a title from the prompt and a fresh retry key.
   and strips any the client sent. `fleetd` listens on loopback only, so any
   process on the Mac can send the header and act as an owner. That is safe
   only because turns run in the VM, which must not reach the Mac's port
-  7433 or the tailnet; [pi-container/E2E.md](../pi-container/E2E.md) checks
-  this on a Mac.
+  7433 or the tailnet; [docs/macos.md step 8](docs/macos.md#8-verify-before-relying-on-it)
+  checks this on a Mac.
 - **A web page can't reach it.** Requests must carry `Host` of the `-url`
   name or the listen address (`421` otherwise, so DNS rebinding fails) and
   POSTs must be `application/json` (`415` otherwise, so a cross-site form
@@ -151,7 +151,7 @@ real turns against OpenRouter through `proxy.py` (`FLEET_LIVE_MODEL`
 overrides the model). On a Mac, `./build.sh fleet` runs the Go tests before
 building; what runs where, and the checks only a Mac can do (the real VM,
 network and phone):
-[docs/macos.md, step 8](docs/macos.md#8-full-check-before-relying-on-it).
+[docs/macos.md, step 8](docs/macos.md#8-verify-before-relying-on-it).
 
 ## Not here
 

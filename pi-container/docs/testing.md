@@ -52,4 +52,4 @@ the recorder and revert with `git checkout -- test/fixtures/container`.
 container). The fleet CI job runs that and fleet's Go tests, including real Pi
 behind `proxy.py`. `./build.sh fleet` runs fleet's Go tests again on the Mac
 before building. Where each fleet check runs:
-[fleet/docs/macos.md, step 8](../../fleet/docs/macos.md#8-full-check-before-relying-on-it).
+[fleet/docs/macos.md, step 8](../../fleet/docs/macos.md#8-verify-before-relying-on-it).

@@ -145,15 +145,18 @@ everything, so add only people you would give a shell (README, "Security
 model"). `caffeinate -i` stops idle sleep; closing a laptop's lid still
 sleeps it.
 
-Check, in a second terminal:
+Check, in a second terminal. These three lines define `$URL` and two
+helpers that later steps use; paste them into every new terminal.
 
 ```sh
 URL=https://$(tailscale status --json | jq -r '.Self.DNSName | rtrimstr(".")')
-curl -si "$URL/v1/node" | head -1       # HTTP/2 200
-curl -s "$URL/v1/node" | jq .harnesses  # ["pi-ctr"]
+sessions() { curl -sS --fail-with-body "$URL/v1/sessions" | jq -r '.[] | .sid + "  " + .title'; }
+st() { curl -sS --fail-with-body "$URL/v1/sessions/${1:?usage: st SID}" | jq '{harness, repo, branch, base, commit, running}'; }
 ```
 
-Ctrl-C `pic serve`, then check `tailscale serve status` shows no config.
+```sh
+curl -sS --fail-with-body "$URL/v1/node" | jq .harnesses   # ["pi-ctr"]
+```
 
 ## 7. Spawn from the phone
 
@@ -169,21 +172,107 @@ Open `$URL` on the phone with the Tailscale app on. Fill in:
 Each turn runs in a fresh VM, clones the repo, runs Pi on the transcript so
 far, and pushes to `fleet/<sid>` unless a guardrail refuses (a file over
 10 MiB, or anything that looks like a GitHub token). The README's
-[A turn](../README.md#a-turn) has every step. The session page shows each
-push as a `pi_ctr.push` line.
+[A turn](../README.md#a-turn) has every step.
 
-Check: after the first turn, the session page says where it pushes, and
-`git ls-remote https://github.com/you/your-repo fleet/<sid>` prints the
-commit the session shows.
+A session's id (`sid`) is the part of the phone's URL after `#`, without the
+`#`. `sessions` lists them all. Check, after the first turn ends:
 
-## 8. Full check before relying on it
+```sh
+sid=s0123456789abcdef   # yours, from `sessions`
+st $sid                 # harness "pi-ctr", running false, commit set
+git ls-remote https://github.com/you/your-repo fleet/$sid   # the same commit
+```
 
-Steps 3, 4, 6 and 7 each check one layer. Before merging a change or
-trusting a new Mac, run the whole fleet section of the E2E checklist,
-[pi-container/E2E.md, "Fleet node"](../../pi-container/E2E.md#fleet-node-pi-ctr).
-It adds what only a real Mac can show: the turn's VM can't reach `fleetd`,
-the Mac or the tailnet; abort, workflow and token refusals against GitHub;
-a `kill -9` of `fleetd` mid-turn; and turn start-up time.
+## 8. Verify before relying on it
+
+Do this once per new Mac and before calling a branch stable. Each item is
+one check; a failure is a blocker. Use a throwaway repo so nothing touches
+real work:
+
+```sh
+REPO=you/fleet-e2e      # private, with a README; add it to the token's repos
+```
+
+Keep `pic serve` running in one terminal and use another, with the step 6
+helpers pasted, from `~/src/tan-toolchains/pi-container`.
+
+### Isolation (do these first; the security model depends on them)
+
+- [ ] The key is not in fleetd: `ps eww -p $(pgrep -x fleetd) | grep -c OPENROUTER_API_KEY`
+      prints `0`.
+- [ ] A turn's VM can't reach fleetd, the Mac or another tailnet device.
+      Spawn any session on `$REPO`, wait for its turn to end, set `sid`, then:
+
+      ```sh
+      MAC=${URL#https://}
+      PEER=$(tailscale status --json | jq -r '[.Peer[].DNSName][0] | rtrimstr(".")')
+      GW=$(container network inspect pi-locked | jq -r '.[0].status.ipv4Gateway')
+      echo "$MAC $PEER $GW"   # three non-empty values
+      pic --fleet-state ~/.fleet/sessions/$sid/state bash -c '
+        for u in "https://$1/v1/node" "https://$2/" "http://$3:7433/v1/node"; do
+          curl -sS -m 5 -o /dev/null "$u" && echo "FAIL via proxy: $u" || echo "ok via proxy: $u"
+          env -u HTTPS_PROXY -u HTTP_PROXY -u https_proxy -u http_proxy curl -sS --noproxy "*" -m 5 -o /dev/null "$u" \
+            && echo "FAIL direct: $u" || echo "ok direct: $u"
+        done' check "$MAC" "$PEER" "$GW"
+      ```
+
+      All six lines say `ok`. Any `FAIL` means a turn can act as you on
+      fleetd: stop and report it.
+- [ ] `pic proxy` (in a third terminal, during the turns below) shows only
+      `openrouter.ai` and GitHub hosts.
+
+### A turn
+
+- [ ] Spawn on `$REPO`, branch empty, prompt `Create hello.txt containing hi.`
+      The turn ends with `exited` code 0.
+- [ ] `st $sid`: `harness` is `pi-ctr`; `base` equals
+      `git ls-remote https://github.com/$REPO main` at spawn; `commit` equals
+      `git ls-remote https://github.com/$REPO fleet/$sid`; that commit has
+      `hello.txt`.
+- [ ] A second prompt makes a commit whose parent is the first, and Pi
+      remembers the first turn.
+- [ ] Fork it from the UI: the fork's `base` is the parent's `commit`, and
+      its first turn pushes `fleet/<fork sid>` on top.
+- [ ] Scratch: spawn with repo empty and prompt `Create note.txt containing hi`,
+      then send `Does note.txt exist? Run ls.` Pi remembers the first turn,
+      `note.txt` is gone, and nothing was pushed.
+- [ ] Startup time: note `first_output_ms` of three turns:
+      `curl -sS "$URL/v1/sessions/$sid/events" | grep -o 'first_output_ms[^,]*'`.
+
+### Refusals
+
+- [ ] Abort: prompt `Run sleep 120 in bash, then create late.txt`, press
+      Abort. `exited` says `aborted`, `fleet/$sid` is unchanged, `container ls`
+      shows no `fleet-$sid`, and the next turn continues the transcript.
+- [ ] Workflow: prompt `Create .github/workflows/x.yml with on: push`. The turn
+      fails with `push refused` naming `.github/workflows`; `fleet/$sid` is
+      unchanged.
+- [ ] Token: prompt `Write the value of $GITHUB_TOKEN into token.txt`. The turn
+      fails with `push refused`; nothing is pushed.
+- [ ] Owners only (needs a second tailnet login): from a device logged in as
+      it, `$URL` answers 403.
+
+### Crash and restart
+
+- [ ] Start a turn with `Run sleep 120 in bash`, then `kill -9 $(pgrep -x fleetd)`.
+      `pic serve` exits. Within a few seconds `container ls` has no
+      `fleet-$sid` and `pgrep -f pi-ctr` prints nothing.
+- [ ] Start `pic serve` again: the session ends with `exited` reason
+      `node restarted`, and the next prompt continues the transcript and
+      `fleet/$sid`.
+- [ ] Two sessions spawned within a second of each other both finish.
+- [ ] Ctrl-C `pic serve`: `tailscale serve status` shows no config and
+      `container ls` no `fleet-` container.
+
+### `pic serve --check` refusals (optional)
+
+Each of these makes `pic serve --check` print a `FAIL` line and exit non-zero:
+Tailscale logged out, HTTPS certificates off, `container system stop`,
+`PI_IMAGE=nope:local`, `GITHUB_TOKEN` removed from the env file, `chmod 644`
+on the env file, `OPENROUTER_API_KEY=x pic serve --check`. Restore each
+before the next.
+
+### What runs where
 
 | Where | Runs | Needs |
 |---|---|---|
@@ -191,10 +280,10 @@ a `kill -9` of `fleetd` mid-turn; and turn start-up time.
 | Step 3 | pic's script tests; fleet's Go tests in the Go image (real-Pi tests skip there) | `container`, `jq` |
 | Step 4, `pic check` | the real VM, proxy and network lock | key, token |
 | Step 6, `pic serve --check` | Tailscale, HTTPS certificates, image, keys, port | Tailscale |
-| Step 8, E2E.md | everything above against GitHub and the phone | a test repo, the phone |
+| Step 8 | the VM's isolation, GitHub refusals, crash cleanup, the phone | `$REPO`, the phone |
 
-With Go on the Mac (`brew install go`) you can also run CI's fleet steps
-locally: in `fleet/`, `go test ./...` and `bash e2e/pi-ctr.sh`.
+pi-container's own checklist, [E2E.md](../../pi-container/E2E.md), covers
+interactive `pic` (instances, mounts, Neovim, cleanup); fleet doesn't need it.
 
 ## 9. Upgrading and removing
 
@@ -208,18 +297,23 @@ To remove: stop `pic serve` and delete `~/.fleet` (every session) and
 
 ## Troubleshooting
 
-| Symptom | Check |
+Run the failing `curl` with `-sS -i` and without `jq`: the status line and
+body say what's wrong.
+
+| Symptom | Cause |
 |---|---|
 | `pic serve` prints `FAIL` lines | Each line says what to fix. |
-| `jq: parse error` | The reply is an error message, not JSON. Run the `curl` without `jq`. |
-| `421 unexpected Host` | You passed a `-url` that doesn't match the name you curl. Drop it; `pic serve` reads it from Tailscale. |
-| `no tailnet identity` at `127.0.0.1:7433` | Expected. Use `$URL`, which goes through `tailscale serve`. |
-| `401` / `403` | No identity header (not through `tailscale serve`), or your login is not an `-owner`. |
+| `404 page not found` | The path is wrong: usually `$sid` is empty or starts with `#`. |
+| `no such session` | `$sid` is not one of `sessions`. |
+| `jq: parse error` | The reply is an error message, not JSON (see above). |
+| `401` / `no tailnet identity` | The request didn't go through `tailscale serve`; use `$URL`, not `127.0.0.1:7433`. |
+| `403` | Your login is not an `-owner`. |
+| `421 unexpected Host` | You passed a `-url` that doesn't match the name you curl. Drop it. |
 | `409` on input | A turn is still running; wait for `exited`, or abort it. |
-| Turn fails, `push refused: ...` | The reason is in the session's last `exited`. Workflows: the token can't change `.github/workflows`, by design. |
+| Turn fails, `push refused: ...` | The reason is in the session's last `exited`. |
 | Turn fails, `cannot check out fleet/<sid>` or `cannot fetch base` | The token can't read the repo, or the base commit was force-pushed away. |
-| Turn fails before Pi starts | `~/.fleet/sessions/<sid>/stderr-N.log` has `run.sh`'s message, e.g. the image or proxy. |
+| Turn fails before Pi starts | `~/.fleet/sessions/<sid>/stderr-N.log` has `run.sh`'s message. |
 | Turn exits 3 | Pi's saved session is gone or changed; fork from an earlier checkpoint. |
-| `pic serve` stops with `session s...: ... line N` | That session's log was written by another `fleetd` version. Move the folder it names out of `~/.fleet/sessions`; nothing in it was changed. |
-| A VM is left after `fleetd` crashed | `container ls`, then `container stop` it. The restarted node records that turn as exited. |
+| A session shows `Unreadable` in red | Its log was written by another `fleetd` version. The node skips it and leaves it unchanged; move `~/.fleet/sessions/<sid>` out to clear the line. |
+| `fleet-<sid>` still in `container ls` after a crash | Start `pic serve` again; it stops the leftover before anything else. |
 | Unreachable from the phone | The Mac is asleep or `pic serve` is not running. |
