@@ -1,0 +1,8 @@
+#!/bin/sh
+# Fake-exec stand-in for the image's setpriv: drops nothing, runs what
+# follows "--". FAKE_VM_LOG, when set, records each call.
+[ -z "${FAKE_VM_LOG:-}" ] || printf 'setpriv %s\n' "$*" >> "$FAKE_VM_LOG"
+while [ $# -gt 0 ] && [ "$1" != -- ]; do shift; done
+[ $# -gt 0 ] || { echo "fake setpriv: no --" >&2; exit 1; }
+shift
+exec "$@"

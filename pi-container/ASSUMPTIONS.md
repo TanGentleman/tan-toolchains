@@ -31,6 +31,19 @@ as JSON, so a failed capture leaves the old fixture in place. See
 | `container volume list -q` and `container network list -q` print one name per line. | `run.sh: volume_exists`, `ensure_network`; `clear.sh: all_volumes` | `test/fake-container.sh` |
 | `container run` exits non-zero when the container fails. | `run.sh` exec; `clear.sh: save_sessions` | `test/fake-container.sh` (`fail/<key>`) |
 
+## VM runtime
+
+The egress lock (`lib/netlock.sh`) depends on these, observed with
+`test/vm-net-diag.sh` on `container` 1.6.1 (2026-11). `test/test-netlock.sh`
+covers the script; `run.sh check` and `test/fleet-isolation.sh` check the
+result in a real VM.
+
+| Assumption | Code |
+| --- | --- |
+| `container run` accepts `--cap-add NET_ADMIN`; the default bounding set (`a80425fb`) has `SETPCAP` but not `NET_ADMIN`. | `run.sh` |
+| The VM kernel has `ip_tables` (legacy iptables) and no `nf_conntrack`, so the rules are stateless OUTPUT rules. | `lib/netlock.sh` |
+| The container runs as root, so dropping a capability from the bounding set removes it from every program it starts. | `lib/netlock.sh` |
+
 ## Why these are centralised
 
 The parsers live in `lib/inspect.sh`; each path is covered by a fixture or an

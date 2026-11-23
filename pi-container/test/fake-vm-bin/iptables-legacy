@@ -1,0 +1,5 @@
+#!/bin/sh
+# Fake-exec stand-in for the image's iptables-legacy: accepts every rule.
+# FAKE_VM_LOG, when set, records each call.
+[ -z "${FAKE_VM_LOG:-}" ] || printf '%s %s\n' "${0##*/}" "$*" >> "$FAKE_VM_LOG"
+exit 0

@@ -22,7 +22,7 @@ LABEL pi-container.pi-version="${PI_VERSION}" \
 RUN [ "$(uname -m)" = aarch64 ] || (echo "this image currently pins aarch64 only" >&2; exit 1)
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends bash ca-certificates curl fd-find findutils git jq minisign ripgrep unzip xz-utils \
+    && apt-get install -y --no-install-recommends bash ca-certificates curl fd-find findutils git iptables jq minisign ripgrep unzip xz-utils \
     && ln -s /usr/bin/fdfind /usr/local/bin/fd \
     && rm -rf /var/lib/apt/lists/*
 
@@ -127,14 +127,14 @@ COPY --from=zig /usr/local/bin/zigpeek /usr/local/bin/zigpeek
 COPY --from=zig /usr/local/bin/enforcer /usr/local/bin/enforcer
 COPY --from=zig /root/.agents/skills/zigpeek /root/.agents/skills/zigpeek
 RUN ln -s /opt/zig/zig /usr/local/bin/zig
-ENV PI_CONTAINER_CAPABILITIES="zig,zigpeek,enforcer"
+ENV PI_CONTAINER_CAPABILITIES="zig,zigpeek,enforcer,netlock"
 CMD ["bash"]
 
 FROM tools AS agent
 ARG PI_VERSION
 RUN npm install -g --ignore-scripts "@earendil-works/pi-coding-agent@${PI_VERSION}"
 ENV PI_CONTAINER_PI_VERSION="${PI_VERSION}" \
-    PI_CONTAINER_CAPABILITIES="zig,zigpeek,enforcer,pi"
+    PI_CONTAINER_CAPABILITIES="zig,zigpeek,enforcer,netlock,pi"
 CMD ["pi"]
 
 FROM agent AS agent-gh
@@ -149,19 +149,19 @@ RUN git config --system credential.https://github.com.helper '!gh auth git-crede
     && git config --system url.https://github.com/.insteadOf git@github.com: \
     && git config --system --add url.https://github.com/.insteadOf ssh://git@github.com/ \
     && git config --system safe.directory '*'
-ENV PI_CONTAINER_CAPABILITIES="zig,zigpeek,enforcer,pi,gh"
+ENV PI_CONTAINER_CAPABILITIES="zig,zigpeek,enforcer,netlock,pi,gh"
 
 FROM tools AS editor
 COPY --from=nvim /opt/nvim-linux-arm64 /opt/nvim-linux-arm64
 COPY --from=zls /opt/zls /opt/zls
 RUN ln -s /opt/nvim-linux-arm64/bin/nvim /usr/local/bin/nvim \
     && ln -s /opt/zls/zls /usr/local/bin/zls
-ENV PI_CONTAINER_CAPABILITIES="zig,zigpeek,enforcer,nvim,zls"
+ENV PI_CONTAINER_CAPABILITIES="zig,zigpeek,enforcer,netlock,nvim,zls"
 
 FROM agent-gh AS full
 COPY --from=nvim /opt/nvim-linux-arm64 /opt/nvim-linux-arm64
 COPY --from=zls /opt/zls /opt/zls
 RUN ln -s /opt/nvim-linux-arm64/bin/nvim /usr/local/bin/nvim \
     && ln -s /opt/zls/zls /usr/local/bin/zls
-ENV PI_CONTAINER_CAPABILITIES="zig,zigpeek,enforcer,pi,gh,nvim,zls"
+ENV PI_CONTAINER_CAPABILITIES="zig,zigpeek,enforcer,netlock,pi,gh,nvim,zls"
 CMD ["pi"]

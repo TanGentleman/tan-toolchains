@@ -20,6 +20,7 @@ Commands run from `pi-container/` unless noted.
 | Manual mode | Default network, no proxy | Editor work is separate from the locked Pi path. |
 | Egress mode | Off; `--allow-egress` | Runs Pi on the default network when the allowlist is too narrow; the real key enters the VM. |
 | Pack capability check | Refuse missing `pi` in normal mode | A clear error beats a container that cannot start its command. |
+| Egress lock | On in normal mode, `check`, and `--fleet-state` | `pi-locked` is host-only, so without it the VM reaches the Mac and Tailscale's DNS resolver. `lib/netlock.sh` allows only the proxy, then drops `NET_ADMIN`. |
 | `nuke all` image scope | The active `PI_IMAGE` only | Other pack tags are not deleted implicitly. |
 | Build context | Repo root | The image compiles `../zigpeek` and `../enforcer`. |
 
@@ -123,8 +124,11 @@ treats such an image as a legacy full image.
 
 Images record `PI_CONTAINER_CAPABILITIES` in their environment. Normal mode and
 `check` both refuse an image without `pi`; `check` additionally requires
-`enforcer`, `zig`, and `zigpeek`. An image with no capability metadata is
-treated as a legacy full image. If `GITHUB_TOKEN` is set, `check` also requires
+`enforcer`, `zig`, and `zigpeek`. Normal mode, `check`, and `--fleet-state`
+also refuse an image without `netlock` (iptables for the egress lock); every
+pack built from the current Dockerfile has it. An image with no capability
+metadata is treated as a legacy full image; it has no iptables, so the lock
+fails in the VM, says to rebuild, and the command does not run. If `GITHUB_TOKEN` is set, `check` also requires
 `gh`, so use `agent-gh` or `full`; `agent` is for tokenless runs.
 
 ## Flags

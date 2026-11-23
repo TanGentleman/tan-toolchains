@@ -36,9 +36,11 @@ cd pi-container
 
 ## Boundaries
 
-- `pi-container/` runs Pi in an Apple `container` VM. `pi-proxy` is its only
-  network path in normal mode; `--manual` uses the default network without Pi,
-  and `--allow-egress` gives Pi the default network and the real key.
+- `pi-container/` runs Pi in an Apple `container` VM. In normal mode, `check`,
+  and fleet turns, a firewall inside the VM lets it send only to `pi-proxy`,
+  which allows GitHub and OpenRouter. `--manual` uses the default network
+  without Pi, and `--allow-egress` gives Pi the default network and the real
+  key; neither has the firewall.
 - Shipped tools run on macOS and make no network requests. A separate process
   owns any network layer; `fleetd` is that process for fleet, loopback-only
   behind `tailscale serve`.

@@ -203,7 +203,7 @@ case_check_enforcer() {
 # ------------------------------------------------------- tokenless agent pack
 case_tokenless_run() {
   new_case tokenless
-  image_json 1.4.0 "zig,zigpeek,enforcer,pi" > "$world/images/pi-agent-lite_local.json"
+  image_json 1.4.0 "zig,zigpeek,enforcer,pi,netlock" > "$world/images/pi-agent-lite_local.json"
   image_json 1.4.0 > "$world/images/pi-proxy_local.json"
   network_json "172.30.240.0/24" > "$world/networks/pi-locked.json"
   printf 'pi-locked\n' > "$world/networks.list"
@@ -228,7 +228,7 @@ case_tokenless_run() {
 
 case_tokenless_check() {
   new_case tokenlesscheck
-  image_json 1.4.0 "zig,zigpeek,enforcer,pi" > "$world/images/pi-agent-lite_local.json"
+  image_json 1.4.0 "zig,zigpeek,enforcer,pi,netlock" > "$world/images/pi-agent-lite_local.json"
   image_json 1.4.0 > "$world/images/pi-proxy_local.json"
   network_json "172.30.240.0/24" > "$world/networks/pi-locked.json"
   printf 'pi-locked\n' > "$world/networks.list"
@@ -673,7 +673,89 @@ case_mount_guards() {
   contains 'missing' "$(e)" "env file error proves the guard passed"
 }
 
-# ------------------------------------------------------------- fleet state
+# ------------------------------------------------------------- egress lock
+# Normal mode, check, and fleet turns start with NET_ADMIN and run
+# lib/netlock.sh as the outermost command, so the lock is in place before
+# prep, the clone, or the command runs. --manual and --allow-egress are
+# unsandboxed and get neither.
+run_line() { grep '^CALL run ' "$logfile" | tail -n 1; }
+expect_locked() { # label
+  local line lock_at prep_at
+  line=$(run_line)
+  contains "--cap-add NET_ADMIN" "$line" "$1: NET_ADMIN added"
+  contains " netlock 172.30.240.2 8888 bash -c " "$line" "$1: lock gets the proxy address and port"
+  contains "setpriv --bounding-set=-net_admin,-net_raw" "$line" "$1: lock drops NET_ADMIN and NET_RAW"
+  lock_at=${line%%netlock 172.30.240.2*}
+  prep_at=${line%% prep *}
+  [ "${#lock_at}" -lt "${#prep_at}" ] && pass || fail "$1: lock is outside prep"
+  contains "pi-agent:local bash -c " "$line" "$1: the image's command is the lock script"
+}
+expect_unlocked() { # label
+  local line
+  line=$(run_line)
+  [ -n "$line" ] && pass || fail "$1: no run"
+  not_contains "NET_ADMIN" "$line" "$1: no NET_ADMIN"
+  not_contains " netlock " "$line" "$1: no lock"
+}
+
+case_netlock_modes() {
+  new_case netlock
+  fleet_world
+  local st
+  mkdir -p "$home/.fleet/sessions/s1/state"
+  st=$(cd "$home/.fleet/sessions/s1/state" && pwd -P)
+  (cd "$t/project" && pi "$run_sh" pi)
+  expect_status 0 "locked normal run"
+  expect_locked "normal"
+  : > "$logfile"
+  (cd "$t/project" && pi "$run_sh" check owner/repo)
+  expect_status 0 "locked check"
+  expect_locked "check"
+  : > "$logfile"
+  (cd "$t/project" && pi "$run_sh" --fleet-state "$st" --clone owner/repo pi --mode json)
+  expect_status 0 "locked fleet turn"
+  expect_locked "fleet turn"
+  : > "$logfile"
+  (cd "$t/project" && pi "$run_sh" --clone owner/repo true)
+  expect_status 0 "locked clone run"
+  expect_locked "clone"
+  : > "$logfile"
+  (cd "$t/project" && pi "$run_sh" --manual true)
+  expect_status 0 "manual run"
+  expect_unlocked "manual"
+  : > "$logfile"
+  (cd "$t/project" && pi "$run_sh" --allow-egress true)
+  expect_status 0 "egress run"
+  expect_unlocked "egress"
+}
+
+# An image that declares capabilities but not netlock has no iptables, so
+# the locked modes refuse it before any container starts. Egress and manual
+# modes have no lock and still run it.
+case_netlock_capability() {
+  new_case netlockcap
+  fleet_world
+  image_json 1.4.0 "zig,zigpeek,enforcer,pi,gh" > "$world/images/pi-agent_local.json"
+  local st cmd
+  mkdir -p "$home/.fleet/sessions/s1/state"
+  st=$(cd "$home/.fleet/sessions/s1/state" && pwd -P)
+  for cmd in "pi" "check owner/repo" "--fleet-state $st pi"; do
+    : > "$logfile"
+    # shellcheck disable=SC2086
+    (cd "$t/project" && pi "$run_sh" $cmd)
+    expect_status 1 "no netlock: $cmd refused"
+    contains "lacks capability 'netlock'" "$(e)" "no netlock: $cmd names the capability"
+    log_lacks "CALL run " "no netlock: $cmd starts no container"
+  done
+  : > "$logfile"
+  (cd "$t/project" && pi "$run_sh" --allow-egress true)
+  expect_status 0 "no netlock: egress still runs"
+  : > "$logfile"
+  (cd "$t/project" && pi "$run_sh" --manual true)
+  expect_status 0 "no netlock: manual still runs"
+}
+
+# -------------------------------------------------------------- fleet state
 fleet_world() {
   image_json 1.4.0 > "$world/images/pi-agent_local.json"
   image_json 1.4.0 > "$world/images/pi-proxy_local.json"
@@ -874,7 +956,8 @@ for c in case_normal_run case_check_enforcer case_tokenless_run case_tokenless_c
          case_clear_list_dead_profile \
          case_nuke_agent case_nuke_agent_without_image case_nuke_clones_scoped \
          case_nuke_profile case_nuke_profile_rejects_instance \
-         case_option_guards case_nuke_all_builder_failure case_mount_guards case_fleet_state case_pi_ctr_stop; do
+         case_option_guards case_nuke_all_builder_failure case_mount_guards case_fleet_state case_pi_ctr_stop \
+         case_netlock_modes case_netlock_capability; do
   "$c"
 done
 

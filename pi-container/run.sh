@@ -25,6 +25,7 @@ here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 . "$here/lib/inspect.sh"
 . "$here/lib/validate.sh"
 . "$here/lib/lock.sh"
+. "$here/lib/netlock.sh"
 cfg="${PI_CONFIG_DIR:-$(pi_default_config_dir)}"
 env_file="${PI_ENV_FILE:-$cfg/env}"
 settings_file="${PI_SETTINGS_FILE:-$cfg/settings.json}"
@@ -738,6 +739,8 @@ if [ "${1:-}" != proxy ]; then
   require_agent_image
   image_caps=$(image_capabilities || true)
   require_image_capability "$image_caps" pi
+  # The egress lock needs iptables in the image; egress mode has no lock.
+  [ "$egress" = 1 ] || require_image_capability "$image_caps" netlock
   if [ "${1:-}" = check ]; then
     require_image_capability "$image_caps" enforcer
     require_image_capability "$image_caps" zig
@@ -791,7 +794,8 @@ else
     -e SSL_CERT_FILE=/etc/pi-proxy-ca/ca.pem
     -e CURL_CA_BUNDLE=/etc/pi-proxy-ca/ca.pem
     -e REQUESTS_CA_BUNDLE=/etc/pi-proxy-ca/ca.pem
-    -v "$ca_file:/etc/pi-proxy-ca/ca.pem:ro")
+    -v "$ca_file:/etc/pi-proxy-ca/ca.pem:ro"
+    --cap-add NET_ADMIN)
 fi
 if [ -n "$fleet_name" ]; then
   # A leftover from a turn whose fleetd died must not run beside this one.
@@ -932,6 +936,10 @@ else
 fi
 
 set -- bash -c "$prep" prep "$@"
+# Outermost: lock egress to the proxy, then drop NET_ADMIN (lib/netlock.sh).
+if [ "$egress" != 1 ]; then
+  set -- bash -c "$(pi_netlock_script)" netlock "$proxy_ip_value" "$port" "$@"
+fi
 mode=""
 if [ "$egress" = 1 ]; then mode=egress; fi
 announce_run "$image_caps" "$mode"

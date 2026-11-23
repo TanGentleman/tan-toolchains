@@ -26,6 +26,8 @@
 # DIR/run.N/home (seeded from DIR/gitconfig), only -e/--env-file variables
 # and PATH (FAKE_CONTAINER_PATH first) are set, and the environment is
 # appended to DIR/env.log. -v mounts are ignored, so a same-path mount works.
+# fake-vm-bin/ comes next on PATH: stubs for the image's iptables-legacy,
+# ip6tables-legacy and setpriv, so run.sh's egress lock runs and passes.
 #
 # Sanitising an image name replaces / and : with _ (pi-agent:local ->
 # pi-agent_local). Unknown commands exit 1 so a new CLI call cannot silently
@@ -120,7 +122,7 @@ case $cmd in
           -e) envs+=("$2"); shift 2 ;;
           --env-file) while IFS= read -r l || [ -n "$l" ]; do [ -z "$l" ] || envs+=("$l"); done < "$2"; shift 2 ;;
           -w) wd=$2; shift 2 ;;
-          -v|--network|--cpus|--memory|--name|--label) shift 2 ;;
+          -v|--network|--cpus|--memory|--name|--label|--cap-add|--cap-drop) shift 2 ;;
           -*) printf 'fake-container: unhandled run option: %s\n' "$1" >&2; exit 1 ;;
           *) break ;;
         esac
@@ -138,7 +140,8 @@ case $cmd in
       printf '%s\n' "${envs[@]}" "--" >> "$FAKE_CONTAINER_EXEC/env.log"
       mkdir -p "$wd"
       cd "$wd" || exit 1
-      exec env -i PATH="${FAKE_CONTAINER_PATH:+$FAKE_CONTAINER_PATH:}$PATH" HOME="$disk/home" "${envs[@]}" "${argv[@]}"
+      vmbin=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/fake-vm-bin
+      exec env -i PATH="${FAKE_CONTAINER_PATH:+$FAKE_CONTAINER_PATH:}$vmbin:$PATH" HOME="$disk/home" "${envs[@]}" "${argv[@]}"
     fi
     if [ -n "$world" ] && [ -f "$world/run.stdout" ]; then cat "$world/run.stdout"; fi
     ;;

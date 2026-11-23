@@ -88,7 +88,7 @@ iso() { # expected-exit, label
   : > "$h/home/.config/pi-container/certs/ca.pem"
   printf 'OPENROUTER_API_KEY=sk-or-v1-real\nGITHUB_TOKEN=t\n' > "$h/home/.config/pi-container/env"
   chmod 600 "$h/home/.config/pi-container/env"
-  img='[{"id":"sha256:t","configuration":{"descriptor":{"digest":"sha256:t"},"name":"pi-agent:local"},"variants":[{"config":{"config":{"Env":["PI_CONTAINER_PI_VERSION=1.6.0","PI_CONTAINER_CAPABILITIES=pi"]},"history":[]}}]}]'
+  img='[{"id":"sha256:t","configuration":{"descriptor":{"digest":"sha256:t"},"name":"pi-agent:local"},"variants":[{"config":{"config":{"Env":["PI_CONTAINER_PI_VERSION=1.6.0","PI_CONTAINER_CAPABILITIES=pi,netlock"]},"history":[]}}]}]'
   printf '%s' "$img" > "$w/images/pi-agent_local.json"
   printf '%s' "$img" > "$w/images/pi-proxy_local.json"
   printf '[{"configuration":{"name":"pi-locked","mode":"hostOnly","ipv4Subnet":"172.30.240.0/24"},"id":"pi-locked","status":{"ipv4Gateway":"127.0.0.1","ipv4Subnet":"172.30.240.0/24"}}]' > "$w/networks/pi-locked.json"
