@@ -9,7 +9,7 @@ here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 command -v python3 >/dev/null 2>&1 || { echo "test-fleet-probe.sh: python3 not found; skipped"; exit 0; }
 bash -n "$here/fleet-probe.sh" && bash -n "$here/fleet-isolation.sh" && pass || fail "probe scripts parse"
 
-tmp=$(mktemp -d)
+tmp=$(cd "$(mktemp -d)" && pwd -P) # macOS: /var is a symlink, and the fleet-state guard refuses symlinks
 pids=""
 trap 'for p in $pids; do kill "$p" 2>/dev/null; done; rm -rf "$tmp"' EXIT
 free_port() { python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])'; }
