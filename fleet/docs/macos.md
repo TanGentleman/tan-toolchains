@@ -5,8 +5,9 @@ OpenRouter, reachable from your phone over Tailscale. It runs in a terminal
 by default; starting it at login with launchd is optional.
 Then a second Mac as a peer, handoff, and the test suites.
 
-Run each block in Terminal (zsh), in order. Lines starting with `#` are
-comments. Each step ends with a check; do not go on until it passes.
+Run each block in Terminal (zsh), in order. Run `setopt interactivecomments`
+first (add it to `~/.zshrc` to keep it): without it zsh passes a trailing
+`# comment` to the command as arguments. Each step ends with a check; do not go on until it passes.
 Assumes Apple silicon (`/opt/homebrew`); on Intel replace `/opt/homebrew`
 with `/usr/local`.
 
@@ -88,8 +89,13 @@ mkdir -p ~/fleet-tools
 npm install --prefix ~/fleet-tools --no-fund --no-audit \
   @earendil-works/pi-coding-agent@1.6.0 @anthropic-ai/claude-code@2.1.330 @openai/codex@0.171.0
 ls ~/fleet-tools/node_modules/.bin/     # includes pi, claude, codex
-~/fleet-tools/node_modules/.bin/codex --version
+for c in pi claude codex; do ~/fleet-tools/node_modules/.bin/$c --version; done
 ```
+
+If `claude --version` prints `claude native binary not installed`, npm
+skipped its postinstall (`ignore-scripts` or `omit=optional` in `~/.npmrc`):
+`npm config get ignore-scripts omit`, then
+`node ~/fleet-tools/node_modules/@anthropic-ai/claude-code/install.cjs`.
 
 Do not log in to any of them. fleet gives each session its own config home
 and points the CLI at OpenRouter; host logins are never read.
