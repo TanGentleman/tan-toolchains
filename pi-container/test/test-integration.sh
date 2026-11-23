@@ -673,6 +673,68 @@ case_mount_guards() {
   contains 'missing' "$(e)" "env file error proves the guard passed"
 }
 
+# ------------------------------------------------------------- fleet state
+fleet_world() {
+  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  image_json 1.4.0 > "$world/images/pi-proxy_local.json"
+  network_json "172.30.240.0/24" > "$world/networks/pi-locked.json"
+  printf 'pi-locked\n' > "$world/networks.list"
+  proxy_running_json > "$world/containers/pi-proxy.json"
+  printf '172.30.240.2\n' > "$cfg/private/proxy.addr"
+}
+
+case_fleet_state() {
+  new_case fleet
+  fleet_world
+  local st
+  mkdir -p "$home/.fleet/sessions/s1/state"
+  st=$(cd "$home/.fleet/sessions/s1/state" && pwd -P)
+  (
+    cd "$t/project" || exit 1
+    pi "$run_sh" --fleet-state "$st" --clone owner/repo pi --mode json
+  )
+  expect_status 0 "fleet turn starts"
+  log_has "run --rm -i --init --network pi-locked" "fleet turn uses the locked network"
+  log_has "OPENROUTER_API_KEY=sk-or-v1-placeholder" "fleet turn gets the placeholder key"
+  log_has "HTTPS_PROXY=http://172.30.240.2:" "fleet turn goes through the proxy"
+  log_has "-v $st:$st " "state dir mounted read-write at the same path"
+  log_has "FLEET_STATE=$st" "state dir named inside"
+  log_has "PI_CODING_AGENT_DIR=/root/.pi/agent " "agent dir stays at the default path"
+  log_has "$cfg/settings.json:/root/.pi/agent/settings.json:ro" "settings still read-only"
+  log_has "PI_CLONE=owner/repo" "clone target passed"
+  log_has "-w /work" "clone lands on the container's disk"
+  log_has "pi --mode json" "command passed through"
+  log_lacks "volume create" "no volume created for a fleet turn"
+  log_lacks ":/root/.pi/agent " "no agent volume mounted"
+  log_lacks ":/work " "no clone volume mounted"
+  not_contains " -t " "$(grep '^CALL run ' "$logfile")" "no terminal for a headless turn"
+  log_lacks "sk-or-v1-real" "real key never appears in argv"
+  log_lacks "-v $t/project:" "current folder is not mounted"
+
+  : > "$logfile"
+  mkdir -p "$t/outside" "$home/.fleet/sessions/s2"
+  ln -s "$t/outside" "$home/.fleet/sessions/s2/state"
+  ln -s "$t/outside" "$t/link"
+  local bad
+  for bad in "$t/outside" "$home/.fleet/sessions" "$home/.fleet/sessions/s2/state" "$home/.fleet/sessions/../../outside" \
+             "$home/.fleet/sessions/missing" "relative/path"; do
+    (
+      cd "$t/project" || exit 1
+      pi "$run_sh" --fleet-state "$bad" pi
+    )
+    expect_status 1 "refuses --fleet-state $bad"
+  done
+  for bad in "--allow-egress --fleet-state $st pi" "--manual --fleet-state $st bash" "--fleet-state $st check" "--fleet-state $st"; do
+    (
+      cd "$t/project" || exit 1
+      # shellcheck disable=SC2086
+      pi "$run_sh" $bad
+    )
+    expect_status 2 "refuses run.sh $bad"
+  done
+  log_lacks "run --" "refused fleet turns start no container"
+}
+
 # --------------------------------------------- proxy container unknown state
 case_proxy_unknown_state() {
   new_case proxyunknown
@@ -767,7 +829,7 @@ for c in case_normal_run case_check_enforcer case_tokenless_run case_tokenless_c
          case_clear_list_dead_profile \
          case_nuke_agent case_nuke_agent_without_image case_nuke_clones_scoped \
          case_nuke_profile case_nuke_profile_rejects_instance \
-         case_option_guards case_nuke_all_builder_failure case_mount_guards; do
+         case_option_guards case_nuke_all_builder_failure case_mount_guards case_fleet_state; do
   "$c"
 done
 

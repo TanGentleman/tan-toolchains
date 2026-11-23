@@ -5,6 +5,8 @@
 #   run.sh [--instance NAME] [--clone O/R] --manual [CMD]
 #                                              shell without Pi or proxy
 #   run.sh [--instance NAME] [--allow-egress] [--clone O/R] [COMMAND [ARG...]]
+#   run.sh --fleet-state DIR [--clone O/R] COMMAND [ARG...]
+#                                           one headless fleet turn (pi-ctr)
 #                                              Pi or COMMAND with full egress
 #   run.sh [--instance NAME] check [O/R]    keys, GitHub, and the network lock
 #   run.sh proxy                            follow the proxy container's logs
@@ -52,6 +54,12 @@ Run Pi inside Apple's container, on a host-only network.
                                              shell without Pi or proxy
   run.sh [--instance NAME] [--allow-egress] [--clone O/R] [COMMAND [ARG...]]
                                              Pi or COMMAND with full network egress
+  run.sh --fleet-state DIR [--clone O/R] COMMAND [ARG...]
+                                             one headless fleet turn: DIR, a session
+                                             dir below ~/.fleet/sessions, is mounted
+                                             read-write at the same path; the clone
+                                             and Pi's agent dir live on the
+                                             container's own disk
   run.sh [--instance NAME] check [O/R]    keys, GitHub, the network lock, and enforcer
   run.sh proxy                            follow the proxy container's logs
   run.sh proxy-stop                       stop the proxy container
@@ -66,8 +74,18 @@ instance=${PI_INSTANCE:-$pi_default_instance}
 manual=0
 egress=0
 clone="${PI_CLONE:-}"
+fleet_state=""
 while [ $# -gt 0 ]; do
   case $1 in
+    --fleet-state)
+      [ $# -ge 2 ] || { echo "run.sh: --fleet-state needs a directory" >&2; exit 2; }
+      fleet_state=$2
+      shift 2
+      ;;
+    --fleet-state=*)
+      fleet_state=${1#*=}
+      shift
+      ;;
     --instance)
       [ $# -ge 2 ] || { echo "run.sh: --instance needs a name" >&2; exit 2; }
       instance=$2
@@ -109,6 +127,18 @@ if [ "$egress" = 1 ]; then
   case "${1:-}" in
     check|proxy|proxy-stop)
       echo "run.sh: --allow-egress has no proxy or locked network to $1" >&2
+      exit 2
+      ;;
+  esac
+fi
+if [ -n "$fleet_state" ]; then
+  if [ "$manual" = 1 ] || [ "$egress" = 1 ]; then
+    echo "run.sh: --fleet-state runs in normal mode only (no --manual or --allow-egress)" >&2
+    exit 2
+  fi
+  case "${1:-}" in
+    ''|check|proxy|proxy-stop)
+      echo "run.sh: --fleet-state needs the command to run" >&2
       exit 2
       ;;
   esac
@@ -442,6 +472,29 @@ guard_mount() {
   done
 }
 
+# A fleet session's state dir is mounted read-write. Allow only a real
+# directory strictly below ~/.fleet/sessions, with no symlink on the way.
+guard_fleet_state() {
+  local root_phys dir_phys
+  root_phys=$(pi_physical_dir "$HOME/.fleet/sessions") || {
+    echo "run.sh: --fleet-state: $HOME/.fleet/sessions does not exist" >&2; exit 1; }
+  case $fleet_state in
+    /*) ;;
+    *) echo "run.sh: --fleet-state needs an absolute path" >&2; exit 1 ;;
+  esac
+  if [ -L "$fleet_state" ] || [ ! -d "$fleet_state" ]; then
+    echo "run.sh: --fleet-state $fleet_state is not a directory" >&2
+    exit 1
+  fi
+  dir_phys=$(pi_physical_dir "$fleet_state") || { echo "run.sh: cannot resolve $fleet_state" >&2; exit 1; }
+  if [ "$dir_phys" != "${fleet_state%/}" ] || [ "$dir_phys" = "$root_phys" ] || ! pi_path_within "$root_phys" "$dir_phys"; then
+    echo "run.sh: --fleet-state $fleet_state must be a real directory below $root_phys" >&2
+    exit 1
+  fi
+  refuse_config_overlap "$dir_phys"
+  fleet_state=$dir_phys
+}
+
 addr_file() { printf '%s\n' "$cfg/private/proxy.addr"; }
 
 # Read the proxy container's state. The shape handling lives in lib/inspect.sh.
@@ -654,7 +707,8 @@ require_jq
 
 case "${1:-}" in
   check|proxy) ;;
-  *) if [ -n "$clone" ]; then :; else guard_mount; fi ;;
+  *) if [ -n "$fleet_state" ]; then guard_fleet_state
+     elif [ -n "$clone" ]; then :; else guard_mount; fi ;;
 esac
 require_env
 image_caps=""
@@ -693,7 +747,7 @@ else
   fi
   release_host_lock
   proxy_url="http://${proxy_ip_value}:${port}"
-  if [ "${1:-}" != proxy ]; then ensure_volume "$agent_volume" agent; fi
+  if [ "${1:-}" != proxy ] && [ -z "$fleet_state" ]; then ensure_volume "$agent_volume" agent; fi
   [ -f "$ca_file" ] || { echo "run.sh: missing $ca_file; start the proxy or unset PI_SKIP_HOST_SETUP" >&2; exit 1; }
 fi
 
@@ -717,8 +771,10 @@ else
     -e REQUESTS_CA_BUNDLE=/etc/pi-proxy-ca/ca.pem
     -v "$ca_file:/etc/pi-proxy-ca/ca.pem:ro")
 fi
-args+=(-v "$agent_volume:/root/.pi/agent"
-  -v "$settings_file:/root/.pi/agent/settings.json:ro")
+# A fleet turn's agent dir is the container's own disk, so nothing Pi
+# installs there outlives the turn.
+[ -n "$fleet_state" ] || args+=(-v "$agent_volume:/root/.pi/agent")
+args+=(-v "$settings_file:/root/.pi/agent/settings.json:ro")
 if [ "$egress" != 1 ] && [ -s "$cfg/pi.env" ]; then args+=(--env-file "$cfg/pi.env"); fi
 if [ -n "$clone" ]; then
   add_zig_cache_args "/work/${clone#*/}"
@@ -727,7 +783,7 @@ else
 fi
 if [ -n "${TZ:-}" ]; then args+=(-e "TZ=$TZ"); fi
 if [ -n "${COLORTERM:-}" ]; then args+=(-e "COLORTERM=$COLORTERM"); fi
-if [ -t 0 ] && [ -t 1 ]; then args+=(-t); fi
+if [ -z "$fleet_state" ] && [ -t 0 ] && [ -t 1 ]; then args+=(-t); fi
 
 [ $# -gt 0 ] || set -- pi
 
@@ -829,6 +885,14 @@ exit $s
 EOF
   set -- bash -c "$script" check "$check_repo"
   args+=(-w /tmp)
+elif [ -n "$fleet_state" ]; then
+  args+=(-v "$fleet_state:$fleet_state" -e "FLEET_STATE=$fleet_state" -w /work)
+  if [ -n "$clone" ]; then
+    args+=(-e "PI_CLONE=$clone")
+    set -- bash -c "$(clone_boot_script)" boot "$@"
+  else
+    set -- bash -c 'mkdir -p /work && cd /work && exec "$@"' boot "$@"
+  fi
 elif [ -n "$clone" ]; then
   boot=$(clone_boot_script)
   vol=$(pi_clone_volume "$instance" "$clone" "$cfg")
