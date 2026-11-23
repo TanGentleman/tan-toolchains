@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-# On a Mac: which ways out does a pi-locked VM have besides pi-proxy, and
-# which tools would close them? Diagnostic only; it changes nothing.
+# On a Mac: confirm the egress lock, in more detail than `run.sh check`.
+# Changes nothing.
 #
 #   test/vm-net-diag.sh
 #
 # Runs a VM the way `pic` and fleet turns do (run.sh normal mode: pi-locked,
-# proxy, placeholder key) and reports its resolver and routes, which DNS
-# servers answer it (and whether they forward to the internet), whether its
-# kernel has netfilter, and its capabilities. Then, from the host, whether
-# `container run` takes --cap-add/--cap-drop and what Tailscale's DNS
-# setting is. Paste the whole output back.
+# proxy, placeholder key, egress lock) and reports its resolver, routes,
+# netfilter and capabilities, and asks each DNS server for a few names. With
+# the lock, every DNS line says "no answer"; any other result is a way around
+# the proxy. Then, from the host, it records what ASSUMPTIONS.md relies on:
+# `container run` takes --cap-add/--cap-drop, and the default capability set.
 set -uo pipefail
 
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
