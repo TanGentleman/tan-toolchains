@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -491,5 +492,71 @@ func TestExecDropAndModes(t *testing.T) {
 	})
 	if files < 4 {
 		t.Fatalf("walked %d paths; expected the log, stderr and checkpoint blobs", files)
+	}
+}
+
+// TestAbortKeepsCheckpoint: an aborted turn gets SIGTERM first, so a harness
+// can stop cleanly, and whatever it half wrote to $FLEET_STATE is not
+// checkpointed: the next turn sees the state of the last finished one.
+// A harness that ignores SIGTERM is killed after the grace period.
+func TestAbortKeepsCheckpoint(t *testing.T) {
+	data := t.TempDir()
+	script := `read p
+case "$p" in
+first) echo one > "$FLEET_STATE/f" ;;
+partial) echo half > "$FLEET_STATE/f"; trap 'echo term > "$FLEET_WORK/term"; exit 143' TERM
+  touch "$FLEET_WORK/started"; sleep 30 & wait ;;
+stubborn) trap '' TERM; touch "$FLEET_WORK/started"; sleep 30 & wait; sleep 30 ;;
+*) echo "state=$(cat "$FLEET_STATE/f")" ;;
+esac`
+	n, err := New(Config{Name: "a", Data: data, Policy: core.Policy{Owners: []string{"tan"}},
+		Harnesses: map[string]Harness{"sh": Exec{Argv: []string{"sh", "-c", script}, Grace: 300 * time.Millisecond}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer n.Close()
+	sid, err := n.Spawn("tan", "sh", "", "", "k1", "first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := waitIdle(t, n, sid).Files
+	work := filepath.Join(data, "sessions", sid, "work")
+	abortWhenStarted := func(key, prompt string) time.Duration {
+		os.Remove(filepath.Join(work, "started"))
+		if _, err := n.Input("tan", sid, key, prompt); err != nil {
+			t.Fatal(err)
+		}
+		for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+			if _, err := os.Stat(filepath.Join(work, "started")); err == nil {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("%s never started", prompt)
+			}
+		}
+		start := time.Now()
+		if err := n.Abort("tan", sid); err != nil {
+			t.Fatal(err)
+		}
+		return time.Since(start)
+	}
+	abortWhenStarted("i1", "partial")
+	if b, _ := os.ReadFile(filepath.Join(work, "term")); string(b) != "term\n" {
+		t.Fatal("harness never got SIGTERM")
+	}
+	st := waitIdle(t, n, sid)
+	if !slices.Equal(st.Files, before) {
+		t.Fatalf("aborted turn was checkpointed: %v, want %v", st.Files, before)
+	}
+	if d := abortWhenStarted("i2", "stubborn"); d < 300*time.Millisecond || d > 3*time.Second {
+		t.Fatalf("stubborn harness stopped after %v, want the 300ms grace", d)
+	}
+	if _, err := n.Input("tan", sid, "i3", "show"); err != nil {
+		t.Fatal(err)
+	}
+	st = waitIdle(t, n, sid)
+	lines, _, _ := n.Events("tan", sid, 0)
+	if all := string(bytes.Join(lines, nil)); !strings.Contains(all, "state=one") || strings.Contains(all, "state=half") {
+		t.Fatalf("next turn did not start from the last checkpoint:\n%s", all)
 	}
 }

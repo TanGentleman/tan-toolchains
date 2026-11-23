@@ -350,10 +350,13 @@ func (n *Node) turn(ctx context.Context, s *session, done chan struct{}, h Harne
 		case err != nil:
 			reason = err.Error()
 		}
-		// Whatever the harness left is the session's state now, even after
-		// a failed or aborted turn: the log says the turn happened.
-		if snap, err = n.snapshot(state); err != nil {
-			reason += "; checkpoint: " + err.Error()
+		// A failed turn's state stands: the harness finished writing it. An
+		// aborted one may be half written, so the next turn restores the
+		// last checkpoint instead.
+		if ctx.Err() == nil {
+			if snap, err = n.snapshot(state); err != nil {
+				reason += "; checkpoint: " + err.Error()
+			}
 		}
 	}
 	s.mu.Lock()
@@ -423,7 +426,7 @@ func (n *Node) abort(s *session) {
 	}
 }
 
-// Abort kills the running turn of sid. It is a no-op when none is running.
+// Abort stops the running turn of sid. It is a no-op when none is running.
 func (n *Node) Abort(login, sid string) error {
 	s, err := n.session(login, sid, core.Steer)
 	if err != nil {

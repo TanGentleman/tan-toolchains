@@ -32,12 +32,13 @@ type Turn struct {
 
 // Exec runs a command per turn. $FLEET_SID, $FLEET_STATE and $FLEET_WORK in
 // Argv are expanded, and the same names are set in the environment, plus
-// $FLEET_SESSION_MODEL when the session has a model. Cancelling ctx kills
-// the whole process group.
+// $FLEET_SESSION_MODEL when the session has a model. Cancelling ctx sends
+// the whole process group SIGTERM, then SIGKILL after Grace.
 type Exec struct {
-	Argv []string
-	Env  []string
-	Drop []string // names removed from fleetd's environment before Env is added
+	Argv  []string
+	Env   []string
+	Drop  []string      // names removed from fleetd's environment before Env is added
+	Grace time.Duration // default 3s
 }
 
 func (h Exec) Run(ctx context.Context, t Turn, stdout io.Writer) (int, error) {
@@ -68,9 +69,22 @@ func (h Exec) Run(ctx context.Context, t Turn, stdout io.Writer) (int, error) {
 	cmd.Stdin = strings.NewReader(t.Prompt)
 	cmd.Stdout, cmd.Stderr = stdout, t.Stderr
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
-	cmd.WaitDelay = 5 * time.Second
+	grace := h.Grace
+	if grace <= 0 {
+		grace = 3 * time.Second
+	}
+	var kill *time.Timer
+	cmd.Cancel = func() error {
+		pg := -cmd.Process.Pid
+		kill = time.AfterFunc(grace, func() { syscall.Kill(pg, syscall.SIGKILL) })
+		return syscall.Kill(pg, syscall.SIGTERM)
+	}
+	cmd.WaitDelay = grace + 2*time.Second
 	err := cmd.Run()
+	if kill != nil {
+		kill.Stop()
+		syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) // whatever outlived the leader
+	}
 	if ee := (*exec.ExitError)(nil); errors.As(err, &ee) {
 		return ee.ExitCode(), nil
 	}

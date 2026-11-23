@@ -53,7 +53,8 @@ Rules the code enforces, each with a test:
   finished turn it holds.
 - **No silent re-run.** A turn that dies with its node is recorded as
   `exited` on restart; its input is never re-sent and its partial state is
-  dropped.
+  dropped. The same goes for an aborted turn, including one stopped by
+  fleetd shutting down: it gets SIGTERM, 3 s later SIGKILL, and no checkpoint.
 - **Seal or fork, never merge.** Resume asks the writer to abort any turn
   and append `sealed{to,url}` after checking `url` answers as `to`; the new
   writer copies the log and checkpoint. If the writer is unreachable, fork
@@ -89,7 +90,8 @@ the prompt on stdin and `$FLEET_SID`, `$FLEET_STATE`, `$FLEET_WORK`
 fleetd's environment without `OPENROUTER_API_KEY` unless `-harness-key name`
 is set. It must keep
 everything it needs for the next turn under `$FLEET_STATE`: that directory
-is what checkpoints carry to the next node. Abort kills its process group.
+is what checkpoints carry to the next node. Abort sends its process group
+SIGTERM, then SIGKILL after 3 s.
 
 ## Pi, Claude Code, Codex
 
@@ -186,7 +188,8 @@ FLEET_SANDBOX_DIR=~/fleet-tools bash e2e/sandbox.sh   # optional, see docs/sandb
 - `node`: two nodes over `httptest` with the in-process fake harness: spawn,
   retry, share, bogus seal refused, resume (harness state continues), dead
   writer -> fork from its last finished turn, restart; busy input, abort,
-  exit codes; abort kills an `Exec` harness's whole process group.
+  exit codes; abort stops an `Exec` harness's whole process group, lets it
+  handle SIGTERM, and keeps the last checkpoint.
 - `e2e/smoke.sh`: the same with two real `fleetd` processes, including
   `kill -9` in the middle of a turn.
 - `agent`: each real CLI against `fakeor`, a fake OpenRouter serving the
