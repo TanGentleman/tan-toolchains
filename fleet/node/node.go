@@ -27,8 +27,9 @@ import (
 )
 
 type Config struct {
-	Name      string // node name; the writer field in every event
-	URL       string // where other nodes reach this one (its tailnet URL)
+	Name      string   // node name; the writer field in every event
+	URL       string   // where other nodes reach this one (its tailnet URL)
+	Hosts     []string // Host header values accepted besides URL's (the loopback listen address)
 	Data      string
 	Policy    core.Policy
 	Harnesses map[string]Harness

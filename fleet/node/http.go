@@ -7,7 +7,10 @@ import (
 	"fmt"
 	"mime"
 	"net/http"
+	"net/url"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/TanGentleman/tan-toolchains/fleet/core"
@@ -110,12 +113,37 @@ func (n *Node) Handler() http.Handler {
 		http.ServeFile(w, r, p)
 	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// A DNS-rebinding page reaches loopback with its own name in Host,
+		// and a form post can only send text/plain or form types.
+		if !n.hostOK(r.Host) {
+			http.Error(w, "unexpected Host "+strconv.Quote(r.Host)+"; use the -url host", http.StatusMisdirectedRequest)
+			return
+		}
+		if mt, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); r.Method == http.MethodPost && mt != "application/json" {
+			http.Error(w, "POST needs Content-Type: application/json", http.StatusUnsupportedMediaType)
+			return
+		}
 		if login(r) == "" {
 			http.Error(w, "no tailnet identity (Tailscale-User-Login); reach fleetd through `tailscale serve`", http.StatusUnauthorized)
 			return
 		}
 		mux.ServeHTTP(w, r)
 	})
+}
+
+func (n *Node) hostOK(host string) bool {
+	host = strings.ToLower(host)
+	if u, err := url.Parse(n.cfg.URL); err == nil && u.Host != "" {
+		h := strings.ToLower(u.Host)
+		if host == h || host == strings.ToLower(u.Hostname()) && (u.Port() == "" ||
+			u.Scheme == "https" && u.Port() == "443" || u.Scheme == "http" && u.Port() == "80") {
+			return true
+		}
+		if u.Port() == "" && (u.Scheme == "https" && host == h+":443" || u.Scheme == "http" && host == h+":80") {
+			return true
+		}
+	}
+	return slices.ContainsFunc(n.cfg.Hosts, func(h string) bool { return strings.EqualFold(h, host) })
 }
 
 func (n *Node) harnessNames() []string {

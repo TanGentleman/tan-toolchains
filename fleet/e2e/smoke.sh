@@ -42,7 +42,7 @@ api POST "$B/v1/sessions/$sid/inputs" '{"key":"i1","text":"two"}' >/dev/null
 wait_for "$B/v1/sessions/$sid/events" 'turn\\":2'
 wait_for "$B/v1/sessions/$sid" '"running":false'
 wait_for "$A/v1/sessions/$sid" '"writer":"b"'
-code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Tailscale-User-Login: tan' -d '{"key":"x","text":"no"}' "$A/v1/sessions/$sid/inputs")
+code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H 'Tailscale-User-Login: tan' -H 'Content-Type: application/json' -d '{"key":"x","text":"no"}' "$A/v1/sessions/$sid/inputs")
 [ "$code" = 409 ] || { echo "old writer accepted input: $code"; exit 1; }
 
 api POST "$B/v1/sessions/$sid/inputs" '{"key":"i2","text":"sleep"}' >/dev/null

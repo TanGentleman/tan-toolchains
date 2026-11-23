@@ -63,7 +63,10 @@ Rules the code enforces, each with a test:
 
 ## API
 
-All routes need `Tailscale-User-Login`. Bodies are JSON.
+All routes need `Tailscale-User-Login` and a `Host` of the `-url` host or the
+`-listen` address (`421` otherwise), so a DNS-rebinding page can't reach
+`fleetd`. POSTs need `Content-Type: application/json` (`415` otherwise), so a
+cross-site form can't either.
 
 | Route | Does |
 | ----- | ---- |

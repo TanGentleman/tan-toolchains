@@ -56,7 +56,7 @@ func main() {
 	if *name == "" || len(owners) == 0 {
 		log.Fatal("fleetd: -name and -owner are required")
 	}
-	host, _, err := net.SplitHostPort(*listen)
+	host, port, err := net.SplitHostPort(*listen)
 	if ip := net.ParseIP(host); err != nil || ip == nil || !ip.IsLoopback() {
 		log.Fatalf("fleetd: -listen %s is not a loopback address; fleetd trusts the identity header, so only `tailscale serve` may reach it", *listen)
 	}
@@ -78,6 +78,7 @@ func main() {
 	}
 	n, err := node.New(node.Config{
 		Name: *name, URL: *url, Data: *data, Harnesses: hs, Peers: peers, PeerLogin: owners[0],
+		Hosts:  []string{*listen, net.JoinHostPort("localhost", port)},
 		Policy: core.Policy{Owners: owners, Spawners: spawners},
 	})
 	if err != nil {

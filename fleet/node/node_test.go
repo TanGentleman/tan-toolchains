@@ -120,6 +120,7 @@ func post(t *testing.T, url, login, body string) (int, string) {
 	t.Helper()
 	req, _ := http.NewRequest(http.MethodPost, url, strings.NewReader(body))
 	req.Header.Set(LoginHeader, login)
+	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -370,6 +371,70 @@ func TestModelFollowsSessionAndForks(t *testing.T) {
 	for _, bad := range []string{"has space", "new\nline", strings.Repeat("x", 201)} {
 		if _, err := a.Spawn("tan", "fake", bad, "demo", "k-"+bad, ""); err == nil {
 			t.Errorf("accepted model %q", bad)
+		}
+	}
+}
+
+// TestRebindingAndFormPosts: a page that rebinds its own name to loopback
+// sends that name in Host, and a cross-site form can only send text/plain or
+// form types. Both are refused before the identity header is trusted.
+func TestRebindingAndFormPosts(t *testing.T) {
+	a := startNode(t, "a", t.TempDir())
+	send := func(method, host, ctype, body string) int {
+		req, _ := http.NewRequest(method, a.srv.URL+"/v1/sessions", strings.NewReader(body))
+		req.Host = host
+		req.Header.Set(LoginHeader, "tan")
+		if ctype != "" {
+			req.Header.Set("Content-Type", ctype)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	own := strings.TrimPrefix(a.srv.URL, "http://")
+	spawn := `{"harness":"fake","key":"k1","prompt":"hello"}`
+	for _, c := range []struct {
+		method, host, ctype string
+		want                int
+	}{
+		{"GET", "attacker.example:" + own[strings.LastIndex(own, ":")+1:], "", http.StatusMisdirectedRequest},
+		{"POST", "attacker.example", "application/json", http.StatusMisdirectedRequest},
+		{"POST", own, "text/plain", http.StatusUnsupportedMediaType},
+		{"POST", own, "application/x-www-form-urlencoded", http.StatusUnsupportedMediaType},
+		{"POST", own, "", http.StatusUnsupportedMediaType},
+		{"GET", strings.ToUpper(own), "", http.StatusOK},
+		{"POST", own, "application/json; charset=utf-8", http.StatusOK},
+	} {
+		if got := send(c.method, c.host, c.ctype, spawn); got != c.want {
+			t.Errorf("%s Host=%s Content-Type=%q: %d, want %d", c.method, c.host, c.ctype, got, c.want)
+		}
+	}
+	if list := a.List("tan"); len(list) != 1 {
+		t.Fatalf("sessions after refused requests: %d, want 1", len(list))
+	}
+}
+
+func TestHostOK(t *testing.T) {
+	for _, c := range []struct {
+		url, host string
+		want      bool
+	}{
+		{"https://mac1.tail.ts.net", "mac1.tail.ts.net", true},
+		{"https://mac1.tail.ts.net", "MAC1.tail.ts.net:443", true},
+		{"https://mac1.tail.ts.net:443", "mac1.tail.ts.net", true},
+		{"https://mac1.tail.ts.net", "mac1.tail.ts.net:7433", false},
+		{"https://mac1.tail.ts.net", "evil.ts.net", false},
+		{"https://mac1.tail.ts.net", "127.0.0.1:7433", true},
+		{"https://mac1.tail.ts.net", "localhost:7433", true},
+		{"https://mac1.tail.ts.net", "localhost:7434", false},
+		{"", "", false},
+	} {
+		n := &Node{cfg: Config{URL: c.url, Hosts: []string{"127.0.0.1:7433", "localhost:7433"}}}
+		if got := n.hostOK(c.host); got != c.want {
+			t.Errorf("url %q host %q: %v, want %v", c.url, c.host, got, c.want)
 		}
 	}
 }
