@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"mime"
+	"net"
 	"net/http"
 	"net/url"
 	"slices"
@@ -132,18 +133,26 @@ func (n *Node) Handler() http.Handler {
 }
 
 func (n *Node) hostOK(host string) bool {
-	host = strings.ToLower(host)
-	if u, err := url.Parse(n.cfg.URL); err == nil && u.Host != "" {
-		h := strings.ToLower(u.Host)
-		if host == h || host == strings.ToLower(u.Hostname()) && (u.Port() == "" ||
-			u.Scheme == "https" && u.Port() == "443" || u.Scheme == "http" && u.Port() == "80") {
-			return true
-		}
-		if u.Port() == "" && (u.Scheme == "https" && host == h+":443" || u.Scheme == "http" && host == h+":80") {
-			return true
-		}
+	if u, err := url.Parse(n.cfg.URL); err == nil && u.Host != "" && canonHost(host, u.Scheme) == canonHost(u.Host, u.Scheme) {
+		return true
 	}
-	return slices.ContainsFunc(n.cfg.Hosts, func(h string) bool { return strings.EqualFold(h, host) })
+	return slices.ContainsFunc(n.cfg.Hosts, func(h string) bool { return canonHost(h, "") == canonHost(host, "") })
+}
+
+// canonHost lowercases, drops a DNS trailing dot and the scheme's default port.
+func canonHost(hostport, scheme string) string {
+	h, p, err := net.SplitHostPort(hostport)
+	if err != nil {
+		h, p = hostport, ""
+	}
+	h = strings.TrimSuffix(strings.ToLower(h), ".")
+	if scheme == "https" && p == "443" || scheme == "http" && p == "80" {
+		p = ""
+	}
+	if p == "" {
+		return h
+	}
+	return net.JoinHostPort(h, p)
 }
 
 func (n *Node) harnessNames() []string {

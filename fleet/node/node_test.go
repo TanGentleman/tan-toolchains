@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -428,6 +429,9 @@ func TestHostOK(t *testing.T) {
 		{"https://mac1.tail.ts.net:443", "mac1.tail.ts.net", true},
 		{"https://mac1.tail.ts.net", "mac1.tail.ts.net:7433", false},
 		{"https://mac1.tail.ts.net", "evil.ts.net", false},
+		{"https://mac1.tail.ts.net.", "mac1.tail.ts.net", true},
+		{"https://mac1.tail.ts.net", "mac1.tail.ts.net.", true},
+		{"https://mac1.tail.ts.net", "mac1.tail.ts.net.evil.example", false},
 		{"https://mac1.tail.ts.net", "127.0.0.1:7433", true},
 		{"https://mac1.tail.ts.net", "localhost:7433", true},
 		{"https://mac1.tail.ts.net", "localhost:7434", false},
@@ -558,5 +562,39 @@ esac`
 	lines, _, _ := n.Events("tan", sid, 0)
 	if all := string(bytes.Join(lines, nil)); !strings.Contains(all, "state=one") || strings.Contains(all, "state=half") {
 		t.Fatalf("next turn did not start from the last checkpoint:\n%s", all)
+	}
+}
+
+// TestCloseAbortsInParallel: shutdown stops every running turn at once, so
+// turns that ignore SIGTERM cost one grace period in total, not one each.
+func TestCloseAbortsInParallel(t *testing.T) {
+	data := t.TempDir()
+	n, err := New(Config{Name: "a", Data: data, Policy: core.Policy{Owners: []string{"tan"}},
+		Harnesses: map[string]Harness{"sh": Exec{Argv: []string{"sh", "-c", `trap '' TERM; touch "$FLEET_WORK/started"; sleep 30`}, Grace: time.Second}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var sids []string
+	for i := range 3 {
+		sid, err := n.Spawn("tan", "sh", "", "", fmt.Sprint("k", i), "go")
+		if err != nil {
+			t.Fatal(err)
+		}
+		sids = append(sids, sid)
+	}
+	for _, sid := range sids {
+		for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+			if _, err := os.Stat(filepath.Join(data, "sessions", sid, "work", "started")); err == nil {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("turn never started")
+			}
+		}
+	}
+	start := time.Now()
+	n.Close()
+	if d := time.Since(start); d > 2500*time.Millisecond {
+		t.Fatalf("Close took %v for 3 turns with a 1s grace", d)
 	}
 }

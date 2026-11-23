@@ -76,6 +76,9 @@ func main() {
 		if !ok || k == "" || len(argv) == 0 {
 			log.Fatalf("fleetd: bad -harness %q", h)
 		}
+		if _, dup := hs[k]; dup {
+			log.Fatalf("fleetd: -harness %q: %s is already a harness (fake, pi, claude and codex are built in)", h, k)
+		}
 		h := node.Exec{Argv: argv}
 		if !slices.Contains(keyed, k) {
 			h.Drop = []string{"OPENROUTER_API_KEY"}
