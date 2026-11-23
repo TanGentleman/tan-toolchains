@@ -1,7 +1,7 @@
 # zigpeek
 
 Zig stdlib and `@`-builtin docs read from the installed compiler. No network
-access, no bundled docs.
+access, no bundled docs. Building it needs [Zig 0.17.0](../README.md#zig-0170).
 
 ```sh
 cd zigpeek

@@ -64,9 +64,9 @@ The UI fills in a title from the prompt and a fresh retry key.
   ([network boundary](../README.md#network-boundary)).
   `pi-container/test/fleet-isolation.sh` checks this from a turn's VM.
 - **The GitHub token is in the VM,** so anything a turn runs can use it. Use
-  a fine-grained token: selected repos, Contents read/write, nothing else
-  ([macos.md step 4](docs/macos.md#4-keys)). Without Workflows permission
-  GitHub refuses a push that changes `.github/workflows`. A public repo's
+  a fine-grained token with the scope in
+  [configuration.md](../pi-container/docs/configuration.md#host-env-file).
+  Without Workflows permission GitHub refuses a push that changes `.github/workflows`. A public repo's
   `fleet/<sid>` branches are public.
 - **Owners only.** `fleetd -owner` logins (`pic serve` uses yours) can do
   everything; anyone else gets 403. An owner can run anything a turn can, so
@@ -132,7 +132,9 @@ state); each rule has a test:
 
 ## Tests
 
-No container, network or key needed. From `fleet/`, with Go:
+No container, network or key needed. Go is only for running them yourself;
+`./build.sh fleet` runs them in a pinned Go image, so the Mac needs no Go.
+From `fleet/`:
 
 ```sh
 test -z "$(gofmt -l .)" && go vet ./... && go test -race ./...

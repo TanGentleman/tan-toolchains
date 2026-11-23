@@ -82,6 +82,8 @@ Environment variables:
 
 ## Build and test
 
+Needs [Zig 0.17.0](../README.md#zig-0170).
+
 ```sh
 cd enforcer
 zig build test          # unit and CLI tests

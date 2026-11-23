@@ -11,18 +11,31 @@ One tool per directory.
 
 ## Quick start
 
+Each tool has its own setup. Start with the one you want:
+
+| To | You need | Follow |
+| --- | --- | --- |
+| Run Pi in a VM on your Mac | Apple silicon, macOS 26, Homebrew, an OpenRouter key; optionally a [GitHub token](pi-container/docs/configuration.md#host-env-file) | [pi-container setup](pi-container/README.md#setup) |
+| Start Pi sessions from your phone | the above, plus Tailscale; no Go | [fleet on macOS](fleet/docs/macos.md), every step with a check |
+| Build zigpeek or enforcer on the host | [Zig 0.17.0](#zig-0170) | [zigpeek](zigpeek/README.md), [enforcer](enforcer/README.md#build-and-test) |
+
+pi-container and fleet need no host Zig: the image builds zigpeek and
+enforcer with its own.
+
+## Zig 0.17.0
+
+zigpeek, enforcer and the image pin Zig 0.17.0. Use a package manager's Zig
+only if `zig version` prints `0.17.0`. Otherwise download it from
+ziglang.org and verify it with [minisign](https://jedisct1.github.io/minisign/)
+and Zig's key (the same key `pi-container/Dockerfile` uses):
+
 ```sh
-# zigpeek
-(cd zigpeek && zig build --release=small)
-./zigpeek/zig-out/bin/zigpeek search ArrayList
-
-# enforcer
-(cd enforcer && zig build --release=small)
-
-# pi-container
-cd pi-container
-./build.sh full
-./run.sh check you/your-repo
+v=0.17.0 t=aarch64-macos   # or x86_64-macos, x86_64-linux, aarch64-linux
+curl -fLO "https://ziglang.org/download/$v/zig-$t-$v.tar.xz"
+curl -fLO "https://ziglang.org/download/$v/zig-$t-$v.tar.xz.minisig"
+minisign -Vm "zig-$t-$v.tar.xz" -P RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U
+tar -xJf "zig-$t-$v.tar.xz"   # then put zig-$t-$v/ on PATH
+zig version                   # 0.17.0
 ```
 
 ## Docs
@@ -30,6 +43,7 @@ cd pi-container
 - [zigpeek/README.md](zigpeek/README.md): commands, build, and the stdlib index.
 - [enforcer/README.md](enforcer/README.md): the Pi prompt hook, policy, and safety rules.
 - [pi-container/README.md](pi-container/README.md): setup, use, limits, and links to the configuration and operations docs.
+- [fleet/docs/macos.md](fleet/docs/macos.md): fleet setup on a Mac, from zero, with a check per step.
 - [pi-container/E2E.md](pi-container/E2E.md): manual macOS checklist.
 - [fleet/README.md](fleet/README.md): model, API, tests, and what is left out.
 - [AGENTS.md](AGENTS.md): development rules, toolchain policy, and version pins.
