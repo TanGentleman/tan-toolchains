@@ -220,7 +220,7 @@ phone. `$sid` is a session's id, from its URL.
 
 ```sh
 URL=https://$(tailscale status --json | jq -r '.Self.DNSName | rtrimstr(".")')
-st() { curl -s "$URL/v1/sessions/$1" | jq '{commit, base, repo, branch, sandbox, running}'; }
+st() { curl -sS --fail-with-body "$URL/v1/sessions/${1:?usage: st SID}" | jq '{commit, base, repo, branch, harness, running}'; }
 ```
 
 - [ ] `./build.sh fleet` prints `ok` for every fleet package (no `FAIL`),
@@ -235,7 +235,7 @@ st() { curl -s "$URL/v1/sessions/$1" | jq '{commit, base, repo, branch, sandbox,
 - [ ] `caffeinate -i pic serve`; from the phone, spawn with repo
       `$owner/tan-toolchains-e2e`, branch empty, prompt `Create hello.txt
       containing hi.` The turn ends with `exited` code 0.
-- [ ] `st $sid` shows `sandbox` `pi-container`, `base` equal to
+- [ ] `st $sid` shows `harness` `pi-ctr`, `base` equal to
       `git ls-remote origin main` at spawn, and `commit` equal to
       `git ls-remote https://github.com/$owner/tan-toolchains-e2e fleet/$sid`.
       `hello.txt` is in that commit.
