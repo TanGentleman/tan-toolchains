@@ -552,8 +552,7 @@ func TestRepoTurnResult(t *testing.T) {
 	// The prompt is the result file's content; "-" writes nothing.
 	sh := `env | grep '^FLEET_' > "$OUT/env-$FLEET_SID"; p=$(cat); [ "$p" = - ] || printf '%s' "$p" > "$FLEET_RESULT"; [ "$p" != fail ] || exit 3`
 	n, err := New(Config{Name: "a", Data: data, Owners: []string{"tan"},
-		Harnesses: map[string]Harness{"sh": Exec{Argv: []string{"sh", "-c", sh}, Env: []string{"OUT=" + out}}},
-		Sandboxes: map[string]string{"sh": "test-box"}})
+		Harnesses: map[string]Harness{"sh": Exec{Argv: []string{"sh", "-c", sh}, Env: []string{"OUT=" + out}}}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -568,7 +567,7 @@ func TestRepoTurnResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	st := waitIdle(t, n, sid)
-	if st.Sandbox != "test-box" || st.Base != sha1 || st.Commit != sha2 {
+	if st.Base != sha1 || st.Commit != sha2 {
 		t.Fatalf("after turn 1: %+v", st)
 	}
 	b, _ := os.ReadFile(filepath.Join(out, "env-"+sid))
@@ -618,7 +617,7 @@ func TestRepoTurnResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	fs, _ := n.State(fid)
-	if fs.Repo != "o/r" || fs.Branch != "dev" || fs.Base != sha2 || fs.Commit != "" || fs.Sandbox != "test-box" {
+	if fs.Repo != "o/r" || fs.Branch != "dev" || fs.Base != sha2 || fs.Commit != "" {
 		t.Fatalf("fork must start from the parent's last pushed commit: %+v", fs)
 	}
 }

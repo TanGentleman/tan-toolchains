@@ -86,7 +86,7 @@ c1=$(tip "fleet/$sid")
 [ -n "$c1" ] || fail "turn 1 pushed nothing: $(events "$sid" | tail -5)"
 [ "$(st "$sid" commit)" = "$c1" ] || fail "exited commit $(st "$sid" commit), branch has $c1"
 [ "$(st "$sid" base)" = "$dev" ] || fail "base $(st "$sid" base), want dev $dev"
-[ "$(st "$sid" sandbox)" = pi-container ] || fail "created does not record the sandbox"
+[ "$(st "$sid" harness)" = pi-ctr ] || fail "created does not record the harness"
 [ "$(git -C "$tmp/gh/o/r.git" rev-parse "$c1^")" = "$dev" ] || fail "turn 1 did not start from dev"
 [ "$(git -C "$tmp/gh/o/r.git" show "$c1:notes.txt")" = "write one" ] || fail "turn 1's change missing"
 

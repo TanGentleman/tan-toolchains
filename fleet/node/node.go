@@ -34,7 +34,6 @@ type Config struct {
 	Data      string
 	Owners    []string // tailnet logins allowed to use this node; nobody else gets in
 	Harnesses map[string]Harness
-	Sandboxes map[string]string // harness name -> what isolates it, recorded on created
 	Now       func() time.Time
 }
 
@@ -280,8 +279,7 @@ func (n *Node) Spawn(login, key, prompt string, d core.CreatedData) (string, err
 		return "", fmt.Errorf("bad repo %q or branch %q", d.Repo, d.Branch)
 	}
 	sid := sessionID("spawn", n.cfg.Name, login, key)
-	d = core.CreatedData{Owner: login, Harness: d.Harness, Model: d.Model, Title: d.Title, Repo: d.Repo, Branch: d.Branch,
-		Sandbox: n.cfg.Sandboxes[d.Harness]}
+	d = core.CreatedData{Owner: login, Harness: d.Harness, Model: d.Model, Title: d.Title, Repo: d.Repo, Branch: d.Branch}
 	return sid, n.create(sid, login, key, d, prompt)
 }
 
@@ -576,7 +574,7 @@ func (n *Node) Fork(login, sid, key string) (string, error) {
 	}
 	s.mu.Lock()
 	d := core.CreatedData{Owner: login, Harness: s.st.Harness, Model: s.st.Model, Title: s.st.Title, ForkOf: sid, ForkAt: s.st.Head, Files: s.st.Files,
-		Repo: s.st.Repo, Branch: s.st.Branch, Base: cmp.Or(s.st.Commit, s.st.Base), Sandbox: s.st.Sandbox}
+		Repo: s.st.Repo, Branch: s.st.Branch, Base: cmp.Or(s.st.Commit, s.st.Base)}
 	s.mu.Unlock()
 	fid := sessionID("fork", n.cfg.Name, login, key, sid)
 	// Files are the state after the last finished turn.

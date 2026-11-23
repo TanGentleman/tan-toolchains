@@ -177,7 +177,7 @@ func TestRepoRules(t *testing.T) {
 		t.Fatalf("commit without a repo: %v", err)
 	}
 
-	r, err := create(CreatedData{Repo: "Tan-1/tan_tool.chains", Branch: "feat/x-1", Sandbox: "pi-container"})
+	r, err := create(CreatedData{Repo: "Tan-1/tan_tool.chains", Branch: "feat/x-1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -200,7 +200,7 @@ func TestRepoRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.Repo != "Tan-1/tan_tool.chains" || s.Branch != "feat/x-1" || s.Sandbox != "pi-container" || s.Base != sha1 || s.Commit != sha256 {
+	if s.Repo != "Tan-1/tan_tool.chains" || s.Branch != "feat/x-1" || s.Base != sha1 || s.Commit != sha256 {
 		t.Fatalf("folded state %+v", s)
 	}
 }

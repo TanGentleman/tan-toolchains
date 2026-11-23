@@ -59,10 +59,9 @@ type CreatedData struct {
 	ForkOf  string `json:"fork_of,omitempty"`
 	ForkAt  uint64 `json:"fork_at,omitempty"`
 	Files   []File `json:"files,omitempty"`
-	Repo    string `json:"repo,omitempty"`    // OWNER/REPO the harness clones each turn
-	Branch  string `json:"branch,omitempty"`  // branch chosen at spawn; turns push to fleet/<sid>
-	Base    string `json:"base,omitempty"`    // commit to start from when fleet/<sid> doesn't exist
-	Sandbox string `json:"sandbox,omitempty"` // what isolates the harness, e.g. "pi-container"
+	Repo    string `json:"repo,omitempty"`   // OWNER/REPO the harness clones each turn
+	Branch  string `json:"branch,omitempty"` // branch chosen at spawn; turns push to fleet/<sid>
+	Base    string `json:"base,omitempty"`   // commit to start from when fleet/<sid> doesn't exist
 }
 
 type InputData struct {
@@ -97,7 +96,6 @@ type State struct {
 	Repo    string `json:"repo,omitempty"`
 	Branch  string `json:"branch,omitempty"`
 	Base    string `json:"base,omitempty"`
-	Sandbox string `json:"sandbox,omitempty"`
 	Commit  string `json:"commit,omitempty"` // latest pushed commit
 
 	keys map[string]uint64
@@ -137,7 +135,7 @@ func Apply(s *State, e Event) error {
 			return err
 		}
 		s.Sid, s.Owner, s.Harness, s.Model, s.Title = e.Sid, d.Owner, d.Harness, d.Model, d.Title
-		s.Repo, s.Branch, s.Base, s.Sandbox = d.Repo, d.Branch, d.Base, d.Sandbox
+		s.Repo, s.Branch, s.Base = d.Repo, d.Branch, d.Base
 		s.ForkOf, s.ForkAt, s.Files = d.ForkOf, d.ForkAt, d.Files
 	case Input:
 		if s.Running || e.Run != s.Run+1 {

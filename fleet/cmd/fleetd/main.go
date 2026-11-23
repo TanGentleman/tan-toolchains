@@ -53,8 +53,7 @@ func main() {
 		Name: *name, URL: *url, Data: *data, Owners: owners,
 		Harnesses: map[string]node.Harness{"pi-ctr": node.Exec{
 			Argv: []string{exe, "pi-ctr"}, StopArgv: []string{exe, "pi-ctr", "-stop"}, Drop: []string{"OPENROUTER_API_KEY"}}},
-		Sandboxes: map[string]string{"pi-ctr": "pi-container"},
-		Hosts:     []string{*listen, net.JoinHostPort("localhost", port)},
+		Hosts: []string{*listen, net.JoinHostPort("localhost", port)},
 	})
 	if err != nil {
 		log.Fatal(err)
