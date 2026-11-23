@@ -59,14 +59,10 @@ The UI fills in a title from the prompt and a fresh retry key.
 - **The VM gets one writable folder:** the session's state folder
   (transcript and `agent.json`), plus read-only `settings.json` and the
   proxy's CA. Not `~/.fleet`, not other sessions, not your home.
-- **A turn can reach only `pi-proxy`.** Before Pi starts, the VM sets its
-  own firewall (`pi-container/lib/netlock.sh`): out to loopback and the
-  proxy's port, nothing else, over IPv4 and IPv6. It then drops `NET_ADMIN`
-  and `NET_RAW`, so nothing the turn runs can change the rules. So a turn
-  cannot reach the Mac or its services, Tailscale's DNS resolver at
-  `100.100.100.100`, the tailnet, or the internet. The lock trusts the VM's
-  kernel. `pi-container/test/fleet-isolation.sh` checks this from a turn's
-  VM.
+- **A turn can reach only `pi-proxy`:** the egress lock blocks the Mac,
+  Tailscale's resolver, the tailnet and the internet
+  ([network boundary](../README.md#network-boundary)).
+  `pi-container/test/fleet-isolation.sh` checks this from a turn's VM.
 - **The GitHub token is in the VM,** so anything a turn runs can use it. Use
   a fine-grained token: selected repos, Contents read/write, nothing else
   ([macos.md step 4](docs/macos.md#4-keys)). Without Workflows permission
@@ -79,7 +75,7 @@ The UI fills in a title from the prompt and a fresh retry key.
 - **Identity is a header.** `tailscale serve` sets `Tailscale-User-Login`
   and strips any the client sent. `fleetd` listens on loopback only, so any
   process on the Mac can send the header and act as an owner. That is safe
-  only because a turn's VM can't reach the Mac's loopback or the tailnet
+  only because a turn's VM can't reach the Mac at all, or the tailnet
   ([docs/macos.md step 8](docs/macos.md#8-verify-before-relying-on-it)).
 - **A web page can't reach it.** Requests must carry `Host` of the `-url`
   name or the listen address (`421` otherwise, so DNS rebinding fails) and

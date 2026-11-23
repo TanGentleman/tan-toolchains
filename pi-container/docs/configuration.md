@@ -20,7 +20,7 @@ Commands run from `pi-container/` unless noted.
 | Manual mode | Default network, no proxy | Editor work is separate from the locked Pi path. |
 | Egress mode | Off; `--allow-egress` | Runs Pi on the default network when the allowlist is too narrow; the real key enters the VM. |
 | Pack capability check | Refuse missing `pi` in normal mode | A clear error beats a container that cannot start its command. |
-| Egress lock | On in normal mode, `check`, and `--fleet-state` | `pi-locked` is host-only, so without it the VM reaches the Mac and Tailscale's DNS resolver. `lib/netlock.sh` allows only the proxy, then drops `NET_ADMIN`. |
+| Egress lock | On in normal mode, `check`, and `--fleet-state` | `pi-locked` alone reaches the Mac and Tailscale's resolver. See the [network boundary](../../README.md#network-boundary). |
 | `nuke all` image scope | The active `PI_IMAGE` only | Other pack tags are not deleted implicitly. |
 | Build context | Repo root | The image compiles `../zigpeek` and `../enforcer`. |
 
@@ -128,7 +128,8 @@ Images record `PI_CONTAINER_CAPABILITIES` in their environment. Normal mode and
 also refuse an image without `netlock` (iptables for the egress lock); every
 pack built from the current Dockerfile has it. An image with no capability
 metadata is treated as a legacy full image; it has no iptables, so the lock
-fails in the VM, says to rebuild, and the command does not run. If `GITHUB_TOKEN` is set, `check` also requires
+fails in the VM, says to rebuild, and the command does not run. `pic serve
+--check` refuses both kinds of image before `fleetd` starts. If `GITHUB_TOKEN` is set, `check` also requires
 `gh`, so use `agent-gh` or `full`; `agent` is for tokenless runs.
 
 ## Flags
@@ -142,7 +143,7 @@ fails in the VM, says to rebuild, and the command does not run. If `GITHUB_TOKEN
 | `--manual [CMD]` | Open a shell without Pi or the proxy. See [Manual mode](manual.md). |
 | `--allow-egress` | Run Pi or `COMMAND` on the default network with the real OpenRouter key. See [Egress mode](egress.md). |
 | `COMMAND [ARG...]` | Run inside the normal Pi container instead of `pi`; for example, `run.sh bash`. |
-| `check [O/R]` | Check keys, the proxy, GitHub when a token is present, the network lock, and enforcer. |
+| `check [O/R]` | Check keys, the proxy, GitHub when a token is present, the egress lock, and enforcer. |
 | `proxy` | Follow the profile's proxy logs. |
 | `proxy-stop` | Stop the profile's proxy. |
 | `--help` | Print usage. |

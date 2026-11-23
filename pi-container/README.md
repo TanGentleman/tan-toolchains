@@ -2,7 +2,7 @@
 
 Run [Pi](https://pi.dev) on OpenRouter in an Apple [`container`](https://github.com/apple/container) VM. In normal mode Pi has no internet route; `pi-proxy` is the only way out.
 
-`pi-proxy` tunnels GitHub, adds your OpenRouter key, and refuses everything else. Pi shares only a host-only `pi-locked` network with it, and a firewall inside Pi's VM lets it send only to the proxy. The default profile uses one proxy for every instance; a non-default `PI_CONFIG_DIR` is a separate profile with its own proxy, network, and subnet.
+`pi-proxy` tunnels GitHub, adds your OpenRouter key, and refuses everything else. Pi shares only a host-only `pi-locked` network with it, and the egress lock inside Pi's VM lets it send only to the proxy ([network boundary](../README.md#network-boundary)). The default profile uses one proxy for every instance; a non-default `PI_CONFIG_DIR` is a separate profile with its own proxy, network, and subnet.
 
 The default `full` image has Pi, git, gh, ripgrep, fd, Zig 0.17.0, Neovim 0.12.6, ZLS 0.17.0, zigpeek, and enforcer. Other packs omit Pi, gh, or the editor tools; see [Image packs](docs/configuration.md#image-packs). Zig's cache is prewarmed. Images are aarch64-only and fail early on other architectures.
 
@@ -146,10 +146,9 @@ The default mode mounts the current folder. Use it only for repos you trust; use
 ## Limits
 
 - Normal Pi mode allows GitHub hosts, `openrouter.ai`, and its subdomains. Everything else is refused. The `agent` and `editor` packs omit `gh`; the proxy still allows GitHub.
-- `--allow-egress` runs Pi on the default network and passes the real OpenRouter key into the VM. Any host and protocol is reachable, and anything the agent runs can read the key and the agent volume. See [Egress mode](docs/egress.md).
-- `--manual` uses the default container network, not a profile network or `pi-proxy`. When cloning, it refreshes `pi.env` from the host env file if that file exists; without a token only public clones work.
-- In normal mode, `check`, and `--fleet-state`, the VM runs `lib/netlock.sh` before anything else: iptables lets it send only to loopback and the proxy's port, over IPv4 and IPv6. It then drops `NET_ADMIN` and `NET_RAW`, so nothing Pi starts can change the rules. Without the lock, the host-only network reaches the Mac and Tailscale's DNS resolver, which forwards names to the internet. The lock trusts the VM's kernel. An image without iptables (`netlock` capability) is refused; rebuild it with `./build.sh`.
-- `--manual` and `--allow-egress` have no lock.
+- `--allow-egress` runs Pi on the default network and passes the real OpenRouter key into the VM. Any host and protocol is reachable, including the Mac's services and Tailscale's resolver, and anything the agent runs can read the key and the agent volume. See [Egress mode](docs/egress.md).
+- `--manual` uses the default container network, not a profile network or `pi-proxy`, so it reaches any host, including the Mac's services and Tailscale's resolver. When cloning, it refreshes `pi.env` from the host env file if that file exists; without a token only public clones work.
+- Normal mode, `check`, and `--fleet-state` run behind the egress lock; `--manual` and `--allow-egress` do not. See the [network boundary](../README.md#network-boundary). An image without the `netlock` capability is refused; rebuild it with `./build.sh`.
 - Zig 0.17's `std.http.Client` mishandles HTTPS through a CONNECT proxy, so dev-time `zig fetch` inside the container can fail. This is a container limitation, not a reason to add network code to a shipped tool.
 - `run.sh` refuses to mount `~`, `/`, ancestors of `~`, secrets directories, or anything overlapping the current/default config directory or its env/settings files.
 - `--clone` keeps the repo in a volume until you `git push`; uncommitted changes stay outside. Clone volumes are named per profile and instance.

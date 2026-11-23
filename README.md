@@ -34,13 +34,31 @@ cd pi-container
 - [fleet/README.md](fleet/README.md): model, API, tests, and what is left out.
 - [AGENTS.md](AGENTS.md): development rules, toolchain policy, and version pins.
 
-## Boundaries
+## Network boundary
 
-- `pi-container/` runs Pi in an Apple `container` VM. In normal mode, `check`,
-  and fleet turns, a firewall inside the VM lets it send only to `pi-proxy`,
-  which allows GitHub and OpenRouter. `--manual` uses the default network
-  without Pi, and `--allow-egress` gives Pi the default network and the real
-  key; neither has the firewall.
-- Shipped tools run on macOS and make no network requests. A separate process
-  owns any network layer; `fleetd` is that process for fleet, loopback-only
-  behind `tailscale serve`.
+Pi's VM runs behind the egress lock in pi-container's normal mode, `run.sh
+check`, and fleet turns.
+
+- **Allowed:** `pi-proxy` only. It tunnels GitHub, adds the OpenRouter key
+  for `openrouter.ai`, and refuses every other host.
+- **Blocked:** the Mac and its services (for example Continuity's
+  `rapportd`), Tailscale's DNS resolver at `100.100.100.100` and with it your
+  tailnet names, the tailnet, and the internet, over IPv4 and IPv6.
+- **How:** the VM is on the host-only `pi-locked` network, which alone still
+  reaches the Mac and Tailscale's resolver. Before anything else runs,
+  iptables inside the VM (`pi-container/lib/netlock.sh`) allows only loopback
+  and the proxy's port; then `NET_ADMIN` and `NET_RAW` are dropped, so nothing
+  Pi starts can change the rules. An image without the `netlock` capability is
+  refused.
+- **Limit:** the lock trusts the VM's kernel. A kernel exploit could remove
+  the rules.
+- **Unlocked modes:** `--manual` (a shell without Pi) and `--allow-egress` (Pi
+  with the real key) use the container's default network with no lock and no
+  proxy. They reach any host and protocol, including the Mac's services and
+  Tailscale's resolver.
+- **Checks:** `run.sh check` and `pi-container/test/fleet-isolation.sh`
+  confirm the lock from inside a VM.
+
+Shipped tools run on macOS and make no network requests. A separate process
+owns any network layer; `fleetd` is that process for fleet, loopback-only
+behind `tailscale serve`.

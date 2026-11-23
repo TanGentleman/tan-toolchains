@@ -175,9 +175,9 @@ REPO=you/fleet-e2e
       prints `0`.
 - [ ] Spawn on `$REPO` with prompt `Say hi.`; when the turn ends, set `sid`
       and run `./test/fleet-isolation.sh $sid`. It ends with
-      `isolation: ok`, with no `FAIL` line: the VM's egress lock lets a
-      turn reach only `pi-proxy`, so every Mac, tailnet, DNS and internet
-      probe must say `blocked` or `no answer`.
+      `isolation: ok`, with no `FAIL` line: the egress lock lets a turn
+      reach only `pi-proxy`, so every Mac, tailnet, DNS and internet probe
+      must say `blocked` or `no answer`.
 - [ ] During the turns below, `pic proxy` (third terminal) shows only
       `openrouter.ai` and GitHub hosts.
 
@@ -228,7 +228,7 @@ removed, `OPENROUTER_API_KEY=x pic serve --check`.
 |---|---|---|
 | CI, every push | fleet's Go tests with real Pi behind `proxy.py`, `fleet/e2e/pi-ctr.sh`, pic's script tests | nothing |
 | Step 3 | pic's script tests; fleet's Go tests in the Go image | `container`, `jq` |
-| Step 4 | the real VM, proxy and network lock | key, token |
+| Step 4 | the real VM, proxy and egress lock | key, token |
 | Step 6 | Tailscale, certificates, image, keys, port | Tailscale |
 | Step 8 | isolation, GitHub refusals, crash cleanup, the phone | `$REPO`, the phone |
 
