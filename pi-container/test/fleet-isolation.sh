@@ -9,8 +9,8 @@
 # it against this Mac's tailnet IP, an online tailnet peer, the network's
 # gateway (this Mac) and the Mac's listening ports. Ends with
 # "isolation: ok" or "isolation: FAIL"; exits non-zero on FAIL or BROKEN.
-# PROBE_TIMEOUT, PROBE_INTERNET and PROBE_RESOLVER (see fleet-probe.sh) are
-# passed into the VM.
+# PROBE_TIMEOUT, PROBE_INTERNET, PROBE_RESOLVER and PROBE_DNS_PORT (see
+# fleet-probe.sh) are passed into the VM.
 set -euo pipefail
 
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
@@ -43,7 +43,7 @@ ports=$({ printf '%s\n' "$listening" | sed -n 's/.*:\([0-9][0-9]*\)$/\1/p'; prin
 
 # The VM gets only what run.sh passes, so settings travel in the script.
 settings=""
-for v in PROBE_TIMEOUT PROBE_INTERNET PROBE_RESOLVER; do
+for v in PROBE_TIMEOUT PROBE_INTERNET PROBE_RESOLVER PROBE_DNS_PORT; do
   if [ -n "${!v:-}" ]; then settings="$settings$v=$(printf '%q' "${!v}"); "; fi
 done
 
@@ -55,7 +55,7 @@ code=0
 
 if [ -n "$listening" ]; then
   echo
-  echo "Your processes listening beyond loopback (each REACHABLE port above is one a turn can use):"
+  echo "Your processes listening beyond loopback (a turn must reach none; each port is a Mac service line above):"
   printf '  %s\n' "$listening"
 fi
 exit "$code"

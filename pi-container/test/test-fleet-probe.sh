@@ -28,42 +28,71 @@ listen "$open"
 # resolves. (TEST-NET addresses are refused by some sandboxes.)
 blackhole=blocked.invalid
 
+# A DNS server on UDP and TCP that answers NXDOMAIN to every query.
+dnsport=$(free_port)
+python3 -c 'import socket,sys,threading
+port=int(sys.argv[1])
+def reply(d): return d[:2]+b"\x81\x83"+d[4:6]+b"\x00"*6+d[12:]
+def udp():
+    s=socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.bind(("127.0.0.1", port))
+    while True:
+        d,a=s.recvfrom(512); s.sendto(reply(d), a)
+threading.Thread(target=udp, daemon=True).start()
+t=socket.socket(); t.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1); t.bind(("127.0.0.1", port)); t.listen(4)
+while True:
+    c,_=t.accept(); n=int.from_bytes(c.recv(2), "big"); d=c.recv(n); r=reply(d); c.sendall(len(r).to_bytes(2, "big")+r); c.close()' "$dnsport" &
+pids="$pids $!"
+for _ in 1 2 3 4 5 6 7 8 9 10; do (exec 3<>"/dev/tcp/127.0.0.1/$dnsport") 2>/dev/null && break; sleep 0.1; done
+
 # probe EXPECTED-EXIT LABEL ARGS...: sets $out; runs in this shell so the
-# exit assertion counts.
+# exit assertion counts. RESOLVER and DNS_PORT override the resolver.
 probe() {
   local want=$1 label=$2
   shift 2
-  PROBE_TIMEOUT=1 PROBE_INTERNET=$blackhole PROBE_RESOLVER=$blackhole HTTPS_PROXY="http://127.0.0.1:$proxy" \
-    bash "$here/fleet-probe.sh" "$@" > "$tmp/out" 2>&1
+  PROBE_TIMEOUT=1 PROBE_INTERNET=$blackhole PROBE_RESOLVER=${RESOLVER:-$blackhole} PROBE_DNS_PORT=${DNS_PORT:-53} \
+    HTTPS_PROXY="http://127.0.0.1:$proxy" bash "$here/fleet-probe.sh" "$@" > "$tmp/out" 2>&1
   eq "$want" "$?" "$label: exit"
   out=$(cat "$tmp/out")
 }
 
-# All blocked: the gateway answers "refused" on fleetd's port (the Mac's own
-# kernel), which is fine; everything else times out.
-probe 0 "isolated" "$blackhole" "$blackhole" 127.0.0.1 "$closed"
+# Everything blocked, as the egress lock makes it.
+probe 0 "isolated" "$blackhole" "$blackhole" "$blackhole" "$closed" 22
 contains "ok    proxy" "$out" "proxy connects first"
-contains "fleetd via the gateway" "$out" "fleetd checked"
-contains "127.0.0.1:$closed refused" "$out" "refused reported"
+contains "ok    fleetd via the gateway" "$out" "fleetd checked"
+contains "ok    Tailscale DNS" "$out" "Tailscale DNS queried"
+contains "ok    gateway DNS" "$out" "gateway DNS queried"
+contains "ok    Mac service" "$out" "Mac ports probed"
 contains "isolation: ok" "$out" "summary"
+
+# The gateway refusing is the Mac answering: with the lock, a FAIL.
+probe 1 "gateway refuses" "$blackhole" "$blackhole" 127.0.0.1 "$closed"
+contains "FAIL  fleetd via the gateway     127.0.0.1:$closed refused" "$out" "refused on the gateway fails"
+contains "isolation: FAIL" "$out" "summary says FAIL"
 
 # fleetd reachable through the gateway fails.
 probe 1 "fleetd open" "$blackhole" "$blackhole" 127.0.0.1 "$open"
-contains "FAIL  fleetd via the gateway" "$out" "an open fleetd port fails"
-contains "isolation: FAIL" "$out" "summary says FAIL"
+contains "FAIL  fleetd via the gateway     127.0.0.1:$open connected" "$out" "an open fleetd port fails"
 
-# A peer that refuses was still reached: fails, though nothing listens.
+# A peer that refuses was still reached.
 probe 1 "peer reached" "$blackhole" 127.0.0.1 "$blackhole" "$closed"
 contains "FAIL  tailnet peer, https" "$out" "refused from a peer counts as reached"
 
-# The Mac's tailnet IP refusing is the Mac's kernel: not a failure.
-probe 0 "mac refuses" 127.0.0.1 "$blackhole" "$blackhole" "$closed"
-contains "ok    Mac tailnet, serve" "$out" "refused on the Mac's tailnet IP is fine"
+# The Mac's tailnet IP refusing: reached, so a FAIL.
+probe 1 "mac refuses" 127.0.0.1 "$blackhole" "$blackhole" "$closed"
+contains "FAIL  Mac tailnet, serve" "$out" "refused on the Mac's tailnet IP fails"
 
-# Mac services: reported, not failed.
-probe 0 "mac service" "$blackhole" "$blackhole" 127.0.0.1 "$closed" "$open" "$closed"
-contains "REACHABLE  Mac service 127.0.0.1:$open" "$out" "reachable Mac service listed"
-not_contains "REACHABLE  Mac service 127.0.0.1:$closed" "$out" "closed port not listed"
+# A Mac service port that connects or refuses fails; a blocked one is ok.
+probe 1 "mac service" "$blackhole" "$blackhole" 127.0.0.1 "$closed" "$open"
+contains "FAIL  Mac service                127.0.0.1:$open connected" "$out" "reachable Mac service fails"
+
+# A resolver that answers fails over UDP and TCP, NXDOMAIN included.
+RESOLVER=127.0.0.1 DNS_PORT=$dnsport probe 1 "resolver answers" "$blackhole" "$blackhole" "$blackhole" "$closed"
+contains "FAIL  Tailscale DNS              127.0.0.1:$dnsport/udp answered" "$out" "UDP DNS answer fails"
+contains "FAIL  Tailscale DNS              127.0.0.1:$dnsport/tcp answered" "$out" "TCP DNS answer fails"
+contains "ok    gateway DNS" "$out" "a silent gateway is ok"
+# A closed DNS port gets no answer.
+RESOLVER=127.0.0.1 DNS_PORT=$closed probe 1 "resolver closed" "$blackhole" "$blackhole" "$blackhole" "$closed"
+contains "ok    Tailscale DNS              127.0.0.1:$closed/udp no answer" "$out" "closed resolver port: no UDP answer"
 
 # No peer online: skipped, not failed.
 probe 0 "no peer" "$blackhole" "" "$blackhole" "$closed"
@@ -80,7 +109,7 @@ eq 3 "$?" "HTTPS_PROXY unset: exit"
 # that runs the VM's command here. Proves the wiring: the session's state
 # folder, the gateway from `container network inspect`, ports from lsof, and
 # the probe's verdict and exit code coming back through run.sh.
-iso() { # expected-exit, label
+iso() { # expected-exit, label, gateway
   local h=$tmp/iso w=$tmp/iso/world bin=$tmp/iso/bin
   rm -rf "$h"
   mkdir -p "$h/home/.fleet/sessions/s1/state" "$h/home/.config/pi-container/certs" "$h/home/.config/pi-container/private" \
@@ -91,7 +120,7 @@ iso() { # expected-exit, label
   img='[{"id":"sha256:t","configuration":{"descriptor":{"digest":"sha256:t"},"name":"pi-agent:local"},"variants":[{"config":{"config":{"Env":["PI_CONTAINER_PI_VERSION=1.6.0","PI_CONTAINER_CAPABILITIES=pi,netlock"]},"history":[]}}]}]'
   printf '%s' "$img" > "$w/images/pi-agent_local.json"
   printf '%s' "$img" > "$w/images/pi-proxy_local.json"
-  printf '[{"configuration":{"name":"pi-locked","mode":"hostOnly","ipv4Subnet":"172.30.240.0/24"},"id":"pi-locked","status":{"ipv4Gateway":"127.0.0.1","ipv4Subnet":"172.30.240.0/24"}}]' > "$w/networks/pi-locked.json"
+  printf '[{"configuration":{"name":"pi-locked","mode":"hostOnly","ipv4Subnet":"172.30.240.0/24"},"id":"pi-locked","status":{"ipv4Gateway":"%s","ipv4Subnet":"172.30.240.0/24"}}]' "$3" > "$w/networks/pi-locked.json"
   printf 'pi-locked\n' > "$w/networks.list"
   printf '[{"id":"pi-proxy","configuration":{"name":"pi-proxy"},"status":{"state":"running"}}]' > "$w/containers/pi-proxy.json"
   printf '127.0.0.1\n' > "$h/home/.config/pi-container/private/proxy.addr"
@@ -107,15 +136,15 @@ iso() { # expected-exit, label
   out=$(cat "$tmp/out")
 }
 fleetd_port=$closed
-iso 0 "isolation helper"
-contains "gateway 127.0.0.1 (this Mac)" "$out" "gateway read from the network"
+iso 0 "isolation helper" "$blackhole"
+contains "gateway $blackhole (this Mac)" "$out" "gateway read from the network"
 contains "ok    fleetd via the gateway" "$out" "probe ran in the turn VM"
-contains "REACHABLE  Mac service 127.0.0.1:$open" "$out" "lsof ports probed"
+contains "ok    Mac service                $blackhole:$open blocked" "$out" "lsof ports probed"
 contains "isolation: ok" "$out" "verdict"
 contains "web *:$open" "$out" "listening processes listed"
 not_contains "127.0.0.1:7433" "$(printf '%s' "$out" | sed -n '/Your processes/,$p')" "loopback listeners not listed"
-fleetd_port=$open
-iso 1 "isolation helper, fleetd reachable"
+iso 1 "isolation helper, Mac reachable" 127.0.0.1
+contains "FAIL  Mac service                127.0.0.1:$open connected" "$out" "a reachable Mac service fails"
 contains "isolation: FAIL" "$out" "failure comes back through run.sh"
 
 finish

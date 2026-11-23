@@ -175,9 +175,9 @@ REPO=you/fleet-e2e
       prints `0`.
 - [ ] Spawn on `$REPO` with prompt `Say hi.`; when the turn ends, set `sid`
       and run `./test/fleet-isolation.sh $sid`. It ends with
-      `isolation: ok`. Each `REACHABLE` line is a service on this Mac a turn
-      can connect to; switch off any an agent shouldn't reach (System
-      Settings → General → Sharing, or quit the program).
+      `isolation: ok`, with no `FAIL` line: the VM's egress lock lets a
+      turn reach only `pi-proxy`, so every Mac, tailnet, DNS and internet
+      probe must say `blocked` or `no answer`.
 - [ ] During the turns below, `pic proxy` (third terminal) shows only
       `openrouter.ai` and GitHub hosts.
 

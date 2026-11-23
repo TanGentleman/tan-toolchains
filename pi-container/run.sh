@@ -912,8 +912,9 @@ code443=$(env -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
 if [ "$code443" != 000 ]; then
   echo "FAIL: the container reached the internet directly (HTTPS $code443)"; s=1
 else echo "direct TLS connection failed"; fi
-exit $s
 EOF
+  # The lock's own checks (capabilities, DNS) end the script with exit $s.
+  script="$script"$'\n'"$(pi_lock_check_script)"
   set -- bash -c "$script" check "$check_repo"
   args+=(-w /tmp)
 elif [ -n "$fleet_state" ]; then

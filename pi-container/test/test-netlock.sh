@@ -156,4 +156,57 @@ bad_args "ip with ;" "172.30.240.2;" 8888 bash -c ': > "$0"' ran
 bad_args "empty ip" "" 8888 bash -c ': > "$0"' ran
 bad_args "no command" 172.30.240.2 8888
 
+# --- pi_lock_check_script: capabilities and DNS, run here with fixtures.
+check_script=$(pi_lock_check_script)
+bash -n <(printf 's=0\n%s\n' "$check_script") && pass || fail "check script parses"
+lockcheck() { # status-file dns-servers
+  code=0
+  out=$(LOCKCHECK_STATUS=$1 LOCKCHECK_DNS=$2 bash -c "s=0
+$check_script" 2>&1) || code=$?
+}
+caps() { printf 'Name:\tbash\nCapEff:\t%s\nCapBnd:\t%s\n' "$1" "$2" > "$tmp/status"; }
+have_node=0
+command -v node >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1 && have_node=1
+# A free UDP port: nothing answers there.
+dead=9
+[ "$have_node" = 0 ] || dead=$(python3 -c 'import socket; s=socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
+nodns="127.0.0.1:$dead"
+
+caps 00000000a80405fb 00000000a80405fb
+lockcheck "$tmp/status" "$nodns"
+contains "NET_ADMIN and NET_RAW dropped" "$out" "caps dropped: reported"
+caps 00000000a80435fb 00000000a80405fb
+lockcheck "$tmp/status" "$nodns"
+eq 1 "$code" "NET_ADMIN in CapEff: exit"
+contains "FAIL: NET_ADMIN or NET_RAW is still available" "$out" "NET_ADMIN in CapEff: FAIL"
+caps 00000000a80405fb 00000000a80425fb
+lockcheck "$tmp/status" "$nodns"
+eq 1 "$code" "NET_RAW in CapBnd: exit"
+lockcheck "$tmp/missing" "$nodns"
+eq 1 "$code" "unreadable status: exit"
+contains "FAIL: cannot read capabilities" "$out" "unreadable status: FAIL"
+
+if [ "$have_node" = 1 ]; then
+  caps 00000000a80405fb 00000000a80405fb
+  lockcheck "$tmp/status" "$nodns"
+  eq 0 "$code" "no DNS answer, caps dropped: exit"
+  contains "no DNS answer from $nodns" "$out" "closed resolver: no answer"
+  # A resolver that answers NXDOMAIN to everything still answered.
+  dnsport=$(python3 -c 'import socket; s=socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])')
+  python3 -c 'import socket,sys
+s=socket.socket(socket.AF_INET, socket.SOCK_DGRAM); s.bind(("127.0.0.1", int(sys.argv[1])))
+while True:
+    d,a=s.recvfrom(512); s.sendto(d[:2]+b"\x81\x83"+d[4:6]+b"\x00"*6+d[12:], a)' "$dnsport" &
+  dnspid=$!
+  sleep 0.5
+  lockcheck "$tmp/status" "$nodns 127.0.0.1:$dnsport"
+  kill "$dnspid" 2>/dev/null
+  wait "$dnspid" 2>/dev/null
+  eq 1 "$code" "answering resolver: exit"
+  contains "FAIL: DNS server 127.0.0.1:$dnsport answered (ENOTFOUND)" "$out" "NXDOMAIN counts as an answer"
+  contains "no DNS answer from $nodns" "$out" "each server reported"
+else
+  echo "test-netlock.sh: node or python3 not found; DNS check cases skipped"
+fi
+
 finish

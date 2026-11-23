@@ -48,3 +48,54 @@ fi
 exec setpriv --bounding-set=-net_admin,-net_raw --inh-caps=-net_admin,-net_raw -- "$@"
 EOF
 }
+
+# The lock's check, the tail of `run.sh check`'s in-VM script: it expects
+# $s (0 or 1) and ends with `exit $s`. FAIL when the VM keeps NET_ADMIN or
+# NET_RAW, or when any DNS server answers it: 100.100.100.100 (Tailscale's
+# resolver, which forwards to the internet) and each resolv.conf nameserver.
+# Any reply counts, NXDOMAIN included. LOCKCHECK_STATUS and LOCKCHECK_DNS
+# (space-separated servers, HOST or HOST:PORT) are for tests.
+pi_lock_check_script() {
+  cat <<'EOF2'
+echo "== capabilities"
+status=${LOCKCHECK_STATUS:-/proc/self/status}
+eff=$(sed -n 's/^CapEff:[[:space:]]*//p' "$status" 2>/dev/null)
+bnd=$(sed -n 's/^CapBnd:[[:space:]]*//p' "$status" 2>/dev/null)
+case $eff$bnd in
+  '' | *[!0-9a-fA-F]*) echo "FAIL: cannot read capabilities from $status"; s=1 ;;
+  *)
+    if [ $(( (16#$eff | 16#$bnd) & 0x3000 )) -ne 0 ]; then
+      echo "FAIL: NET_ADMIN or NET_RAW is still available (CapEff $eff, CapBnd $bnd); the egress lock did not run"; s=1
+    else
+      echo "NET_ADMIN and NET_RAW dropped"
+    fi ;;
+esac
+echo "== no DNS around the proxy"
+servers=${LOCKCHECK_DNS:-"100.100.100.100 $(awk '/^nameserver/ { print $2 }' /etc/resolv.conf 2>/dev/null | tr '\n' ' ')"}
+if ! command -v node >/dev/null 2>&1; then
+  echo "FAIL: node is missing, so DNS cannot be checked"; s=1
+else
+  # shellcheck disable=SC2086
+  node - $servers <<'JS' || s=1
+const dns = require("dns").promises;
+// Codes that need a reply from the server. Anything else (timeout, send
+// refused by the lock) is no answer.
+const answered = new Set(["ENODATA", "ENOTFOUND", "ESERVFAIL", "EREFUSED", "EFORMERR", "ENOTIMP", "EBADRESP", "EBADNAME"]);
+(async () => {
+  let bad = 0;
+  for (const server of [...new Set(process.argv.slice(2))]) {
+    const r = new dns.Resolver({ timeout: 3000, tries: 1 });
+    r.setServers([server]);
+    let reply = false, how = "";
+    try { await r.resolve4("openrouter.ai"); reply = true; how = "an address"; }
+    catch (e) { reply = answered.has(e.code); how = e.code; }
+    if (reply) { console.log(`FAIL: DNS server ${server} answered (${how}); a turn can send data around the proxy`); bad = 1; }
+    else console.log(`no DNS answer from ${server}`);
+  }
+  process.exit(bad);
+})();
+JS
+fi
+exit $s
+EOF2
+}

@@ -198,6 +198,9 @@ case_check_enforcer() {
   expect_status 0 "check succeeds against the fake runtime"
   log_has 'enforcer' "check probes enforcer"
   log_has 'ghp_' "check probes the blocking rule"
+  log_has 'NET_ADMIN and NET_RAW dropped' "check verifies the lock dropped NET_ADMIN"
+  log_has 'no DNS answer from' "check queries the resolvers"
+  log_has '100.100.100.100' "check includes Tailscale's resolver"
 }
 
 # ------------------------------------------------------- tokenless agent pack

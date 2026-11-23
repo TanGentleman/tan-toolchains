@@ -194,6 +194,8 @@ phase_auto() {
     sh -c 'printf "%s\n" "$1" | grep -q "^direct connection failed" &&
       printf "%s\n" "$1" | grep -q "^direct IPv6 connection failed" &&
       printf "%s\n" "$1" | grep -q "^direct TLS connection failed"' sh "$out"
+  check "the egress lock dropped NET_ADMIN and NET_RAW" has "NET_ADMIN and NET_RAW dropped"
+  check "no DNS answer from Tailscale's resolver" has "no DNS answer from 100.100.100.100"
   check "the real key is not in the check output" sh -c '! grep -qF -- "$1" "$2"' sh "$key" "$log"
   check "env file is mode 600" is "$(mode_of "$PI_ENV_FILE")" 600
   check "private/proxy.env holds only OPENROUTER_API_KEY" \

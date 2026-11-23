@@ -75,6 +75,8 @@ the remaining checks by hand; the script lists them at the end.
 - [ ] It reports `lastChangelogVersion` as current.
 - [ ] Direct internet is blocked (IPv4 and IPv6); GitHub and OpenRouter
       reachable; `example.com` refused.
+- [ ] It reports `NET_ADMIN and NET_RAW dropped` and `no DNS answer` from
+      `100.100.100.100` and from each resolv.conf nameserver.
 - [ ] The default profile's `pi-proxy`/`pi-locked` are untouched by this
       profile's `run.sh check`.
 
