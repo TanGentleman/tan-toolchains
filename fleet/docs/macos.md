@@ -155,8 +155,10 @@ Live check (costs a few cents, talks only to openrouter.ai):
 
 ```sh
 cd ~/src/tan-toolchains/fleet
+export PATH="$HOME/fleet-tools/node_modules/.bin:$PATH"
+which pi claude codex                 # all three must be under ~/fleet-tools
 set -a; source ~/.config/fleet/env; set +a
-FLEET_LIVE=1 go test -count=1 -v -run 'TestLive' ./agent
+FLEET_LIVE=1 go test -count=1 -timeout 5m -v -run 'TestLive' ./agent
 unset OPENROUTER_API_KEY
 ```
 
