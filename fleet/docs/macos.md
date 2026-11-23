@@ -347,7 +347,9 @@ X
 ```
 
 Add to `ProgramArguments` in the plist (step 9):
-`<string>-harness</string><string>pi-sbx=/Users/YOU/src/tan-toolchains/fleet/sandbox/pi-v86.sh</string>`,
+`<string>-harness</string><string>pi-sbx=/Users/YOU/src/tan-toolchains/fleet/sandbox/pi-v86.sh</string>`
+and `<string>-harness-key</string><string>pi-sbx</string>`, since the script's Pi
+needs the key (the sandbox server it starts doesn't get it),
 then `launchctl bootout` and `bootstrap` again. Spawn with `"harness":"pi-sbx"`.
 A peer that should resume these sessions needs the same install.
 

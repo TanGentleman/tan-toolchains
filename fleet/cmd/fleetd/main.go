@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -43,7 +44,7 @@ func main() {
 		os.Exit(code)
 	}
 	home, _ := os.UserHomeDir()
-	var owners, spawners, peers, harnesses list
+	var owners, spawners, peers, harnesses, keyed list
 	name := flag.String("name", "", "node name (required)")
 	url := flag.String("url", "", "this node's URL as other nodes reach it, e.g. https://laptop.tailnet.ts.net")
 	data := flag.String("data", filepath.Join(home, ".fleet"), "data directory")
@@ -52,6 +53,7 @@ func main() {
 	flag.Var(&spawners, "spawner", "tailnet login that may spawn sessions (repeatable)")
 	flag.Var(&peers, "peer", "node URL to copy sessions from (repeatable)")
 	flag.Var(&harnesses, "harness", `NAME=COMMAND ARGS, run once per turn with the prompt on stdin; keep state in $FLEET_STATE (repeatable)`)
+	flag.Var(&keyed, "harness-key", "custom harness NAME that gets OPENROUTER_API_KEY; others don't (repeatable)")
 	flag.Parse()
 	if *name == "" || len(owners) == 0 {
 		log.Fatal("fleetd: -name and -owner are required")
@@ -74,7 +76,16 @@ func main() {
 		if !ok || k == "" || len(argv) == 0 {
 			log.Fatalf("fleetd: bad -harness %q", h)
 		}
-		hs[k] = node.Exec{Argv: argv}
+		h := node.Exec{Argv: argv}
+		if !slices.Contains(keyed, k) {
+			h.Drop = []string{"OPENROUTER_API_KEY"}
+		}
+		hs[k] = h
+	}
+	for _, k := range keyed {
+		if _, ok := hs[k].(node.Exec); !ok || slices.Contains([]string{"fake", "pi", "claude", "codex"}, k) {
+			log.Fatalf("fleetd: -harness-key %q is not a custom -harness", k)
+		}
 	}
 	n, err := node.New(node.Config{
 		Name: *name, URL: *url, Data: *data, Harnesses: hs, Peers: peers, PeerLogin: owners[0],

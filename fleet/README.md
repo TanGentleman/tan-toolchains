@@ -85,7 +85,9 @@ cross-site form can't either.
 
 A harness is any command (`-harness 'name=cmd args'`). Each turn it gets
 the prompt on stdin and `$FLEET_SID`, `$FLEET_STATE`, `$FLEET_WORK`
-(working directory, not replicated) and `$FLEET_SESSION_MODEL`. It must keep
+(working directory, not replicated) and `$FLEET_SESSION_MODEL`, plus
+fleetd's environment without `OPENROUTER_API_KEY` unless `-harness-key name`
+is set. It must keep
 everything it needs for the next turn under `$FLEET_STATE`: that directory
 is what checkpoints carry to the next node. Abort kills its process group.
 
@@ -164,7 +166,7 @@ holds; `TestLiveBehindV5Proxy` does the same against openrouter.ai.
 and `--no-builtin-tools`, so every tool call runs in a fresh
 [external-sandbox-v86](https://github.com/prime-radiant-inc/external-sandbox-v86)
 guest that mounts only `$FLEET_WORK` and has no network. Register it with
-`-harness 'pi-sbx=/path/to/sandbox/pi-v86.sh'`. Findings, gaps and next
+`-harness 'pi-sbx=/path/to/sandbox/pi-v86.sh' -harness-key pi-sbx`. Findings, gaps and next
 steps: [docs/sandbox.md](docs/sandbox.md).
 
 ## Tests

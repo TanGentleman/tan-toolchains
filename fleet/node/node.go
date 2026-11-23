@@ -85,7 +85,11 @@ func New(cfg Config) (*Node, error) {
 	}
 	n := &Node{cfg: cfg, blobs: store.Blobs{Dir: filepath.Join(cfg.Data, "blobs")},
 		sessions: map[string]*session{}, stop: make(chan struct{})}
-	if err := os.MkdirAll(filepath.Join(cfg.Data, "sessions"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(cfg.Data, "sessions"), 0o700); err != nil {
+		return nil, err
+	}
+	// Older versions made it 0755; closing the top closes everything below.
+	if err := os.Chmod(cfg.Data, 0o700); err != nil {
 		return nil, err
 	}
 	ents, err := os.ReadDir(filepath.Join(cfg.Data, "sessions"))
@@ -327,12 +331,12 @@ func (n *Node) turn(ctx context.Context, s *session, done chan struct{}, h Harne
 	var snap []core.File
 	err := n.restore(state, files)
 	if err == nil {
-		err = os.MkdirAll(work, 0o755)
+		err = os.MkdirAll(work, 0o700)
 	}
 	if err != nil {
 		reason = "restore: " + err.Error()
 	} else {
-		stderr, _ := os.OpenFile(filepath.Join(s.dir, fmt.Sprintf("stderr-%d.log", run)), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o644)
+		stderr, _ := os.OpenFile(filepath.Join(s.dir, fmt.Sprintf("stderr-%d.log", run)), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 		if stderr != nil {
 			t.Stderr = stderr
 			defer stderr.Close()
@@ -458,7 +462,7 @@ func (n *Node) restore(dir string, files []core.File) error {
 	if err := os.RemoveAll(dir); err != nil {
 		return err
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
 	for _, f := range files {
@@ -470,10 +474,10 @@ func (n *Node) restore(dir string, files []core.File) error {
 			return fmt.Errorf("checkpoint blob %s: %w", f.Sha, err)
 		}
 		p := filepath.Join(dir, filepath.FromSlash(f.Name))
-		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(p), 0o700); err != nil {
 			return err
 		}
-		if err := os.WriteFile(p, b, 0o644); err != nil {
+		if err := os.WriteFile(p, b, 0o600); err != nil {
 			return err
 		}
 	}

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -36,6 +37,7 @@ type Turn struct {
 type Exec struct {
 	Argv []string
 	Env  []string
+	Drop []string // names removed from fleetd's environment before Env is added
 }
 
 func (h Exec) Run(ctx context.Context, t Turn, stdout io.Writer) (int, error) {
@@ -51,7 +53,12 @@ func (h Exec) Run(ctx context.Context, t Turn, stdout io.Writer) (int, error) {
 	}
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = t.Work
-	cmd.Env = append(os.Environ(), h.Env...)
+	for _, kv := range os.Environ() {
+		if k, _, _ := strings.Cut(kv, "="); !slices.Contains(h.Drop, k) {
+			cmd.Env = append(cmd.Env, kv)
+		}
+	}
+	cmd.Env = append(cmd.Env, h.Env...)
 	for k, v := range vars {
 		cmd.Env = append(cmd.Env, k+"="+v)
 	}

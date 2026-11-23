@@ -40,7 +40,7 @@ func Run(ctx context.Context, dir, prompt string, out io.Writer) (int, error) {
 	st.Turns++
 	st.Seen = append(st.Seen, prompt)
 	b, _ := json.Marshal(st)
-	if err := os.WriteFile(path+".tmp", b, 0o644); err != nil {
+	if err := os.WriteFile(path+".tmp", b, 0o600); err != nil {
 		return 1, err
 	}
 	if err := os.Rename(path+".tmp", path); err != nil {

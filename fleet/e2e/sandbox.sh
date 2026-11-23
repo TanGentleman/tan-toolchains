@@ -29,7 +29,7 @@ pids+=($!)
 FLEET_SANDBOX_V86="$D/node_modules/.bin/external-sandbox-v86" FLEET_SANDBOX_PI_EXT="$ext" FLEETD="$tmp/fleetd" \
 OPENROUTER_API_KEY=sk-or-v1-placeholder FLEET_OPENROUTER_BASE="http://127.0.0.1:$mp/api" \
   "$tmp/fleetd" -name sbx -url "http://127.0.0.1:$fp" -data "$data" -listen "127.0.0.1:$fp" -owner t \
-  -harness "pi-sbx=$PWD/sandbox/pi-v86.sh" 2>"$tmp/fleetd.log" &
+  -harness "pi-sbx=$PWD/sandbox/pi-v86.sh" -harness-key pi-sbx 2>"$tmp/fleetd.log" &
 pids+=($!)
 api="http://127.0.0.1:$fp/v1"
 H='Tailscale-User-Login: t'

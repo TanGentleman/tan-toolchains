@@ -438,3 +438,58 @@ func TestHostOK(t *testing.T) {
 		}
 	}
 }
+
+// TestExecDropAndModes: a harness doesn't get the variables it should not see,
+// still gets fleet's, and nothing a turn leaves in the data dir is readable
+// by other users, including a data dir an older fleetd made 0755.
+func TestExecDropAndModes(t *testing.T) {
+	data := t.TempDir()
+	if err := os.Chmod(data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("OPENROUTER_API_KEY", "sk-or-v1-real")
+	t.Setenv("FLEET_TEST_KEEP", "kept")
+	n, err := New(Config{Name: "a", Data: data, Policy: core.Policy{Owners: []string{"tan"}},
+		Harnesses: map[string]Harness{"sh": Exec{Argv: []string{"sh", "-c", `env > "$FLEET_STATE/env"; echo hi >&2`},
+			Env: []string{"FLEET_TEST_ADDED=added"}, Drop: []string{"OPENROUTER_API_KEY"}}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer n.Close()
+	sid, err := n.Spawn("tan", "sh", "", "", "k1", "go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitIdle(t, n, sid)
+	b, err := os.ReadFile(filepath.Join(data, "sessions", sid, "state", "env"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := string(b)
+	if strings.Contains(env, "sk-or-v1-real") {
+		t.Fatal("harness saw OPENROUTER_API_KEY")
+	}
+	for _, want := range []string{"FLEET_TEST_KEEP=kept", "FLEET_TEST_ADDED=added", "FLEET_SID=" + sid, "FLEET_WORK=", "FLEET_STATE="} {
+		if !strings.Contains(env, want) {
+			t.Errorf("harness env lacks %s", want)
+		}
+	}
+	files := 0
+	filepath.WalkDir(data, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			t.Fatal(err)
+		}
+		fi, _ := d.Info()
+		if perm := fi.Mode().Perm(); perm&0o077 != 0 {
+			t.Errorf("%s: %v, open to others", p, perm)
+		}
+		files++
+		if d.IsDir() && (d.Name() == "state" || d.Name() == "work") {
+			return filepath.SkipDir // the harness's own files; the 0700 dirs above cover them
+		}
+		return nil
+	})
+	if files < 4 {
+		t.Fatalf("walked %d paths; expected the log, stderr and checkpoint blobs", files)
+	}
+}

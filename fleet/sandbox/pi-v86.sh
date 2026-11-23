@@ -3,7 +3,7 @@
 # in a fresh external-sandbox-v86 Linux guest that mounts only $FLEET_WORK and
 # has no network. See docs/sandbox.md.
 #
-#   fleetd -harness "pi-sbx=/path/to/fleet/sandbox/pi-v86.sh" ...
+#   fleetd -harness "pi-sbx=/path/to/fleet/sandbox/pi-v86.sh" -harness-key pi-sbx ...
 #
 # FLEET_SANDBOX_PI_EXT  external-sandbox-pi's src/index.ts (required)
 # FLEET_SANDBOX_V86     sandbox server (default: external-sandbox-v86 on PATH)
@@ -13,7 +13,7 @@ set -eu
 [ -f "$FLEET_SANDBOX_PI_EXT" ] || { echo "pi-v86: no extension at $FLEET_SANDBOX_PI_EXT" >&2; exit 1; }
 work=$(cd "$FLEET_WORK" && pwd -P)
 log=$(mktemp)
-"${FLEET_SANDBOX_V86:-external-sandbox-v86}" --port 0 --preserve-paths --mount-rw "work=$work" >"$log" 2>&1 &
+env -u OPENROUTER_API_KEY "${FLEET_SANDBOX_V86:-external-sandbox-v86}" --port 0 --preserve-paths --mount-rw "work=$work" >"$log" 2>&1 &
 sbx=$!
 trap 'kill "$sbx" 2>/dev/null; rm -f "$log"' EXIT
 

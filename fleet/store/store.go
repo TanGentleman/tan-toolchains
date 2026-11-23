@@ -29,10 +29,10 @@ type Log struct {
 // Open loads path, keeping each complete line that valid accepts and cutting
 // the file at the first line that is torn or rejected.
 func Open(path string, valid func(line []byte) error) (*Log, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
-	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o644)
+	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o600)
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +131,7 @@ func (b Blobs) Has(sha string) bool {
 
 // Put copies r into the store and returns its hash and size.
 func (b Blobs) Put(r io.Reader) (string, int64, error) {
-	if err := os.MkdirAll(b.Dir, 0o755); err != nil {
+	if err := os.MkdirAll(b.Dir, 0o700); err != nil {
 		return "", 0, err
 	}
 	tmp, err := os.CreateTemp(b.Dir, ".tmp-*")
