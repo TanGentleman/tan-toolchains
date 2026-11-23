@@ -216,10 +216,12 @@ The product path: build in the container, run on the Mac.
 
 Follow [fleet/docs/macos.md](../fleet/docs/macos.md) steps 3-6 with the E2E
 profile above, then spawn sessions on `$owner/tan-toolchains-e2e` from the
-phone. `$sid` is a session's id, from its URL.
+phone. `$sid` is a session's id: the part of its URL after `#`, without the
+`#`, or the first column of `ls_sessions`.
 
 ```sh
 URL=https://$(tailscale status --json | jq -r '.Self.DNSName | rtrimstr(".")')
+ls_sessions() { curl -sS --fail-with-body "$URL/v1/sessions" | jq -r '.[] | "\(.sid) \(.title)"'; }
 st() { curl -sS --fail-with-body "$URL/v1/sessions/${1:?usage: st SID}" | jq '{commit, base, repo, branch, harness, running}'; }
 ```
 
