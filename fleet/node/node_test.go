@@ -729,3 +729,40 @@ func TestExecStop(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestUnreadableSessionSkipped: a log that breaks the rules keeps only its
+// own session out; the node starts, names it, and never writes to it.
+func TestUnreadableSessionSkipped(t *testing.T) {
+	data := t.TempDir()
+	a := startNode(t, "a", data)
+	sid, err := a.Spawn("tan", "k1", "hello", core.CreatedData{Harness: "fake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitTurns(t, a.Node, sid, 1)
+	a.Close()
+	bad := filepath.Join(data, "sessions", "sbad", "events.jsonl")
+	os.MkdirAll(filepath.Dir(bad), 0o700)
+	body := `{"seq":1,"sid":"sbad","kind":"sealed"}` + "\n"
+	os.WriteFile(bad, []byte(body), 0o600)
+
+	b := startNode(t, "a", data)
+	if _, err := b.State(sid); err != nil {
+		t.Fatalf("good session after a bad one: %v", err)
+	}
+	if why := b.Unreadable()["sbad"]; !strings.Contains(why, "line 1") {
+		t.Fatalf("unreadable = %q", b.Unreadable())
+	}
+	if _, err := b.Input("tan", "sbad", "i1", "hi"); err == nil {
+		t.Fatal("input to an unreadable session was accepted")
+	}
+	if _, err := b.Fork("tan", "sbad", "f1"); err == nil {
+		t.Fatal("fork of an unreadable session was accepted")
+	}
+	if code, body := get(t, b.srv.URL+"/v1/node", "tan"); code != http.StatusOK || !strings.Contains(body, `"sbad"`) {
+		t.Fatalf("/v1/node: %d %s", code, body)
+	}
+	if after, _ := os.ReadFile(bad); string(after) != body {
+		t.Fatalf("unreadable log was changed: %q", after)
+	}
+}

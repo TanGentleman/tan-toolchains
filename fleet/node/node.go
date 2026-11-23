@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -41,9 +42,10 @@ type Node struct {
 	cfg   Config
 	blobs store.Blobs
 
-	mu       sync.Mutex
-	sessions map[string]*session
-	once     sync.Once
+	mu         sync.Mutex
+	sessions   map[string]*session
+	unreadable map[string]string // sid -> why its log was refused at start
+	once       sync.Once
 }
 
 type session struct {
@@ -69,7 +71,7 @@ func New(cfg Config) (*Node, error) {
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
-	n := &Node{cfg: cfg, blobs: store.Blobs{Dir: filepath.Join(cfg.Data, "blobs")}, sessions: map[string]*session{}}
+	n := &Node{cfg: cfg, blobs: store.Blobs{Dir: filepath.Join(cfg.Data, "blobs")}, sessions: map[string]*session{}, unreadable: map[string]string{}}
 	if err := os.MkdirAll(filepath.Join(cfg.Data, "sessions"), 0o700); err != nil {
 		return nil, err
 	}
@@ -84,7 +86,12 @@ func New(cfg Config) (*Node, error) {
 	for _, e := range ents {
 		s, err := n.open(e.Name())
 		if err != nil {
-			return nil, fmt.Errorf("session %s: %w (written by another fleetd version? move %s out of %s)", e.Name(), err, e.Name(), filepath.Join(cfg.Data, "sessions"))
+			// Left as it is on disk and out of the node, so one bad log
+			// doesn't take the others down. Nothing may write to it.
+			msg := fmt.Sprintf("%v (written by another fleetd version? move %s out of %s)", err, e.Name(), filepath.Join(cfg.Data, "sessions"))
+			fmt.Fprintf(os.Stderr, "fleetd: skipping unreadable session %s: %s\n", e.Name(), msg)
+			n.unreadable[e.Name()] = msg
+			continue
 		}
 		s.mu.Lock()
 		// A turn this node was running died with the old process. Stop
@@ -162,6 +169,9 @@ func (n *Node) open(sid string) (*session, error) {
 	defer n.mu.Unlock()
 	if s, ok := n.sessions[sid]; ok {
 		return s, nil
+	}
+	if why, ok := n.unreadable[sid]; ok {
+		return nil, fmt.Errorf("session %s is unreadable: %s", sid, why)
 	}
 	s := &session{dir: filepath.Join(n.cfg.Data, "sessions", sid)}
 	log, err := store.Open(filepath.Join(s.dir, "events.jsonl"), func(line []byte) error {
@@ -629,6 +639,13 @@ func (s *session) apply(e core.Event) error {
 		s.usage.Output += m.Usage.Output
 	}
 	return nil
+}
+
+// Unreadable returns the sessions whose logs were refused at start, and why.
+func (n *Node) Unreadable() map[string]string {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return maps.Clone(n.unreadable)
 }
 
 func (n *Node) List() []Summary {

@@ -37,7 +37,7 @@ const main = document.getElementById("main");
 function fail(e) { main.prepend($(`<p class="err">${esc(e.message || e)}</p>`)); }
 
 async function home() {
-  const list = await api("GET", "/v1/sessions");
+  const [list, node] = await Promise.all([api("GET", "/v1/sessions"), api("GET", "/v1/node")]);
   main.replaceChildren();
   const f = $(`<form>
     <input name="repo" placeholder="owner/repo" autocapitalize="off">
@@ -65,6 +65,9 @@ async function home() {
     ul.append($(`<li><a href="#${s.sid}">${esc(s.title || s.sid)}<br><small>${esc(s.owner)} · ${where} · ${s.head} events${s.usage && s.usage.input ? ` · ${s.usage.input}/${s.usage.output} tok` : ""}${s.repo ? ` · ${esc(s.repo)}${s.commit ? "@" + esc(s.commit.slice(0, 8)) : ""}` : " · scratch"}${s.fork_of ? " · fork" : ""}</small></a></li>`));
   }
   if (!list.length) ul.append($(`<li class="dim">No sessions yet.</li>`));
+  for (const [sid, why] of Object.entries(node.unreadable || {})) {
+    ul.append($(`<li class="err">Unreadable: ${esc(sid)}<br><small>${esc(why)}</small></li>`));
+  }
   main.append(ul);
 }
 

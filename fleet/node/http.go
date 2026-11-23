@@ -43,7 +43,7 @@ func (n *Node) Handler() http.Handler {
 		w.Write(uiHTML)
 	})
 	mux.HandleFunc("GET /v1/node", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]any{"name": n.cfg.Name, "url": n.cfg.URL, "you": login(r), "harnesses": n.harnessNames()})
+		writeJSON(w, map[string]any{"name": n.cfg.Name, "url": n.cfg.URL, "you": login(r), "harnesses": n.harnessNames(), "unreadable": n.Unreadable()})
 	})
 	mux.HandleFunc("GET /v1/sessions", func(w http.ResponseWriter, r *http.Request) {
 		list := n.List()

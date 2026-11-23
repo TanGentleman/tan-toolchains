@@ -113,8 +113,9 @@ state); each rule has a test:
 
 - **Durable before visible.** A line is fsynced before any reader sees it.
   A crash can only leave a torn last line, which is cut on load. A complete
-  line that breaks the rules (for example from an older `fleetd`) makes the
-  node refuse to start and name the session; nothing is cut.
+  line that breaks the rules (for example from an older `fleetd`) leaves
+  that session out: nothing is cut or written, the other sessions load, and
+  the session list names it as unreadable with the reason.
 - **Retries are free.** Spawn, input and fork carry a caller key; a repeated
   key returns the original result.
 - **One turn at a time.** Another input before `exited` gets 409, never a
