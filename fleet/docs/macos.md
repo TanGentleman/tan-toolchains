@@ -11,11 +11,8 @@ first (add it to `~/.zshrc` to keep it): without it zsh passes a trailing
 `# comment` to the command as arguments. Each step ends with a check; do not
 go on until it passes.
 
-**Status:** this guide has not been run on a Mac yet. The scripts are tested
-on Linux against fakes: `fleet/e2e/pi-ctr.sh` (real `fleetd`, `run.sh` and
-`pi-ctr`, a fake `container` and a local bare repo),
-`pi-container/test/test-serve.sh` and `fleet/e2e/macos.sh`. The Mac checks
-are in [pi-container/E2E.md](../../pi-container/E2E.md#fleet-node-pi-ctr).
+The Mac checklist is in
+[pi-container/E2E.md](../../pi-container/E2E.md#fleet-node-pi-ctr).
 
 ## Before you start
 
@@ -36,7 +33,6 @@ are in [pi-container/E2E.md](../../pi-container/E2E.md#fleet-node-pi-ctr).
 | Session data | `~/.fleet` (transcripts and Pi session files) |
 | Code each session wrote | branch `fleet/<sid>` in the repo you picked |
 | Logs | the terminal running `pic serve`; per turn, `~/.fleet/sessions/<sid>/stderr-N.log` |
-| Optional service | `~/Library/LaunchAgents/dev.fleet.fleetd.plist` (step 8) |
 
 ## 1. Homebrew, container, jq
 
@@ -143,7 +139,7 @@ caffeinate -i pic serve
 `pic serve` runs `fleetd` and `tailscale serve --https=443` in the
 foreground (Ctrl-C stops both). `-name`, `-url` and `-owner` default to this
 Mac's Tailscale host name, `https://<name>.<tailnet>.ts.net` and your login;
-pass them to override, and add other `fleetd` flags (`-spawner`, `-peer`)
+pass them to override, and add other `fleetd` flags (e.g. `-spawner`)
 after `serve`. `caffeinate -i` stops idle sleep; closing a laptop's lid still
 sleeps it.
 
@@ -161,7 +157,11 @@ Ctrl-C `pic serve`, then check `tailscale serve status` shows no config.
 
 Open `$URL` on the phone with the Tailscale app on. Fill in:
 
-- **repo**: `you/your-repo` (one the token can push to)
+- **harness**: `pi-ctr`, the only one unless you add `-harness`
+- **repo**: `you/your-repo` (one the token can push to). Empty means no
+  clone: Pi works in an empty `/work` on the VM's disk, nothing from the Mac
+  is mounted, and its files are gone after the turn. Only the transcript
+  carries over.
 - **branch**: where the first turn starts; empty means the default branch
 - **model**: empty uses `settings.json`'s default
 - **prompt**
@@ -192,69 +192,23 @@ Only Pi's session file and the adapter's `agent.json` are kept between
 turns. Anything else Pi writes to its state folder, extensions included, is
 deleted after the turn, so nothing a turn installs carries over.
 
-## 8. Optional: start at login
+## 8. Sharing
 
-Only if `fleetd` should come up without a terminal. `service.sh` writes a
-per-user LaunchAgent that runs `pic serve` (with `FLEET_SERVE=0`) and adds a
-persistent `tailscale serve --bg`. Stop `pic serve` first, and run it from a
-login at the Mac's own screen, not over SSH. Install runs
-`pic serve --check` first and refuses if it fails. Try `uninstall` once
-straight after installing:
-
-```sh
-F=~/src/tan-toolchains/fleet/macos
-$F/service.sh install                                   # or: install -- -spawner friend@github
-$F/service.sh status                                    # state = running, the serve config, the log tail
-launchctl kickstart -k gui/$(id -u)/dev.fleet.fleetd    # restart after build.sh fleet
-$F/service.sh uninstall                                 # removes the plist and fleet's 443 serve entry only
-```
-
-- The serve entry persists across reboots and forwards to port 7433 even
-  while `fleetd` is stopped. `uninstall` removes only that entry, never
-  `tailscale serve reset`.
-- launchd restarts `fleetd` only when it exits non-zero, at most once a
-  minute. A failing check shows in `~/Library/Logs/fleetd.log` once a minute
-  until you fix it.
-- launchd does not keep the Mac awake. To serve while on the charger,
-  `sudo pmset -c sleep 0`.
-
-**Sharing.** `-spawner friend@github` lets them start turns: each turn can
+`-spawner friend@github` lets them start turns: each turn can
 do anything inside its VM, spend your OpenRouter key and push to the token's
 repos. A `steer` share of a session is the same for that session; `view` is
 read only. See "What access means" in the README.
 
-## 9. A second node
-
-Another Mac set up the same way, with `-peer https://mac1...` after
-`pic serve`, keeps copies of mac1's sessions. A fork on mac2 starts from the
-parent's last pushed commit, so it has both the transcript and the code:
-
-```sh
-A=https://mac1.your-tailnet.ts.net B=https://mac2.your-tailnet.ts.net
-J='Content-Type: application/json'
-curl -s "$B/v1/sessions" | jq '.[].sid'
-curl -s -H "$J" -X POST "$B/v1/sessions/$sid/fork" -d '{"key":"f1"}'
-```
-
-Seal and resume still work, but wait for a later change before relying on
-them for code.
-
-## 10. Upgrading and removing
+## 9. Upgrading and removing
 
 ```sh
 cd ~/src/tan-toolchains && git pull && cd pi-container && ./build.sh && ./build.sh fleet
-# then restart pic serve, or: launchctl kickstart -k gui/$(id -u)/dev.fleet.fleetd
-
-# Set up with an older version of this guide (host CLIs, ~/.config/fleet/env)?
-~/src/tan-toolchains/fleet/macos/service.sh uninstall 2>/dev/null
-launchctl bootout gui/$(id -u)/dev.fleet.fleetd 2>/dev/null; rm -f ~/Library/LaunchAgents/dev.fleet.fleetd.plist
-tailscale serve --https=443 off
-rm -rf ~/fleet-tools ~/.local/bin/fleetd ~/.local/bin/fleetd-run ~/.config/fleet   # fleetd no longer needs a key
-# ~/.fleet holds every session; delete it only if you mean it
+# then restart pic serve
 ```
 
-Host CLIs (`fleetd agent pi`, `claude`, `codex`) still work as custom
-harnesses; see the fleet README. They run on the Mac, outside the VM.
+To remove: stop `pic serve` and delete `~/.fleet` (every session) and
+`~/.config/pi-container/env`. Host CLIs (`fleetd agent pi`, `claude`,
+`codex`) still work as custom harnesses, outside the VM; see the fleet README.
 
 ## Troubleshooting
 
@@ -270,5 +224,4 @@ harnesses; see the fleet README. They run on the Mac, outside the VM.
 | Turn fails, `cannot check out fleet/<sid>` or `cannot fetch base` | The token can't read the repo, or the base commit was force-pushed away. |
 | Turn fails before Pi starts | `~/.fleet/sessions/<sid>/stderr-N.log` has `run.sh`'s message, e.g. the image or proxy. |
 | Turn exits 3 | Pi's saved session is gone or changed; fork from an earlier checkpoint. |
-| `service.sh install` refuses | Stop `pic serve` (it holds 7433 and 443), fix `pic serve --check`, or run it at the Mac's screen. |
-| Unreachable from the phone | The Mac is asleep, `pic serve` was stopped, or the service isn't installed. |
+| Unreachable from the phone | The Mac is asleep or `pic serve` is not running. |

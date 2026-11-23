@@ -13,9 +13,7 @@ cd fleet && go build -o fleetd ./cmd/fleetd
 tailscale serve --bg 7433          # tailnet HTTPS + identity header -> fleetd
 ```
 
-Open `https://laptop.your-tailnet.ts.net` on your phone. On a Mac, `pic serve` does all of this; every step: [docs/macos.md](docs/macos.md). A second machine runs
-its own `fleetd` with `-peer https://laptop...` to keep copies of every
-session it can see.
+Open `https://laptop.your-tailnet.ts.net` on your phone. On a Mac, `pic serve` does all of this; every step: [docs/macos.md](docs/macos.md).
 
 `fleetd` listens on loopback only and refuses anything else: it trusts the
 `Tailscale-User-Login` header, which `tailscale serve` sets and strips from
@@ -115,8 +113,7 @@ commit to start from when `$FLEET_PUSH` doesn't exist yet), `$FLEET_PUSH`
 on the first turn, and a one-line reason for a failed turn. fleetd records
 them in `exited` and ignores a malformed file. All of that comes with
 fleetd's environment without `OPENROUTER_API_KEY` unless `-harness-key name`
-is set. Every other variable in fleetd's environment, including the rest of
-`~/.config/fleet/env`, does reach it, so keep other secrets out of that file.
+is set. Every other variable in fleetd's environment does reach it.
 A custom name can't reuse the built-in `pi-ctr`.
 It must keep
 everything it needs for the next turn under `$FLEET_STATE`: that directory
@@ -228,7 +225,6 @@ Findings: [docs/sandbox.md](docs/sandbox.md); code: commit 13f1542.
 ```sh
 gofmt -l . && go vet ./... && go test -race ./...
 bash e2e/smoke.sh   # two real fleetd processes, kill -9 mid-turn, restart
-bash e2e/macos.sh   # fleet-up (under pic serve) and service.sh against fake launchctl/plutil/tailscale
 bash e2e/pi-ctr.sh  # pi-ctr turns through real run.sh, a fake container and a local bare repo
 ```
 
