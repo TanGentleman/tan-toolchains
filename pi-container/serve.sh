@@ -4,7 +4,8 @@
 #   run.sh serve [--check] [fleetd flags]
 #
 # Checks Tailscale (logged in as a user, not a tagged device, HTTPS
-# certificates on), the container system, the agent image, the env file (mode 600 or
+# certificates on), the container system, the agent image (with Pi and the
+# egress lock, as run.sh requires for a turn), the env file (mode 600 or
 # 400, real OpenRouter key and GITHUB_TOKEN), that this shell does not hold the real
 # key, the fleetd binary and the port. If any check fails it prints all of
 # them and refuses to start. --check stops after the checks.
@@ -22,6 +23,7 @@ here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 root=$(CDPATH= cd -- "$here/.." && pwd -P)
 . "$here/names.sh"
 . "$here/lib/paths.sh"
+. "$here/lib/inspect.sh"
 cfg="${PI_CONFIG_DIR:-$(pi_default_config_dir)}"
 env_file="${PI_ENV_FILE:-$cfg/env}"
 cli="${CONTAINER_CLI:-container}"
@@ -71,8 +73,23 @@ fi
 
 if "$cli" system status >/dev/null 2>&1; then ok "container system is running"
 else no "the container system is not running; run: container system start"; fi
-if "$cli" image inspect "$image" >/dev/null 2>&1; then ok "image $image is built"
-else no "image $image is missing; run: $here/build.sh"; fi
+if ! image_json=$("$cli" image inspect "$image" 2>/dev/null); then
+  no "image $image is missing; run: $here/build.sh"
+else
+  caps=$(printf '%s\n' "$image_json" | pi_image_capabilities_from_json)
+  if [ -z "$caps" ]; then
+    no "image $image has no capability metadata, so it predates the egress lock; run: $here/build.sh"
+  else
+    image_ok=1
+    for c in pi netlock; do
+      case ",$caps," in
+        *",$c,"*) ;;
+        *) no "image $image lacks capability '$c' (has: $caps); run: $here/build.sh"; image_ok=0 ;;
+      esac
+    done
+    [ "$image_ok" = 0 ] || ok "image $image is built, with Pi and the egress lock"
+  fi
+fi
 
 if [ ! -r "$env_file" ]; then
   no "no env file at $env_file; see pi-container/README.md"

@@ -12,7 +12,12 @@ bg=""
 trap '[ -z "$bg" ] || kill "$bg" 2>/dev/null; rm -rf "$tmp"' EXIT
 home=$tmp/home cfg=$tmp/home/.config/pi-container world=$tmp/world bin=$tmp/bin
 mkdir -p "$cfg" "$world/images" "$bin"
-printf '[{"id":"sha256:t"}]' > "$world/images/pi-agent_local.json"
+image() { # capabilities (empty: none recorded)
+  local env='[]'
+  [ -z "$1" ] || env="[\"PI_CONTAINER_CAPABILITIES=$1\"]"
+  printf '[{"id":"sha256:t","variants":[{"config":{"config":{"Env":%s}}}]}]' "$env" > "$world/images/pi-agent_local.json"
+}
+image zig,zigpeek,enforcer,netlock,pi
 cat > "$bin/tailscale" <<'SH'
 #!/usr/bin/env bash
 echo "tailscale $*" >> "$TS_CALLS"
@@ -36,7 +41,7 @@ reset() {
   chmod 600 "$cfg/env"
   cp "$here/fixtures/tailscale/status.json" "$tmp/status.json"
   rm -rf "$world/fail"
-  printf '[{"id":"sha256:t"}]' > "$world/images/pi-agent_local.json"
+  image zig,zigpeek,enforcer,netlock,pi
   : > "$tmp/calls"
 }
 ts() { jq "$1" "$here/fixtures/tailscale/status.json" > "$tmp/status.json"; }
@@ -79,6 +84,12 @@ reset; mkdir -p "$world/fail"; : > "$world/fail/system"; serve --check
 refuses "container stopped" "container system is not running"
 reset; rm "$world/images/pi-agent_local.json"; serve --check
 refuses "image missing" "image pi-agent:local is missing"
+reset; image zig,zigpeek,enforcer,pi,gh; serve --check
+refuses "image without the egress lock" "lacks capability 'netlock' (has: zig,zigpeek,enforcer,pi,gh)"
+reset; image ""; serve --check
+refuses "image without capability metadata" "predates the egress lock"
+reset; image netlock; serve --check
+refuses "image without Pi" "lacks capability 'pi'"
 reset; printf 'OPENROUTER_API_KEY=sk-or-v1-placeholder\nGITHUB_TOKEN=x\n' > "$cfg/env"; serve --check
 refuses "placeholder key" "set OPENROUTER_API_KEY in $cfg/env"
 reset; printf 'OPENROUTER_API_KEY=sk-or-v1-real\n' > "$cfg/env"; serve --check
