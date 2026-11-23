@@ -45,3 +45,11 @@ the recorder and revert with `git checkout -- test/fixtures/container`.
 
 `run.sh check`, real volume creation, and the Neovim/ZLS paths still need the
 [E2E checklist](../E2E.md) on macOS; Apple `container` is not available in CI.
+
+`pic serve`, `pi-ctr` and `run.sh --fleet-state` are covered here by
+`test-serve.sh` and `test-integration.sh`, and end to end by
+`fleet/e2e/pi-ctr.sh` (real `fleetd`, `run.sh` and `pi-ctr` against the fake
+container). The fleet CI job runs that and fleet's Go tests, including real Pi
+behind `proxy.py`. `./build.sh fleet` runs fleet's Go tests again on the Mac
+before building. Where each fleet check runs:
+[fleet/docs/macos.md, step 8](../../fleet/docs/macos.md#8-full-check-before-relying-on-it).

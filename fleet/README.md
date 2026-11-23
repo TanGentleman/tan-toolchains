@@ -144,9 +144,10 @@ bash e2e/pi-ctr.sh      # also needs git, jq and curl
 CI runs all of the above with Pi installed. Opt-in, never in CI:
 `FLEET_LIVE=1 OPENROUTER_API_KEY=... go test -run TestLive ./agent` runs two
 real turns against OpenRouter through `proxy.py` (`FLEET_LIVE_MODEL`
-overrides the model). The checks only a Mac can do (the real VM, network
-and phone) are in [docs/macos.md](docs/macos.md) and
-[pi-container/E2E.md](../pi-container/E2E.md).
+overrides the model). On a Mac, `./build.sh fleet` runs the Go tests before
+building; what runs where, and the checks only a Mac can do (the real VM,
+network and phone):
+[docs/macos.md, step 8](docs/macos.md#8-full-check-before-relying-on-it).
 
 ## Not here
 

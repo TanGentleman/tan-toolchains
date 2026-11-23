@@ -9,10 +9,8 @@ steer sessions from the phone UI. The Mac needs Homebrew, Apple
 Run each block in Terminal (zsh), in order. Run `setopt interactivecomments`
 first (add it to `~/.zshrc` to keep it): without it zsh passes a trailing
 `# comment` to the command as arguments. Each step ends with a check; do not
-go on until it passes.
-
-The Mac checklist is in
-[pi-container/E2E.md](../../pi-container/E2E.md#fleet-node-pi-ctr).
+go on until it passes. What a session and a turn are, and the security
+model: [the fleet README](../README.md).
 
 ## Before you start
 
@@ -57,9 +55,10 @@ alias pic=$HOME/src/tan-toolchains/pi-container/run.sh
 cd ~/src/tan-toolchains/pi-container
 ```
 
-## 3. Build the image and fleetd
+## 3. Test, then build the image and fleetd
 
 ```sh
+./test/run-tests.sh       # pic's scripts against a fake container: "run-tests.sh: all tests passed"
 ./build.sh                # pi-agent:local; the first build takes a while
 ./build.sh fleet          # fleet's tests, then fleet/bin/fleetd, in a pinned Go image
 file ../fleet/bin/fleetd  # Mach-O 64-bit executable arm64
@@ -141,8 +140,9 @@ caffeinate -i pic serve
 `pic serve` runs `fleetd` and `tailscale serve --https=443` in the
 foreground (Ctrl-C stops both). `-name`, `-url` and `-owner` default to this
 Mac's Tailscale host name, `https://<name>.<tailnet>.ts.net` and your login;
-pass them to override; another `-owner` adds a login, and owners can do
-everything (README, "What access means"). `caffeinate -i` stops idle sleep; closing a laptop's lid still
+pass them to override. Another `-owner` adds a login; owners can do
+everything, so add only people you would give a shell (README, "Security
+model"). `caffeinate -i` stops idle sleep; closing a laptop's lid still
 sleeps it.
 
 Check, in a second terminal:
@@ -159,41 +159,44 @@ Ctrl-C `pic serve`, then check `tailscale serve status` shows no config.
 
 Open `$URL` on the phone with the Tailscale app on. Fill in:
 
-- **repo**: `you/your-repo` (one the token can push to). Empty means no
-  clone: Pi works in an empty `/work` on the VM's disk, nothing from the Mac
-  is mounted, and its files are gone after the turn. Only the transcript
-  carries over.
-- **branch**: where the first turn starts; empty means the default branch
-- **model**: empty uses `settings.json`'s default
+- **repo**: `you/your-repo`, one the token can push to. Empty makes a
+  scratch session: the form says so, and anything Pi writes is gone after
+  each turn.
+- **branch**: where the first turn starts; empty means the default branch.
+- **model**: empty uses `settings.json`'s default.
 - **prompt**
 
-Each turn:
+Each turn runs in a fresh VM, clones the repo, runs Pi on the transcript so
+far, and pushes to `fleet/<sid>` unless a guardrail refuses (a file over
+10 MiB, or anything that looks like a GitHub token). The README's
+[A turn](../README.md#a-turn) has every step. The session page shows each
+push as a `pi_ctr.push` line.
 
-1. Starts a fresh VM on the `pi-locked` network, with only this session's
-   state folder mounted.
-2. Clones the repo into the VM's disk at `/work/<repo>` and checks out
-   `fleet/<sid>`. On the first turn, or the first turn of a fork, there is
-   no such branch, so it checks out the session's base: the fork point, or
-   the branch you picked.
-3. Runs Pi on the session's transcript.
-4. Stages everything and refuses to push files over 10 MiB
-   (`PI_CTR_MAX_FILE_BYTES`) or anything that looks like a GitHub token,
-   including the exact `GITHUB_TOKEN` value. Then it commits and pushes to
-   `fleet/<sid>`.
+Check: after the first turn, the session page says where it pushes, and
+`git ls-remote https://github.com/you/your-repo fleet/<sid>` prints the
+commit the session shows.
 
-A failed Pi turn is still pushed, because its transcript is kept. An
-aborted turn pushes nothing, and its transcript goes back to the last
-finished turn. The session page shows each push as a `pi_ctr.push` line, and
-the session's `commit` is the latest one pushed.
+## 8. Full check before relying on it
 
-Check: after the first turn, `git ls-remote https://github.com/you/your-repo fleet/<sid>`
-prints the commit the session shows.
+Steps 3, 4, 6 and 7 each check one layer. Before merging a change or
+trusting a new Mac, run the whole fleet section of the E2E checklist,
+[pi-container/E2E.md, "Fleet node"](../../pi-container/E2E.md#fleet-node-pi-ctr).
+It adds what only a real Mac can show: the turn's VM can't reach `fleetd`,
+the Mac or the tailnet; abort, workflow and token refusals against GitHub;
+a `kill -9` of `fleetd` mid-turn; and turn start-up time.
 
-Only Pi's session file and the adapter's `agent.json` are kept between
-turns. Anything else Pi writes to its state folder, extensions included, is
-deleted after the turn, so nothing a turn installs carries over.
+| Where | Runs | Needs |
+|---|---|---|
+| CI, every push | fleet's Go tests with real Pi behind `proxy.py`, `fleet/e2e/pi-ctr.sh`, pic's script tests | nothing from you |
+| Step 3 | pic's script tests; fleet's Go tests in the Go image (real-Pi tests skip there) | `container`, `jq` |
+| Step 4, `pic check` | the real VM, proxy and network lock | key, token |
+| Step 6, `pic serve --check` | Tailscale, HTTPS certificates, image, keys, port | Tailscale |
+| Step 8, E2E.md | everything above against GitHub and the phone | a test repo, the phone |
 
-## 8. Upgrading and removing
+With Go on the Mac (`brew install go`) you can also run CI's fleet steps
+locally: in `fleet/`, `go test ./...` and `bash e2e/pi-ctr.sh`.
+
+## 9. Upgrading and removing
 
 ```sh
 cd ~/src/tan-toolchains && git pull && cd pi-container && ./build.sh && ./build.sh fleet
@@ -217,4 +220,6 @@ To remove: stop `pic serve` and delete `~/.fleet` (every session) and
 | Turn fails, `cannot check out fleet/<sid>` or `cannot fetch base` | The token can't read the repo, or the base commit was force-pushed away. |
 | Turn fails before Pi starts | `~/.fleet/sessions/<sid>/stderr-N.log` has `run.sh`'s message, e.g. the image or proxy. |
 | Turn exits 3 | Pi's saved session is gone or changed; fork from an earlier checkpoint. |
+| `pic serve` stops with `session s...: ... line N` | That session's log was written by another `fleetd` version. Move the folder it names out of `~/.fleet/sessions`; nothing in it was changed. |
+| A VM is left after `fleetd` crashed | `container ls`, then `container stop` it. The restarted node records that turn as exited. |
 | Unreachable from the phone | The Mac is asleep or `pic serve` is not running. |

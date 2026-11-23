@@ -256,6 +256,17 @@ st() { curl -s "$URL/v1/sessions/$1" | jq '{commit, base, repo, branch, sandbox,
       turn fails with `push refused` and nothing is pushed.
 - [ ] Fork the session from the UI; the fork's `base` is the parent's
       `commit`, and its first turn pushes `fleet/<fork sid>` on top of it.
+- [ ] Scratch: with repo empty the spawn form says files are gone after
+      each turn. Spawn with prompt `Create note.txt containing hi`, then send
+      `Does note.txt exist? Run ls.` Pi remembers the first turn, but
+      `note.txt` is gone, and nothing was pushed.
+- [ ] Owners only, if you have a second tailnet login: from a device logged
+      in as it, `$URL` answers 403 on every page.
+- [ ] Crash: start a turn with `Run sleep 120 in bash`, then `kill -9` the
+      `fleetd` process (`pgrep -x fleetd`). `pic serve` stops; `container ls`
+      shows the turn's container: `container stop` it. Start `pic serve`
+      again: the session ends with `exited` reason `node restarted`, and the
+      next prompt continues the transcript and `fleet/$sid`.
 - [ ] Two sessions spawned within a second of each other both finish (the
       proxy and network setup does not race).
 - [ ] Network, from a turn's own container. With a session dir from above
