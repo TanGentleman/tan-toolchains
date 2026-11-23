@@ -164,6 +164,7 @@ case_normal_run() {
   log_has "exec pi-proxy" "proxy health checked from inside"
   log_has "/root/.pi/agent/settings.json:ro" "settings mounted read-only"
   log_lacks "network create" "existing host-only network reused"
+  log_lacks "CALL start pi-proxy" "a running proxy with an address is not restarted"
   [ -f "$cfg/settings.json" ] && pass || fail "settings.json was not created"
   local settings
   settings=$(cat "$cfg/settings.json" 2>/dev/null || true)
@@ -676,6 +677,31 @@ case_mount_guards() {
   contains 'missing' "$(e)" "env file error proves the guard passed"
 }
 
+# proxy.py publishes proxy.addr once, at start. A running proxy without it
+# (deleted by hand, or by a test that leaked into a real profile) must be
+# restarted, not waited on for the full PI_PROXY_WAIT.
+case_proxy_running_no_addr() {
+  new_case noaddr
+  fleet_world
+  rm -f "$cfg/private/proxy.addr"
+  (
+    cd "$t/project" || exit 1
+    run_it env HOME="$home" PI_ENV_FILE="$cfg/env" PI_PROXY_WAIT=1 \
+      CONTAINER_CLI="$fake" FAKE_CONTAINER_WORLD="$world" FAKE_CONTAINER_LOG="$logfile" \
+      bash "$run_sh" true
+  )
+  contains "pi-proxy is running but published no address; restarting it" "$(e)" "missing address explained"
+  log_has "CALL stop pi-proxy" "proxy stopped"
+  log_has "CALL start pi-proxy" "proxy started again"
+  local stop_line start_line
+  stop_line=$(grep -n '^CALL stop pi-proxy$' "$logfile" | head -n 1 | cut -d: -f1)
+  start_line=$(grep -n '^CALL start pi-proxy$' "$logfile" | head -n 1 | cut -d: -f1)
+  [ "${stop_line:-0}" -gt 0 ] && [ "$stop_line" -lt "${start_line:-0}" ] && pass || fail "stop comes before start"
+  # The fake never publishes an address, so the run then fails, saying so.
+  expect_status 1 "fake proxy publishes nothing"
+  contains "did not report an address" "$(e)" "a proxy that still publishes nothing is reported"
+}
+
 # ------------------------------------------------------------- egress lock
 # Normal mode, check, and fleet turns start with NET_ADMIN and run
 # lib/netlock.sh as the outermost command, so the lock is in place before
@@ -960,7 +986,7 @@ for c in case_normal_run case_check_enforcer case_tokenless_run case_tokenless_c
          case_nuke_agent case_nuke_agent_without_image case_nuke_clones_scoped \
          case_nuke_profile case_nuke_profile_rejects_instance \
          case_option_guards case_nuke_all_builder_failure case_mount_guards case_fleet_state case_pi_ctr_stop \
-         case_netlock_modes case_netlock_capability; do
+         case_netlock_modes case_netlock_capability case_proxy_running_no_addr; do
   "$c"
 done
 

@@ -581,7 +581,14 @@ ensure_proxy() {
   fi
   state=$(proxy_state || true)
   case "$state" in
-    running) return ;;
+    running)
+      # proxy.py publishes its address once, when it starts. A running proxy
+      # without the file would leave proxy_ip waiting for nothing.
+      [ -f "$(addr_file)" ] && return
+      echo "run.sh: $proxy_name is running but published no address; restarting it" >&2
+      "$cli" stop "$proxy_name" >/dev/null 2>&1 || true
+      "$cli" start "$proxy_name"
+      return ;;
     stopped|stopping)
       rm -f "$(addr_file)"
       "$cli" start "$proxy_name"
