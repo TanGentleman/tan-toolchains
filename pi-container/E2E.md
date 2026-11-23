@@ -223,7 +223,8 @@ URL=https://$(tailscale status --json | jq -r '.Self.DNSName | rtrimstr(".")')
 st() { curl -s "$URL/v1/sessions/$1" | jq '{commit, base, repo, branch, sandbox, running}'; }
 ```
 
-- [ ] `./build.sh fleet` writes `../fleet/bin/fleetd`; `file` says arm64 and
+- [ ] `./build.sh fleet` prints `ok` for every fleet package (no `FAIL`),
+      then writes `../fleet/bin/fleetd`; `file` says arm64 and
       `../fleet/bin/fleetd -h` runs.
 - [ ] Record the Tailscale fixture as in `test/fixtures/tailscale/README.md`;
       `./test/run-tests.sh` passes with it.

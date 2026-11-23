@@ -62,11 +62,12 @@ rm -f "$tmp/log"
 BUILD_LOG="$tmp/log" CONTAINER_CLI="$tmp/container" bash "$root/build.sh" fleet >/dev/null 2>&1
 built=$(cat "$tmp/log" 2>/dev/null || true)
 contains "run --rm -e GOTOOLCHAIN=local -e GOPROXY=off" "$built" "fleet build never fetches a toolchain or module"
-contains "-e GOOS=darwin -e GOARCH=arm64" "$built" "fleet build targets macOS arm64"
+contains "GOOS=darwin GOARCH=arm64 go build" "$built" "fleet build targets macOS arm64"
 contains "-v $fleet:/src:ro -v $fleet/bin:/out" "$built" "fleet source is read-only; only bin is written"
 contains "golang:" "$built" "fleet build uses the Go image"
 contains "@sha256:" "$built" "fleet Go image is pinned by digest"
 contains "go build -trimpath -o /out/fleetd ./cmd/fleetd" "$built" "fleet build compiles fleetd"
+contains "go vet ./... && go test -count=1 ./... &&" "$built" "fleet build runs vet and tests first, and stops if they fail"
 rc 2 "fleet takes no options" env CONTAINER_CLI="$tmp/container" BUILD_LOG="$tmp/log" bash "$root/build.sh" fleet --no-cache
 image_go=$(sed -n 's/^fleet_go_image=golang:\([0-9.]*\)-.*/\1/p' "$root/build.sh")
 mod_go=$(sed -n 's/^go //p' "$fleet/go.mod")

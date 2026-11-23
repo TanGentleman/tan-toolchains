@@ -3,8 +3,9 @@
 #   build.sh [PACK] [container build options...]
 # PACK is one of: tools editor agent agent-gh full all (default: full).
 #   build.sh fleet
-# cross-compiles fleetd for macOS (arm64) in a pinned Go image, so the Mac
-# needs no Go. The binary lands in fleet/bin/fleetd.
+# runs fleet's go vet and tests, then cross-compiles fleetd for macOS
+# (arm64), all in a pinned Go image, so the Mac needs no Go. A failing check
+# builds nothing. The binary lands in fleet/bin/fleetd.
 set -euo pipefail
 
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
@@ -58,11 +59,12 @@ if [ "$pack" = fleet ]; then
     exit 1
   fi
   mkdir -p "$src/bin"
-  printf 'build.sh: fleet -> %s/bin/fleetd (darwin/arm64, Go %s)\n' "$src" "$have" >&2
+  printf 'build.sh: fleet: go vet and go test, then %s/bin/fleetd (darwin/arm64, Go %s)\n' "$src" "$have" >&2
   exec "$cli" run --rm -e GOTOOLCHAIN=local -e GOPROXY=off -e GOFLAGS=-mod=readonly -e CGO_ENABLED=0 \
-    -e GOOS=darwin -e GOARCH=arm64 -e GOCACHE=/tmp/go-cache \
+    -e GOCACHE=/tmp/go-cache \
     -v "$src:/src:ro" -v "$src/bin:/out" -w /src \
-    "$fleet_go_image" go build -trimpath -o /out/fleetd ./cmd/fleetd
+    "$fleet_go_image" sh -c 'go vet ./... && go test -count=1 ./... &&
+      GOOS=darwin GOARCH=arm64 go build -trimpath -o /out/fleetd ./cmd/fleetd'
 fi
 if [ $# -gt 0 ]; then
   case $1 in

@@ -61,14 +61,16 @@ cd ~/src/tan-toolchains/pi-container
 
 ```sh
 ./build.sh                # pi-agent:local; the first build takes a while
-./build.sh fleet          # fleet/bin/fleetd, compiled in a pinned Go image
+./build.sh fleet          # fleet's tests, then fleet/bin/fleetd, in a pinned Go image
 file ../fleet/bin/fleetd  # Mach-O 64-bit executable arm64
 ../fleet/bin/fleetd -h 2>&1 | head -3
 ```
 
-`build.sh fleet` runs `go build` inside `golang:1.27.4` (pinned by digest in
-`build.sh`) with `GOTOOLCHAIN=local` and `GOPROXY=off`, so nothing is
-downloaded but the image. Rerun it after every `git pull`.
+`build.sh fleet` runs `fleet`'s `go vet` and tests, then `go build`, inside
+`golang:1.27.4` (pinned by digest in `build.sh`) with `GOTOOLCHAIN=local` and
+`GOPROXY=off`, so nothing is downloaded but the image. It prints `ok` for each
+package; if a test fails it prints `FAIL` and builds nothing. Rerun it after
+every `git pull`.
 
 ## 4. Keys
 

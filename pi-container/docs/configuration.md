@@ -103,6 +103,11 @@ the repo root context and tags it. `PI_IMAGE` selects the image at runtime.
 ./build.sh all               # every pack
 ```
 
+`./build.sh fleet` is not a pack: it runs `fleet`'s `go vet` and tests, then
+cross-compiles `fleetd` for macOS arm64 into `fleet/bin/fleetd`, all in a
+`golang` image pinned by digest with `GOPROXY=off` and `GOTOOLCHAIN=local`.
+If a check fails, nothing is built. `pic serve` runs that binary.
+
 Pass extra `container build` options after the pack, for example
 `./build.sh agent --build-arg PI_VERSION=1.6.0`. `all` builds every pack.
 
