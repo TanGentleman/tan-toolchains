@@ -92,3 +92,17 @@ func TestBlobs(t *testing.T) {
 		t.Fatal("PutVerified accepted wrong content")
 	}
 }
+
+// TestRejectedLineRefused: a complete line the caller rejects (a log from a
+// version with other rules) makes Open fail and leaves every byte in place.
+func TestRejectedLineRefused(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "events.jsonl")
+	body := "{\"seq\":1}\nnot json\n{\"seq\":3}\n{\"torn\""
+	os.WriteFile(p, []byte(body), 0o600)
+	if _, err := Open(p, validJSON); err == nil || !strings.Contains(err.Error(), "line 2") {
+		t.Fatalf("Open = %v, want a refusal naming line 2", err)
+	}
+	if after, _ := os.ReadFile(p); string(after) != body {
+		t.Fatalf("refused log was changed: %q", after)
+	}
+}

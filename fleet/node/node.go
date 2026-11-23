@@ -102,7 +102,7 @@ func New(cfg Config) (*Node, error) {
 	for _, e := range ents {
 		s, err := n.open(e.Name())
 		if err != nil {
-			return nil, fmt.Errorf("session %s: %w", e.Name(), err)
+			return nil, fmt.Errorf("session %s: %w (written by another fleetd version? move %s out of %s)", e.Name(), err, e.Name(), filepath.Join(cfg.Data, "sessions"))
 		}
 		s.mu.Lock()
 		// A turn this node was running died with the old process. Record

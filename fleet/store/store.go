@@ -3,7 +3,9 @@
 // A Log is one append-only file of newline-terminated lines. Append returns
 // only after the lines are fsynced, and readers only ever see lines that
 // Append has returned, so nothing visible can be lost in a crash. A torn
-// final line left by a crash is cut off on Open.
+// final line left by a crash (no newline yet) is cut off on Open. A complete
+// line that the caller rejects is never cut: Open refuses the file instead,
+// so a rule change can't silently drop the history after it.
 package store
 
 import (
@@ -26,8 +28,8 @@ type Log struct {
 	err     error
 }
 
-// Open loads path, keeping each complete line that valid accepts and cutting
-// the file at the first line that is torn or rejected.
+// Open loads path. It cuts a torn final line, and returns an error, leaving
+// the file untouched, if valid rejects any complete line.
 func Open(path string, valid func(line []byte) error) (*Log, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
@@ -43,10 +45,14 @@ func Open(path string, valid func(line []byte) error) (*Log, error) {
 	}
 	l := &Log{f: f, changed: make(chan struct{})}
 	var good int64
-	for {
+	for n := 1; ; n++ {
 		i := bytes.IndexByte(data, '\n')
-		if i < 0 || valid(data[:i]) != nil {
+		if i < 0 {
 			break
+		}
+		if err := valid(data[:i]); err != nil {
+			f.Close()
+			return nil, fmt.Errorf("%s line %d: %w", path, n, err)
 		}
 		l.lines = append(l.lines, append([]byte(nil), data[:i]...))
 		good += int64(i + 1)
