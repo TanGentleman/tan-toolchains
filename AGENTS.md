@@ -55,7 +55,7 @@ explicitly that `run.sh check` and the E2E checklist were not run.
 - Shipped tools make no network requests. A separate process owns any network
   layer; do not add network code to a shipped binary. `fleetd` is such a
   process: it listens on loopback only, behind `tailscale serve`, and dials
-  only configured peers and session writers.
+  nothing; its turns reach the network only through `pi-proxy`.
 - `fleet/agent` (Pi/Claude/Codex adapters) must keep each CLI's telemetry,
   update checks and other non-model traffic off; `go test ./agent` asserts
   it with a refusing proxy. Live check, never in CI:

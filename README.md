@@ -7,7 +7,7 @@ One tool per directory.
 | [`zigpeek/`](zigpeek/) | Zig stdlib + `@`-builtin docs from your installed compiler. No network. |
 | [`enforcer/`](enforcer/) | A Pi prompt hook that blocks a pasted GitHub token. No network. |
 | [`pi-container/`](pi-container/) | Pi in an Apple `container` VM behind an egress proxy, with Zig, Neovim, ZLS, zigpeek, and enforcer. |
-| [`fleet/`](fleet/) | `fleetd`: record, view, resume, and fork agent sessions across your tailnet devices. |
+| [`fleet/`](fleet/) | `fleetd`: spawn, record and fork Pi sessions on one machine, driven from any tailnet device. |
 
 ## Quick start
 

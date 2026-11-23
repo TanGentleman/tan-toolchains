@@ -85,11 +85,8 @@ func TestReadSeesOnlyAppended(t *testing.T) {
 func TestBlobs(t *testing.T) {
 	b := Blobs{Dir: t.TempDir()}
 	sha, n, err := b.Put(strings.NewReader("state"))
-	if err != nil || n != 5 || !b.Has(sha) {
+	if got, _ := os.ReadFile(b.Path(sha)); err != nil || n != 5 || string(got) != "state" {
 		t.Fatal(sha, n, err)
-	}
-	if err := b.PutVerified(sha, strings.NewReader("tampered")); err == nil {
-		t.Fatal("PutVerified accepted wrong content")
 	}
 }
 

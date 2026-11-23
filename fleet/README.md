@@ -1,8 +1,8 @@
 # fleet
 
-`fleetd` runs coding-agent sessions on a machine, records every byte the
-agent prints, and lets any of your tailnet devices view, prompt, resume, or
-fork a session no matter where it started. Go standard library only.
+`fleetd` runs coding-agent sessions on one machine, records every byte the
+agent prints, and lets your tailnet devices view, prompt and fork them. Go
+standard library only.
 
 ## Quick start
 
@@ -26,37 +26,31 @@ Five pieces. Everything else is an adapter.
 
 | Piece | Package | What it is |
 | ----- | ------- | ---------- |
-| Event log | `core` | One append-only JSONL file per session. Each line: `seq`, `sid`, `node` (writer), `run` (turn), `kind`, `data`. |
+| Event log | `core` | One append-only JSONL file per session. Each line: `seq`, `sid`, `node`, `run` (turn), `kind`, `data`. |
 | Rules | `core` | `Decide(state, cmd) -> event` and `Apply(state, event)`. Pure, no I/O; the whole protocol. |
-| Store | `store` | Append = write + fsync, then visible. Torn tails are cut on open. Blobs by SHA-256. |
+| Store | `store` | Append = write + fsync, then visible. Torn tails are cut on open; a line the rules reject makes open fail. Blobs by SHA-256. |
 | Harness | `node` | One process per turn: prompt on stdin, lines on stdout, exit code. `$FLEET_STATE` is its state dir. |
-| Node | `node` | Owns sessions it writes, copies others over HTTP, serves the API and UI. |
+| Node | `node` | Runs each session's turns, serves the API and UI. |
 
 Rules the code enforces, each with a test:
 
-- **One writer.** Only the node named in the latest `created`/`sealed`
-  event appends. Copies check every line with `Apply`, so a replica can lag
-  but never accept a line its writer could not have written.
 - **Raw first.** Each stdout line is stored as-is (`out`, or `out.b64` for
   bytes that are not UTF-8). Parsing Pi/ACP/AG-UI messages is a reader's
   job, so schemas can change without migrating logs.
-- **Durable before visible.** Readers and peers only see fsynced lines.
+- **Durable before visible.** Readers only see fsynced lines.
 - **Retries are free.** Spawn, input, and fork carry a caller key; a
   repeated key returns the original result.
 - **One turn at a time.** An input starts a turn; another input before its
   `exited` gets 409, never a queue.
 - **Checkpoint every turn.** After each turn the node stores `$FLEET_STATE`
   as blobs (`checkpoint`), and rebuilds the directory from the latest
-  checkpoint before the next one. A copy can always continue from the last
-  finished turn it holds.
+  checkpoint before the next one.
 - **No silent re-run.** A turn that dies with its node is recorded as
   `exited` on restart; its input is never re-sent and its partial state is
   dropped. The same goes for an aborted turn, including one stopped by
   fleetd shutting down: it gets SIGTERM, 3 s later SIGKILL, and no checkpoint.
-- **Seal or fork, never merge.** Resume asks the writer to abort any turn
-  and append `sealed{to,url}` after checking `url` answers as `to`; the new
-  writer copies the log and checkpoint. If the writer is unreachable, fork
-  from the newest checkpoint you hold instead.
+- **Fork, never merge.** A fork is a new session from the parent's last
+  checkpoint and pushed commit; the parent is untouched.
 - **Default deny.** Owners and spawners are flags; everyone else needs a
   per-session share (`view`, `steer`, `admin`).
 
@@ -97,11 +91,8 @@ cross-site form can't either.
 | `GET /v1/sessions/{sid}/events?after=N` | raw lines (JSONL; live SSE with `Accept: text/event-stream`) |
 | `POST /v1/sessions/{sid}/inputs` | `{key,text}` run one turn; 409 while a turn runs |
 | `POST /v1/sessions/{sid}/abort` | kill the running turn |
-| `POST /v1/sessions/{sid}/seal` | `{to,url}` abort, hand off to the node at `url` |
-| `POST /v1/sessions/{sid}/resume` | `{from}` become writer |
 | `POST /v1/sessions/{sid}/fork` | `{key}` new session from the newest checkpoint |
 | `POST /v1/sessions/{sid}/share` | `{user,level}` |
-| `GET /v1/blobs/{sha}` | checkpoint file |
 
 A harness is any command (`-harness 'name=cmd args'`). Each turn it gets
 the prompt on stdin and `$FLEET_SID`, `$FLEET_STATE`, `$FLEET_WORK`
@@ -224,32 +215,30 @@ Findings: [docs/sandbox.md](docs/sandbox.md); code: commit 13f1542.
 
 ```sh
 gofmt -l . && go vet ./... && go test -race ./...
-bash e2e/smoke.sh   # two real fleetd processes, kill -9 mid-turn, restart
+bash e2e/smoke.sh   # a real fleetd, kill -9 mid-turn, restart
 bash e2e/pi-ctr.sh  # pi-ctr turns through real run.sh, a fake container and a local bare repo
 ```
 
-- `core`: rules table, plus a seeded simulation of 3 nodes running random
-  commands and copying logs at random (200 seeds x 600 steps), checking
-  after every step that no two copies of a session disagree and that the
-  same seed replays byte for byte.
+- `core`: rules table, plus random commands on one session (200 seeds x
+  600 steps): Decide never returns an event Apply refuses, the live state
+  equals a fold of the log, and a seed replays byte for byte.
 - `store`: the log cut at every byte offset reopens to exactly its complete
-  lines.
-- `node`: two nodes over `httptest` with the in-process fake harness: spawn,
-  retry, share, bogus seal refused, resume (harness state continues), dead
-  writer -> fork from its last finished turn, restart; busy input, abort,
+  lines; a rejected complete line makes open fail and changes nothing.
+- `node`: a node over `httptest` with the in-process fake harness: spawn,
+  retry, share, fork from the last finished turn, restart; busy input, abort,
   exit codes; abort stops an `Exec` harness's whole process group, lets it
   handle SIGTERM, and keeps the last checkpoint.
-- `e2e/smoke.sh`: the same with two real `fleetd` processes, including
-  `kill -9` in the middle of a turn.
+- `e2e/smoke.sh`: a real `fleetd` process, including `kill -9` in the
+  middle of a turn.
 - `agent`: each real CLI against `fakeor`, a fake OpenRouter serving the
   Anthropic, chat-completions and responses formats. The reply lists every
   `TOK...` word in the request, so a resumed turn proves it carried the
-  history. Covers resume in a new directory, a two-node fleet handoff, a
+  history. Covers resume in a new directory, a
   deleted native session (must refuse), no non-model traffic, and the key
   never in output, logs or state. Skips a CLI that is not installed
   (`FLEET_PI_BIN` etc. or `PATH`).
 - Live, not in CI: `FLEET_LIVE=1 OPENROUTER_API_KEY=... go test -run TestLive ./agent`
-  runs each CLI against OpenRouter: turn 1 on one node, turn 2 on a copy
+  runs each CLI against OpenRouter: turn 2, from a copy of turn 1's state,
   must recall a codeword; nothing but openrouter.ai may be contacted.
 
 ## Not here, on purpose
@@ -261,9 +250,9 @@ bash e2e/pi-ctr.sh  # pi-ctr turns through real run.sh, a fake container and a l
   node treats like any other.
 - No long-lived harness process, steering mid-turn, or input queue. A turn
   is a process; that is what makes every turn a checkpoint.
-- No automatic failover. Two writers would need consensus; seal-or-fork
-  keeps one writer without it.
+- No replication between nodes. Code moves through git (`fleet/<sid>`);
+  each node keeps its own sessions.
 - No compaction or snapshots of the event log; fold cost is linear.
 
-`core` is the part to port (e.g. to Zig): about 300 lines of state machine
-with no dependencies, and the simulation test is its spec.
+`core` is the part to port (e.g. to Zig): a small state machine with no
+dependencies, and its rules tests are its spec.

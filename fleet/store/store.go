@@ -130,11 +130,6 @@ type Blobs struct{ Dir string }
 
 func (b Blobs) Path(sha string) string { return filepath.Join(b.Dir, sha) }
 
-func (b Blobs) Has(sha string) bool {
-	_, err := os.Stat(b.Path(sha))
-	return err == nil
-}
-
 // Put copies r into the store and returns its hash and size.
 func (b Blobs) Put(r io.Reader) (string, int64, error) {
 	if err := os.MkdirAll(b.Dir, 0o700); err != nil {
@@ -158,16 +153,4 @@ func (b Blobs) Put(r io.Reader) (string, int64, error) {
 	}
 	sha := hex.EncodeToString(h.Sum(nil))
 	return sha, n, os.Rename(tmp.Name(), b.Path(sha))
-}
-
-// PutVerified stores r only if its content hashes to sha.
-func (b Blobs) PutVerified(sha string, r io.Reader) error {
-	got, _, err := b.Put(r)
-	if err != nil {
-		return err
-	}
-	if got != sha {
-		return fmt.Errorf("store: blob hash %s, want %s", got, sha)
-	}
-	return nil
 }

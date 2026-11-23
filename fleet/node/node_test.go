@@ -40,7 +40,6 @@ func startNode(t *testing.T, name, data string) *testNode {
 		Harnesses: map[string]Harness{"fake": Func(func(ctx context.Context, t Turn, w io.Writer) (int, error) {
 			return fake.Run(ctx, t.State, t.Prompt, w)
 		})},
-		Client: &http.Client{Timeout: 5 * time.Second},
 	}
 	n, err := New(tn.cfg)
 	if err != nil {
@@ -144,21 +143,19 @@ func waitIdle(t *testing.T, n *Node, sid string) core.State {
 	return core.State{}
 }
 
-// TestHandoff walks one session across two nodes: spawn on a, retry safely,
-// share read-only, refuse a bogus seal, resume on b (a seals), lose b and
-// fork on a from b's last finished turn, restart a.
-func TestHandoff(t *testing.T) {
+// TestLifecycle: spawn, retry safely, default deny and a read-only share,
+// fork from the last finished turn, and continue after a restart.
+func TestLifecycle(t *testing.T) {
 	a := startNode(t, "a", t.TempDir())
-	b := startNode(t, "b", t.TempDir())
 
-	sid, err := a.Spawn("tan", "k1", "hello", core.CreatedData{Harness: "fake", Model: "", Title: "demo"})
+	sid, err := a.Spawn("tan", "k1", "hello", core.CreatedData{Harness: "fake", Title: "demo"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	waitTurns(t, a.Node, sid, 1)
 
 	// Retried requests change nothing.
-	if again, _ := a.Spawn("tan", "k1", "hello", core.CreatedData{Harness: "fake", Model: "", Title: "demo"}); again != sid {
+	if again, _ := a.Spawn("tan", "k1", "hello", core.CreatedData{Harness: "fake", Title: "demo"}); again != sid {
 		t.Fatalf("retried spawn made %s", again)
 	}
 	s1, _ := a.Input("tan", sid, "i1", "two")
@@ -189,59 +186,15 @@ func TestHandoff(t *testing.T) {
 		t.Fatalf("viewer write: %d", code)
 	}
 
-	// A seal to a node that is not at that URL is refused; a keeps writing.
-	if code, body := post(t, a.srv.URL+"/v1/sessions/"+sid+"/seal", "tan", `{"to":"nope","url":"`+b.srv.URL+`"}`); code == http.StatusOK {
-		t.Fatalf("sealed to a node that does not exist: %s", body)
-	}
-	if _, err := a.Input("tan", sid, "i2", "three"); err != nil {
-		t.Fatal(err)
-	}
-	waitTurns(t, a.Node, sid, 1, 2, 3)
-
-	// Resume on b: a seals; b copies the log and checkpoint, and its next
-	// turn continues the harness state (turn 4, not turn 1).
-	if code, body := post(t, b.srv.URL+"/v1/sessions/"+sid+"/resume", "tan", `{"from":"`+a.srv.URL+`"}`); code != http.StatusOK {
-		t.Fatalf("resume on b: %d %s", code, body)
-	}
-	if _, err := b.Input("tan", sid, "i3", "four"); err != nil {
-		t.Fatal(err)
-	}
-	waitTurns(t, b.Node, sid, 1, 2, 3, 4)
-	if _, err := a.Input("tan", sid, "i4", "nope"); !errors.Is(err, core.ErrNotWriter) {
-		t.Fatalf("old writer accepted input: %v", err)
-	}
-	if _, err := b.Input("tan", sid, "i5", "five"); err != nil {
-		t.Fatal(err)
-	}
-	waitTurns(t, b.Node, sid, 1, 2, 3, 4, 5)
-	if err := a.Pull(context.Background(), b.srv.URL, sid, "tan"); err != nil {
-		t.Fatal(err)
-	}
-	aLines, _, _ := a.Events("tan", sid, 0)
-	bLines, _, _ := b.Events("tan", sid, 0)
-	if len(aLines) != len(bLines) {
-		t.Fatalf("copy has %d lines, writer %d", len(aLines), len(bLines))
-	}
-	for i := range aLines {
-		if !bytes.Equal(aLines[i], bLines[i]) {
-			t.Fatalf("copies differ at seq %d", i+1)
-		}
-	}
-
-	// b vanishes. a cannot take the session back, but can fork it, and the
-	// fork continues from b's last finished turn (6, not a stale 1).
-	b.srv.Close()
-	if err := a.Resume(context.Background(), "tan", sid, ""); !errors.Is(err, ErrUnreachable) {
-		t.Fatalf("resume from dead writer: %v", err)
-	}
+	// A fork continues from the parent's last finished turn (3, not 1).
 	fid, err := a.Fork("tan", sid, "f1")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := a.Input("tan", fid, "i6", "fork"); err != nil {
+	if _, err := a.Input("tan", fid, "i2", "fork"); err != nil {
 		t.Fatal(err)
 	}
-	waitTurns(t, a.Node, fid, 6)
+	waitTurns(t, a.Node, fid, 3)
 
 	// a restarts: the fork carries on from its checkpoint.
 	a.Close()
@@ -250,10 +203,10 @@ func TestHandoff(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer a2.Close()
-	if _, err := a2.Input("tan", fid, "i7", "again"); err != nil {
+	if _, err := a2.Input("tan", fid, "i3", "again"); err != nil {
 		t.Fatal(err)
 	}
-	waitTurns(t, a2, fid, 6, 7)
+	waitTurns(t, a2, fid, 3, 4)
 }
 
 // TestBusyAndAbort: one turn at a time; an input during a turn is refused,
@@ -343,29 +296,6 @@ func alive(pid int) bool {
 	}
 	_, rest, _ := strings.Cut(string(b), ") ")
 	return !strings.HasPrefix(rest, "Z")
-}
-
-// TestBackgroundPull: a node listed as a peer copies sessions it can see
-// without anyone asking, so they stay viewable when the writer goes away.
-func TestBackgroundPull(t *testing.T) {
-	a := startNode(t, "a", t.TempDir())
-	sid, err := a.Spawn("tan", "k1", "hello", core.CreatedData{Harness: "fake", Model: "", Title: "demo"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	waitTurns(t, a.Node, sid, 1)
-	cfg := Config{Name: "c", Data: t.TempDir(), Policy: core.Policy{Owners: []string{"tan"}},
-		Peers: []string{a.srv.URL}, PeerLogin: "tan", PullEvery: 20 * time.Millisecond}
-	c, err := New(cfg)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer c.Close()
-	waitTurns(t, c, sid, 1)
-	a.srv.Close()
-	if st, err := c.State("tan", sid); err != nil || st.Writer != "a" {
-		t.Fatalf("copy on c: %+v %v", st, err)
-	}
 }
 
 func TestModelFollowsSessionAndForks(t *testing.T) {

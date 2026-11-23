@@ -1,7 +1,6 @@
-// Package node is fleetd: it runs turns of the sessions it writes, keeps a
-// local copy of every session it has seen, and moves a session to another
-// node by sealing it there. All session rules live in core; this package
-// only does the I/O around core.Decide and core.Apply.
+// Package node is fleetd: it keeps each session's event log, runs its turns
+// one at a time, and serves the API and UI. All session rules live in core;
+// this package only does the I/O around core.Decide and core.Apply.
 package node
 
 import (
@@ -14,7 +13,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -29,17 +27,13 @@ import (
 )
 
 type Config struct {
-	Name      string   // node name; the writer field in every event
-	URL       string   // where other nodes reach this one (its tailnet URL)
+	Name      string   // node name, recorded in every event
+	URL       string   // this node's tailnet URL; its host is an accepted Host header
 	Hosts     []string // Host header values accepted besides URL's (the loopback listen address)
 	Data      string
 	Policy    core.Policy
 	Harnesses map[string]Harness
 	Sandboxes map[string]string // harness name -> what isolates it, recorded on created
-	Peers     []string          // base URLs to copy sessions from
-	PeerLogin string            // login sent on background pulls
-	PullEvery time.Duration
-	Client    *http.Client
 	Now       func() time.Time
 }
 
@@ -49,10 +43,7 @@ type Node struct {
 
 	mu       sync.Mutex
 	sessions map[string]*session
-
-	stop chan struct{}
-	wg   sync.WaitGroup
-	once sync.Once
+	once     sync.Once
 }
 
 type session struct {
@@ -67,27 +58,18 @@ type session struct {
 }
 
 var (
-	ErrForbidden   = errors.New("forbidden")
-	ErrNotFound    = errors.New("no such session")
-	ErrUnreachable = errors.New("writer unreachable; fork instead")
-	ErrDiverged    = errors.New("replica diverged from source")
+	ErrForbidden = errors.New("forbidden")
+	ErrNotFound  = errors.New("no such session")
 )
 
 func New(cfg Config) (*Node, error) {
 	if cfg.Name == "" || strings.ContainsAny(cfg.Name, "/\x00") {
 		return nil, fmt.Errorf("bad node name %q", cfg.Name)
 	}
-	if cfg.PullEvery == 0 {
-		cfg.PullEvery = 2 * time.Second
-	}
-	if cfg.Client == nil {
-		cfg.Client = &http.Client{Timeout: 30 * time.Second}
-	}
 	if cfg.Now == nil {
 		cfg.Now = time.Now
 	}
-	n := &Node{cfg: cfg, blobs: store.Blobs{Dir: filepath.Join(cfg.Data, "blobs")},
-		sessions: map[string]*session{}, stop: make(chan struct{})}
+	n := &Node{cfg: cfg, blobs: store.Blobs{Dir: filepath.Join(cfg.Data, "blobs")}, sessions: map[string]*session{}}
 	if err := os.MkdirAll(filepath.Join(cfg.Data, "sessions"), 0o700); err != nil {
 		return nil, err
 	}
@@ -108,7 +90,7 @@ func New(cfg Config) (*Node, error) {
 		// A turn this node was running died with the old process. Record
 		// that; its input is never re-sent, and the next turn starts from
 		// the last checkpoint, not from whatever the dead turn left behind.
-		if s.st.Running && s.st.Writer == cfg.Name {
+		if s.st.Running {
 			_, err = n.commit(s, n.cmd("", core.Exited, "", core.ExitedData{Code: -1, Reason: "node restarted"}))
 		}
 		s.mu.Unlock()
@@ -116,20 +98,14 @@ func New(cfg Config) (*Node, error) {
 			return nil, err
 		}
 	}
-	if len(cfg.Peers) > 0 {
-		n.wg.Add(1)
-		go n.pullLoop()
-	}
 	return n, nil
 }
 
 func (n *Node) Name() string { return n.cfg.Name }
 
-// Close aborts running turns (recording their exit) and stops the pull loop.
+// Close aborts running turns, recording their exit.
 func (n *Node) Close() {
 	n.once.Do(func() {
-		close(n.stop)
-		n.wg.Wait()
 		// In parallel: each turn may take its whole grace period.
 		var wg sync.WaitGroup
 		for _, s := range n.list() {
@@ -169,7 +145,7 @@ func validSid(sid string) bool {
 	return true
 }
 
-// open loads or creates the local copy of sid.
+// open loads or creates sid's log.
 func (n *Node) open(sid string) (*session, error) {
 	if !validSid(sid) {
 		return nil, ErrNotFound
@@ -356,7 +332,6 @@ func (n *Node) create(sid, login, key string, d core.CreatedData, prompt string)
 		return nil
 	}
 	s.st.Sid = sid
-	d.URL = n.cfg.URL
 	if _, err := n.commit(s, n.cmd(login, core.Created, key, d)); err != nil {
 		return err
 	}
@@ -563,7 +538,7 @@ func (n *Node) Input(login, sid, key, text string) (uint64, error) {
 
 func (n *Node) input(s *session, login, key, text string) (uint64, error) {
 	h, ok := n.cfg.Harnesses[s.st.Harness]
-	if !ok && s.st.Writer == n.cfg.Name {
+	if !ok {
 		return 0, fmt.Errorf("unknown harness %q", s.st.Harness)
 	}
 	before := s.st.Head
@@ -585,80 +560,8 @@ func (n *Node) input(s *session, login, key, text string) (uint64, error) {
 	return seqs[0], nil
 }
 
-// Seal aborts any running turn and makes node `to`, reachable at url, the
-// writer. It first checks that url answers as `to`, so a typo cannot hand
-// the session to a node that does not exist. Returns the new head.
-func (n *Node) Seal(ctx context.Context, login, sid, to, url string) (uint64, error) {
-	if to == "" || url == "" {
-		return 0, errors.New("to and url required")
-	}
-	s, err := n.session(login, sid, core.Steer)
-	if err != nil {
-		return 0, err
-	}
-	s.mu.Lock()
-	writer, head := s.st.Writer, s.st.Head
-	s.mu.Unlock()
-	switch {
-	case writer == to:
-		return head, nil // already sealed to `to`: a retry
-	case writer != n.cfg.Name:
-		return 0, fmt.Errorf("%w (writer is %s)", core.ErrNotWriter, writer)
-	}
-	var info struct{ Name string }
-	if err := n.call(ctx, http.MethodGet, url+"/v1/node", login, nil, &info); err != nil {
-		return 0, err
-	}
-	if info.Name != to {
-		return 0, fmt.Errorf("%s is node %q, not %q", url, info.Name, to)
-	}
-	n.abort(s)
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if _, err := n.commit(s, n.cmd(login, core.Sealed, "", core.SealedData{To: to, URL: url})); err != nil {
-		return 0, err
-	}
-	return s.st.Head, nil
-}
-
-// Resume makes this node the writer: it asks the current writer to seal to
-// this node, then copies the log and checkpoint. from is the writer's URL
-// when this node has no copy yet.
-func (n *Node) Resume(ctx context.Context, login, sid, from string) error {
-	s, err := n.session(login, sid, core.Steer)
-	if errors.Is(err, ErrNotFound) && from != "" && validSid(sid) {
-		if err := n.Pull(ctx, from, sid, login); err != nil {
-			return err
-		}
-		s, err = n.session(login, sid, core.Steer)
-	}
-	if err != nil {
-		return err
-	}
-	s.mu.Lock()
-	writer, url := s.st.Writer, s.st.WriterURL
-	s.mu.Unlock()
-	if writer == n.cfg.Name {
-		return nil
-	}
-	if n.cfg.URL == "" {
-		return errors.New("this node has no -url, so the writer cannot hand off to it")
-	}
-	if url == "" {
-		url = from
-	}
-	if url == "" {
-		return fmt.Errorf("%w: no URL for writer %s", ErrUnreachable, writer)
-	}
-	if err := n.call(ctx, http.MethodPost, url+"/v1/sessions/"+sid+"/seal", login, map[string]string{"to": n.cfg.Name, "url": n.cfg.URL}, nil); err != nil {
-		return err
-	}
-	return n.Pull(ctx, url, sid, login)
-}
-
-// Fork starts a new session from the latest checkpoint of a local copy. The
-// original is untouched, which is what makes forking safe while its writer
-// is unreachable.
+// Fork starts a new session from sid's latest checkpoint and last pushed
+// commit. The original is untouched.
 func (n *Node) Fork(login, sid, key string) (string, error) {
 	if key == "" {
 		return "", errors.New("key required")
@@ -675,7 +578,7 @@ func (n *Node) Fork(login, sid, key string) (string, error) {
 		Repo: s.st.Repo, Branch: s.st.Branch, Base: cmp.Or(s.st.Commit, s.st.Base), Sandbox: s.st.Sandbox}
 	s.mu.Unlock()
 	fid := sessionID("fork", n.cfg.Name, login, key, sid)
-	// Files are the state after the last finished turn this copy holds.
+	// Files are the state after the last finished turn.
 	return fid, n.create(fid, login, key, d, "")
 }
 
@@ -720,7 +623,7 @@ type Summary struct {
 
 // Usage totals the model tokens a session's harness reported in
 // {"type":"fleet.turn_end","usage":{"input","output"}} lines. It is a view
-// over the log, rebuilt on every fold, so every copy agrees.
+// over the log, rebuilt whenever the log is loaded.
 type Usage struct {
 	Input  int64 `json:"input"`
 	Output int64 `json:"output"`
@@ -765,18 +668,4 @@ func (n *Node) List(login string) []Summary {
 		return out[i].Sid < out[j].Sid
 	})
 	return out
-}
-
-// BlobPath returns a checkpoint blob if login can view a session that
-// references it.
-func (n *Node) BlobPath(login, sha string) (string, error) {
-	for _, s := range n.list() {
-		s.mu.Lock()
-		ok := n.level(login, s) > core.None && slices.ContainsFunc(s.st.Files, func(f core.File) bool { return f.Sha == sha })
-		s.mu.Unlock()
-		if ok && n.blobs.Has(sha) {
-			return n.blobs.Path(sha), nil
-		}
-	}
-	return "", ErrNotFound
 }

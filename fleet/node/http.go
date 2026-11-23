@@ -20,6 +20,11 @@ import (
 //go:embed ui.html
 var uiHTML []byte
 
+// LoginHeader carries the caller's identity. `tailscale serve` sets it on
+// every tailnet request and strips any value the client sent, so fleetd
+// trusts it only because it listens on loopback behind serve.
+const LoginHeader = "Tailscale-User-Login"
+
 var words = new(mime.WordDecoder)
 
 func login(r *http.Request) string {
@@ -72,21 +77,6 @@ func (n *Node) Handler() http.Handler {
 	mux.HandleFunc("POST /v1/sessions/{sid}/abort", func(w http.ResponseWriter, r *http.Request) {
 		reply(w, map[string]bool{"ok": true}, n.Abort(login(r), r.PathValue("sid")))
 	})
-	mux.HandleFunc("POST /v1/sessions/{sid}/seal", func(w http.ResponseWriter, r *http.Request) {
-		var b struct{ To, URL string }
-		if !readJSON(w, r, &b) {
-			return
-		}
-		head, err := n.Seal(r.Context(), login(r), r.PathValue("sid"), b.To, b.URL)
-		reply(w, map[string]uint64{"head": head}, err)
-	})
-	mux.HandleFunc("POST /v1/sessions/{sid}/resume", func(w http.ResponseWriter, r *http.Request) {
-		var b struct{ From string }
-		if !readJSON(w, r, &b) {
-			return
-		}
-		reply(w, map[string]string{"writer": n.cfg.Name}, n.Resume(r.Context(), login(r), r.PathValue("sid"), b.From))
-	})
 	mux.HandleFunc("POST /v1/sessions/{sid}/fork", func(w http.ResponseWriter, r *http.Request) {
 		var b struct{ Key string }
 		if !readJSON(w, r, &b) {
@@ -104,14 +94,6 @@ func (n *Node) Handler() http.Handler {
 			return
 		}
 		reply(w, map[string]bool{"ok": true}, n.Share(login(r), r.PathValue("sid"), b.User, b.Level))
-	})
-	mux.HandleFunc("GET /v1/blobs/{sha}", func(w http.ResponseWriter, r *http.Request) {
-		p, err := n.BlobPath(login(r), r.PathValue("sha"))
-		if err != nil {
-			reply(w, nil, err)
-			return
-		}
-		http.ServeFile(w, r, p)
 	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// A DNS-rebinding page reaches loopback with its own name in Host,
@@ -235,19 +217,14 @@ func reply(w http.ResponseWriter, v any, err error) {
 		return
 	}
 	code := http.StatusBadRequest
-	var he *httpError
 	switch {
 	case errors.Is(err, ErrNotFound):
 		code = http.StatusNotFound
 	case errors.Is(err, ErrForbidden):
 		code = http.StatusForbidden
-	case errors.Is(err, core.ErrNotWriter), errors.Is(err, core.ErrRunning), errors.Is(err, core.ErrNotRunning):
+	case errors.Is(err, core.ErrRunning), errors.Is(err, core.ErrNotRunning):
 		code = http.StatusConflict
-	case errors.Is(err, ErrUnreachable):
-		code = http.StatusServiceUnavailable
-	case errors.As(err, &he):
-		code = he.Status
-	case errors.Is(err, ErrDiverged), errors.Is(err, core.ErrBadEvent):
+	case errors.Is(err, core.ErrBadEvent):
 		code = http.StatusInternalServerError
 	}
 	http.Error(w, err.Error(), code)
