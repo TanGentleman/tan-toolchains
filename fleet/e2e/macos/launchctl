@@ -3,7 +3,11 @@
 echo "launchctl $*" >>"$FAKE/calls"
 case $1 in
   bootstrap) [ -f "$3" ] || exit 5; cp "$3" "$FAKE/loaded.plist" ;;
-  bootout) [ -f "$FAKE/loaded.plist" ] || exit 3; rm "$FAKE/loaded.plist" ;;
-  print) [ -f "$FAKE/loaded.plist" ] || exit 113; printf '\tstate = running\n\tpid = 42\n' ;;
+  bootout) [ -f "$FAKE/loaded.plist" ] || exit 3; [ ! -e "$FAKE/stuck" ] || exit 5; rm "$FAKE/loaded.plist" ;;
+  print)
+    case $2 in
+      */*/*) [ -f "$FAKE/loaded.plist" ] || exit 113; printf '\tstate = running\n\tpid = 42\n' ;;
+      *) [ ! -e "$FAKE/no-gui" ] || exit 113 ;;
+    esac ;;
   *) exit 1 ;;
 esac

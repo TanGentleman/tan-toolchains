@@ -105,7 +105,10 @@ A harness is any command (`-harness 'name=cmd args'`). Each turn it gets
 the prompt on stdin and `$FLEET_SID`, `$FLEET_STATE`, `$FLEET_WORK`
 (working directory, not replicated) and `$FLEET_SESSION_MODEL`, plus
 fleetd's environment without `OPENROUTER_API_KEY` unless `-harness-key name`
-is set. It must keep
+is set. Every other variable in fleetd's environment, including the rest of
+`~/.config/fleet/env`, does reach it, so keep other secrets out of that file.
+A custom name can't reuse a built-in one (`fake`, `pi`, `claude`, `codex`).
+It must keep
 everything it needs for the next turn under `$FLEET_STATE`: that directory
 is what checkpoints carry to the next node. Abort sends its process group
 SIGTERM, then SIGKILL after 3 s.

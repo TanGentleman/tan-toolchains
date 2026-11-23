@@ -28,13 +28,21 @@ install() {
       *) die "unknown option $1; fleetd flags go after --" ;;
     esac
   done
+  for a in "$@"; do
+    case $a in -listen|-listen=*|--listen|--listen=*) die "set FLEET_PORT instead of -listen" ;; esac
+  done
   [ $# -gt 0 ] || die "give fleetd flags after --, e.g. -- -name mac1 -url https://... -owner you@github"
   [ ! -e "$plist" ] && [ ! -e "$record" ] || die "already installed; run: $0 uninstall"
   [ -r "${FLEET_ENV:-$HOME/.config/fleet/env}" ] || die "no key file; see docs/macos.md step 6"
+  launchctl print "$domain" >/dev/null 2>&1 ||
+    die "no $domain launchd domain; install from a login at the Mac's own screen, not over SSH"
+  if curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$port/"; then
+    die "something already listens on 127.0.0.1:$port; stop fleet-up first"
+  fi
   if [ "$serve" = 1 ]; then
-    cur=$(tailscale serve status --json) || die "tailscale serve status failed"
-    if [ -n "$(printf '%s' "$cur" | jq -r '.TCP["443"] // empty')" ]; then
-      die "tailscale already serves port 443 (tailscale serve status); remove it, or use --no-serve"
+    cur=$(tailscale serve status --json) || die "tailscale serve status failed; is the Tailscale app running?"
+    if [ "$(printf '%s' "${cur:-null}" | jq '[.TCP["443"]?, (.Foreground // {} | .[].TCP["443"]?)] | map(select(. != null)) | length')" != 0 ]; then
+      die "tailscale already serves port 443, maybe a running fleet-up (tailscale serve status); stop it, or use --no-serve"
     fi
   fi
   mkdir -p "$(dirname "$plist")" "$(dirname "$record")" "$(dirname "$log")"
@@ -65,14 +73,24 @@ PY
 
 uninstall() {
   [ -r "$record" ] || die "nothing recorded in $record; was it installed with service.sh?"
-  if grep -qx 'serve=443' "$record"; then
-    tailscale serve --https=443 off >/dev/null || die "tailscale serve --https=443 off failed"
-  fi
+  left=''
   if grep -qx "loaded=$label" "$record"; then
     launchctl bootout "$domain/$label" 2>/dev/null || true
+    if launchctl print "$domain/$label" >/dev/null 2>&1; then
+      left="${left}loaded=$label "
+      echo "service.sh: $label is still loaded; try: launchctl bootout $domain/$label" >&2
+    fi
+  fi
+  if grep -qx 'serve=443' "$record" && ! tailscale serve --https=443 off >/dev/null 2>&1; then
+    left="${left}serve=443 "
+    echo "service.sh: could not remove fleet's serve entry; with the Tailscale app running: tailscale serve --https=443 off" >&2
   fi
   p=$(sed -n 's/^plist=//p' "$record")
   [ -z "$p" ] || rm -f "$p"
+  if [ -n "$left" ]; then
+    printf '%s\n' $left >"$record"
+    die "not fully uninstalled; fix the above and run uninstall again"
+  fi
   rm -f "$record"
   echo "uninstalled $label; ~/.fleet, the key file and the log are left alone"
 }

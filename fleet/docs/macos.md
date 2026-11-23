@@ -217,11 +217,14 @@ tailscale status --json | jq -r '.User[(.Self.UserID|tostring)].LoginName'   # y
 
 ## 9. Serve it on the tailnet
 
-Replace `you@github` and the host name with the values from step 8.
+Set the variables in the same terminal that runs `fleet-up`. They are read
+from Tailscale, so `-url` matches the name `fleetd` is reached by. `fleetd`
+answers `421 unexpected Host` to any other name.
 
 ```sh
-ME=you@github
-URL=https://mac1.your-tailnet.ts.net
+ME=$(tailscale status --json | jq -r '.User[(.Self.UserID|tostring)].LoginName')
+URL=https://$(tailscale status --json | jq -r '.Self.DNSName | rtrimstr(".")')
+echo "$ME $URL"     # you@github https://mac1.your-tailnet.ts.net, no trailing dot or slash
 F=~/src/tan-toolchains/fleet/macos
 caffeinate -i $F/fleet-up -name mac1 -url "$URL" -owner "$ME"
 ```
@@ -235,14 +238,29 @@ reached. After rebuilding `fleetd` or editing the env file, Ctrl-C and run it
 again; a running turn is stopped with SIGTERM and its session keeps the last
 checkpoint.
 
-Check, from any tailnet device: `curl -s "$URL/v1/node" | jq` shows your
-login as `"you"`. Open `https://mac1.your-tailnet.ts.net` on your phone
-(Tailscale app on).
+Check, in a second terminal (set `URL` there too, as above):
+
+```sh
+curl -si "$URL/v1/node" | head -1     # HTTP/2 200
+curl -s "$URL/v1/node" | jq .you      # your login
+```
+
+If the first line isn't `200`, run `curl -s "$URL/v1/node"` without `jq` and
+look the message up in Troubleshooting. Then open `$URL` on your phone with
+the Tailscale app on. `http://127.0.0.1:7433` in the Mac's browser always says
+"no tailnet identity", because only `tailscale serve` adds the identity header.
+
+Ctrl-C `fleet-up`, then check `tailscale serve status` says there is no serve
+config. That shows the foreground serve went away with it.
 
 ### Optional: start at login with launchd
 
 Only if `fleetd` should come up without a terminal. `service.sh` writes a
-per-user LaunchAgent (no root) and a persistent `tailscale serve --bg`:
+per-user LaunchAgent (no root) and a persistent `tailscale serve --bg`.
+Stop `fleet-up` first, and run it from a login at the Mac's own screen.
+Over SSH there is no `gui/<uid>` launchd domain, so `install` refuses, as it
+does when port 7433 or 443 is already in use. Try `uninstall` once straight
+after installing, before you rely on it:
 
 ```sh
 $F/service.sh install -- -name mac1 -url "$URL" -owner "$ME"
@@ -258,11 +276,15 @@ What to know about it:
   while `fleetd` is stopped. `uninstall` removes it with
   `tailscale serve --https=443 off`. It never runs `tailscale serve reset`,
   and `install` refuses if something else already serves port 443.
+- `uninstall` unloads the agent first, then tries every step even if one
+  fails, prints what is left, and can be run again. The usual failure is
+  the Tailscale app not running, so the serve entry can't be removed.
 - launchd restarts `fleetd` only when it exits non-zero, at most once a
   minute. A bad flag or a broken env file shows in the log once a minute
   until you fix it; change flags with `uninstall` then `install`.
 - The log is `~/Library/Logs/fleetd.log`; `fleetd-run` moves it to
-  `fleetd.log.1` at start once it passes 10 MB.
+  `fleetd.log.1` when `fleetd` starts, once it passes 10 MB. It doesn't
+  rotate while `fleetd` keeps running.
 - launchd does not keep the Mac awake. To serve while asleep on the charger,
   `sudo pmset -c sleep 0`.
 - macOS shows an "App Background Activity" notice for `fleetd-run`; it is
@@ -391,7 +413,9 @@ rm -rf ~/fleet-tools ~/.config/fleet     # ~/.fleet holds every session; delete 
 
 | Symptom | Check |
 |---|---|
-| `421 unexpected Host` | `-url` is not the name you used to reach it; it must match `tailscale status`'s DNS name. |
+| `jq: parse error` | The reply is an error message, not JSON. Run the `curl` without `jq` and find the message below. |
+| `421 unexpected Host` | `-url` doesn't match the name you curl. Set `URL` as in step 9, in the terminal that runs `fleet-up`, and restart it. |
+| `no tailnet identity` at `127.0.0.1:7433` | Expected. Use `$URL`, which goes through `tailscale serve`. |
 | `415` on POST | Send `Content-Type: application/json`. |
 | `401` everywhere | No `Tailscale-User-Login`: go through `tailscale serve`, or set the header with curl on the Mac itself. |
 | `403` | Your login is not `-owner`/`-spawner` and the session is not shared with you. |
@@ -404,4 +428,6 @@ rm -rf ~/fleet-tools ~/.config/fleet     # ~/.fleet holds every session; delete 
 | `pi-v86: sandbox exited` or `not ready` in `stderr-N.log` | Run `external-sandbox-v86 --mount-rw w=/tmp` by hand and read its output; Node must be 22.19 or newer. |
 | `pi-v86: no extension at ...` | `FLEET_SANDBOX_PI_EXT` in `~/.config/fleet/env` is wrong; see step 12. |
 | Service not running | `service.sh status`, then `~/Library/Logs/fleetd.log`. |
+| `service.sh install` refuses | Stop `fleet-up` (it holds 7433 and 443), or run it at the Mac's screen, not over SSH. |
+| `uninstall` says something is left | Fix what it printed (often: open the Tailscale app), then run `uninstall` again. |
 | Unreachable from the phone | The Mac is asleep, `fleet-up` was stopped, or the service isn't installed. |

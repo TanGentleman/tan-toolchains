@@ -49,6 +49,34 @@ echo '{"TCP":{"443":{"HTTPS":true}}}' >"$FAKE/serve.json"
 grep -q '^tailscale serve --' "$FAKE/calls" && fail "--no-serve changed serve config"
 [ "$(jq -c '.TCP | keys' "$FAKE/serve.json")" = '["443"]' ] || fail "someone else's 443 changed"
 
+# uninstall tries every step even when one fails, and can be rerun.
+: >"$FAKE/calls"
+echo '{}' >"$FAKE/serve.json"
+"$svc" install -- -name a -owner b >/dev/null || fail "install for failing uninstall"
+touch "$FAKE/no-tailscale"
+"$svc" uninstall 2>/dev/null && fail "uninstall hid a failed serve off"
+[ ! -e "$plist" ] && [ ! -e "$FAKE/loaded.plist" ] || fail "a failed serve off stopped the unload"
+rm "$FAKE/no-tailscale"
+"$svc" uninstall >/dev/null || fail "second uninstall after fixing tailscale"
+[ "$(jq -c '.TCP // {} | keys' "$FAKE/serve.json")" = '[]' ] || fail "serve entry left after retry"
+
+# install refuses, writing nothing: over SSH, over a running fleet-up's
+# foreground serve or port, and with its own -listen.
+touch "$FAKE/no-gui"
+"$svc" install -- -name a -owner b 2>/dev/null && fail "install without a gui domain"
+rm "$FAKE/no-gui"
+echo '{"Foreground":{"s1":{"TCP":{"443":{"HTTPS":true}}}}}' >"$FAKE/serve.json"
+"$svc" install -- -name a -owner b 2>/dev/null && fail "install over a foreground serve"
+echo '{}' >"$FAKE/serve.json"
+"$svc" install -- -name a -owner b -listen 127.0.0.1:1 2>/dev/null && fail "install with -listen"
+busy=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')
+python3 -m http.server "$busy" --bind 127.0.0.1 >/dev/null 2>&1 &
+pids+=($!)
+for _ in $(seq 50); do curl -s -o /dev/null "http://127.0.0.1:$busy/" && break; sleep 0.1; done
+FLEET_PORT=$busy "$svc" install -- -name a -owner b 2>/dev/null && fail "install over a busy port"
+[ ! -e "$plist" ] && [ ! -e "$HOME/.config/fleet/service.installed" ] || fail "a refused install left files"
+macos/fleet-up -name a -owner b -listen 127.0.0.1:1 2>/dev/null && fail "fleet-up with -listen"
+
 # fleetd-run: fails loudly without the key file, rotates its log at start.
 FLEET_ENV=$tmp/none macos/fleetd-run -h 2>"$tmp/err" && fail "fleetd-run ran without a key file"
 grep -q 'missing or unreadable' "$tmp/err" || fail "fleetd-run error message"

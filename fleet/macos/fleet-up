@@ -9,6 +9,9 @@
 #   FLEET_SERVE  0 to skip `tailscale serve` (loopback only)
 set -eu
 here=$(cd "$(dirname "$0")" && pwd -P)
+for a in "$@"; do
+  case $a in -listen|-listen=*|--listen|--listen=*) echo "fleet-up: set FLEET_PORT instead of -listen" >&2; exit 2 ;; esac
+done
 port=${FLEET_PORT:-7433}
 fpid='' spid=''
 stop() {

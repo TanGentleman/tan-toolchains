@@ -12,6 +12,7 @@ case "$*" in
   "--bg --https=443 "*)
     jq --arg to "$3" '.TCP["443"] = {HTTPS: true} | .Web["mac1.ts.net:443"] = {Handlers: {"/": {Proxy: $to}}}' "$cfg" >"$cfg.new" && mv "$cfg.new" "$cfg" ;;
   "--https=443 off")
+    [ ! -e "$FAKE/no-tailscale" ] || exit 1
     jq 'del(.TCP["443"]) | del(.Web["mac1.ts.net:443"])' "$cfg" >"$cfg.new" && mv "$cfg.new" "$cfg" ;;
   "--https=443 "*)
     trap 'echo "tailscale foreground stopped" >>"$FAKE/calls"; exit 0' TERM INT
