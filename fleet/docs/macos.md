@@ -4,9 +4,31 @@ From a clean Mac to `fleetd` running Pi, Claude Code and Codex through
 OpenRouter, reachable from your phone over Tailscale, kept alive by launchd.
 Then a second Mac as a peer, handoff, and the test suites.
 
-Run each block in Terminal (zsh). Lines starting with `#` are comments.
+Run each block in Terminal (zsh), in order. Lines starting with `#` are
+comments. Each step ends with a check; do not go on until it passes.
 Assumes Apple silicon (`/opt/homebrew`); on Intel replace `/opt/homebrew`
 with `/usr/local`.
+
+## Before you start
+
+- A Mac you can log in to as an admin (Homebrew and Tailscale ask for the password).
+- About an hour. Steps 1-5 need no accounts and no key.
+- An [OpenRouter](https://openrouter.ai) key, from step 6 on.
+- A [Tailscale](https://tailscale.com) account, from step 8 on. Free is enough.
+- Optional: a second Mac for step 10.
+
+What has been run on a Mac: steps 1-5 and 7 on a clean Apple silicon Mac
+(macOS 26.6.2) with a placeholder key. Not yet run end to end on a Mac: the
+live check in step 6, steps 8-10 (real tailnet), and step 12.
+
+| Step | Needs | Gets you |
+|---|---|---|
+| 1-5 | nothing | `fleetd` built and its tests passing |
+| 6-7 | OpenRouter key | real sessions on this Mac |
+| 8-9 | Tailscale | `fleetd` always on, reachable from your phone |
+| 10 | a second Mac | handoff and fork between Macs |
+| 11 | - | the real key kept out of `fleetd` and the agents |
+| 12 | - | Pi's tool calls in a Linux sandbox (experimental) |
 
 ## 0. What you end up with
 
@@ -30,6 +52,9 @@ echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
 eval "$(/opt/homebrew/bin/brew shellenv)"
 brew --version
 ```
+
+Check: `brew --version` prints a version. `brew shellenv` must be in
+`~/.zprofile` or new Terminal windows will not find `brew`.
 
 ## 2. Go, Node, Python, jq
 
@@ -71,11 +96,14 @@ and points the CLI at OpenRouter; host logins are never read.
 mkdir -p ~/src && cd ~/src
 git clone https://github.com/TanGentleman/tan-toolchains.git
 cd tan-toolchains
-git checkout devin/1795313102-fleet-turns   # or whichever fleet branch you are testing
+git checkout devin/1795320800-fleet-pi-errors   # until merged; then stay on main
 cd fleet
 go build -o ~/.local/bin/fleetd ./cmd/fleetd
 fleetd -h 2>&1 | head -3
 ```
+
+Check: `which fleetd` prints `~/.local/bin/fleetd` (step 2 put
+`~/.local/bin` on `PATH`).
 
 ## 5. Tests (no key needed)
 
@@ -93,6 +121,9 @@ The `agent` tests run the real CLIs against a fake OpenRouter on loopback and
 fail if any CLI tries to reach any other host. Each subtest should say
 `PASS`, not `SKIP`; a `SKIP` means that CLI is not on `PATH`.
 
+Check: every command above ends without `FAIL`, and `smoke.sh` prints
+`smoke: ok`.
+
 ## 6. OpenRouter key
 
 Typed at a hidden prompt so it is not in shell history:
@@ -108,6 +139,9 @@ FLEET_CLAUDE_MODEL=anthropic/claude-haiku-4.5
 FLEET_CODEX_MODEL=openai/gpt-5.1-codex-mini
 X
 ```
+
+Check: `ls -l ~/.config/fleet/env` shows `-rw-------`, and
+`grep -c OPENROUTER_API_KEY ~/.config/fleet/env` prints `1`.
 
 `FLEET_MODEL` is the default for every harness; `FLEET_<KIND>_MODEL`
 overrides it per CLI; a `model` given at spawn overrides both.
@@ -283,7 +317,43 @@ NODE_EXTRA_CA_CERTS=/Users/YOU/.config/fleet/proxy/ca.pem
 and watch the proxy print `openrouter POST /api/v1/...` with no `deny` or
 `allow` lines.
 
-## 12. Upgrading and removing
+## 12. Optional: run Pi's tools in a sandbox (experimental)
+
+Adds a harness, `pi-sbx`, where Pi runs on the Mac but every command and
+file edit it makes runs in a throwaway Linux guest
+([external-sandbox-v86](https://github.com/prime-radiant-inc/external-sandbox-v86))
+that sees only the session's working folder and has no network. Pi's own
+tools are turned off, so if the sandbox does not start the turn fails
+instead of running on the Mac. Why and what it does not cover:
+[sandbox.md](sandbox.md). Not yet run on a Mac; `pi` stays the default.
+
+```sh
+npm install --prefix ~/fleet-tools --no-fund --no-audit external-sandbox-v86@0.4.0 external-sandbox-pi@0.1.0
+cd ~/src/tan-toolchains/fleet
+export PATH="$HOME/fleet-tools/node_modules/.bin:$PATH"
+FLEET_SANDBOX_DIR=~/fleet-tools bash e2e/sandbox.sh      # prints: sandbox: ok (s...)
+```
+
+The first run downloads nothing more; the Linux image ships in the npm
+package. A one-call turn takes about 15 s because the guest boots each turn.
+
+Then tell `fleetd-run` where things are and register the harness:
+
+```sh
+cat >> ~/.config/fleet/env <<X
+FLEETD=$HOME/.local/bin/fleetd
+FLEET_SANDBOX_PI_EXT=$HOME/fleet-tools/node_modules/external-sandbox-pi/src/index.ts
+X
+```
+
+Add to `ProgramArguments` in the plist (step 9):
+`<string>-harness</string><string>pi-sbx=/Users/YOU/src/tan-toolchains/fleet/sandbox/pi-v86.sh</string>`,
+then `launchctl bootout` and `bootstrap` again. Spawn with `"harness":"pi-sbx"`.
+A peer that should resume these sessions needs the same install.
+
+Check: `curl -s "$URL/v1/node" | jq .harnesses` lists `pi-sbx`.
+
+## 13. Upgrading and removing
 
 ```sh
 cd ~/src/tan-toolchains && git pull && cd fleet && go build -o ~/.local/bin/fleetd ./cmd/fleetd
@@ -308,4 +378,6 @@ rm -rf ~/fleet-tools ~/.config/fleet     # ~/.fleet holds every session; delete 
 | `proxy: needs Python 3.11 or newer` | `python3` is the Mac's 3.9; see step 2. |
 | Turn exits 3 | The CLI's saved session is gone or changed; fork from an earlier checkpoint. |
 | `tailscale serve` refuses | HTTPS Certificates are off in the admin console (step 8.3). |
+| `pi-v86: sandbox exited` or `not ready` in `stderr-N.log` | Run `external-sandbox-v86 --mount-rw w=/tmp` by hand and read its output; Node must be 22.19 or newer. |
+| `pi-v86: no extension at ...` | `FLEET_SANDBOX_PI_EXT` in `~/.config/fleet/env` is wrong; see step 12. |
 | Service not running | `launchctl print gui/$(id -u)/dev.fleet.fleetd`, then `~/Library/Logs/fleetd.log`. |

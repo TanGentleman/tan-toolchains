@@ -154,11 +154,22 @@ log shows no GitHub tunnels and no denials. `TestBehindV5Proxy` runs the real
 `proxy.py` on loopback against `fakeor`, which accepts only the key the proxy
 holds; `TestLiveBehindV5Proxy` does the same against openrouter.ai.
 
+### Pi with its tools in a sandbox (experimental)
+
+`sandbox/pi-v86.sh` is a harness that runs Pi on the host with
+[external-sandbox-pi](https://github.com/prime-radiant-inc/external-sandbox-pi)
+and `--no-builtin-tools`, so every tool call runs in a fresh
+[external-sandbox-v86](https://github.com/prime-radiant-inc/external-sandbox-v86)
+guest that mounts only `$FLEET_WORK` and has no network. Register it with
+`-harness 'pi-sbx=/path/to/sandbox/pi-v86.sh'`. Findings, gaps and next
+steps: [docs/sandbox.md](docs/sandbox.md).
+
 ## Tests
 
 ```sh
 gofmt -l . && go vet ./... && go test -race ./...
 bash e2e/smoke.sh   # two real fleetd processes, kill -9 mid-turn, restart
+FLEET_SANDBOX_DIR=~/fleet-tools bash e2e/sandbox.sh   # optional, see docs/sandbox.md
 ```
 
 - `core`: rules table, plus a seeded simulation of 3 nodes running random
