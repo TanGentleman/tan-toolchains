@@ -57,4 +57,19 @@ built=$(cat "$tmp/log" 2>/dev/null || true)
 contains 'build --no-cache -t pi-agent-lite:local --target agent' "$built" "build.sh passes target and tag"
 contains "-f $root/Dockerfile $root/.." "$built" "build.sh uses the repo root context"
 
+fleet=$(cd "$root/../fleet" && pwd -P)
+rm -f "$tmp/log"
+BUILD_LOG="$tmp/log" CONTAINER_CLI="$tmp/container" bash "$root/build.sh" fleet >/dev/null 2>&1
+built=$(cat "$tmp/log" 2>/dev/null || true)
+contains "run --rm -e GOTOOLCHAIN=local -e GOPROXY=off" "$built" "fleet build never fetches a toolchain or module"
+contains "-e GOOS=darwin -e GOARCH=arm64" "$built" "fleet build targets macOS arm64"
+contains "-v $fleet:/src:ro -v $fleet/bin:/out" "$built" "fleet source is read-only; only bin is written"
+contains "golang:" "$built" "fleet build uses the Go image"
+contains "@sha256:" "$built" "fleet Go image is pinned by digest"
+contains "go build -trimpath -o /out/fleetd ./cmd/fleetd" "$built" "fleet build compiles fleetd"
+rc 2 "fleet takes no options" env CONTAINER_CLI="$tmp/container" BUILD_LOG="$tmp/log" bash "$root/build.sh" fleet --no-cache
+image_go=$(sed -n 's/^fleet_go_image=golang:\([0-9.]*\)-.*/\1/p' "$root/build.sh")
+mod_go=$(sed -n 's/^go //p' "$fleet/go.mod")
+eq "$mod_go" "$(printf '%s\n%s\n' "$mod_go" "$image_go" | sort -V | head -n 1)" "the Go image ($image_go) is at least go.mod's Go ($mod_go)"
+
 finish

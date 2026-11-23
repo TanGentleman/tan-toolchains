@@ -4,3 +4,4 @@ zigpeek/zig-out/
 zigpeek/dist/
 enforcer/.zig-cache/
 enforcer/zig-out/
+fleet/bin/

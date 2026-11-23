@@ -131,6 +131,8 @@ Move these together:
 
 - `pi-container/Dockerfile`: base image digest, `PI_VERSION`, `ZIG_VERSION`,
   `NVIM_VERSION` + `NVIM_SHA256`, `ZLS_VERSION` + `ZLS_SHA256`.
+- `pi-container/build.sh`: `fleet_go_image` (Go image tag and digest for
+  `build.sh fleet`), at least `fleet/go.mod`'s `go` version.
 - `.github/workflows/test.yml`: `ZIG_VERSION`.
 - `zigpeek/build.zig.zon`: `minimum_zig_version` and `version`.
 - `zigpeek/src/version.zig`: `version`.

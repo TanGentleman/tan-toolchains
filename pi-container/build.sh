@@ -2,11 +2,17 @@
 # Build an image pack from the repo root context.
 #   build.sh [PACK] [container build options...]
 # PACK is one of: tools editor agent agent-gh full all (default: full).
+#   build.sh fleet
+# cross-compiles fleetd for macOS (arm64) in a pinned Go image, so the Mac
+# needs no Go. The binary lands in fleet/bin/fleetd.
 set -euo pipefail
 
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 . "$here/images.sh"
 cli="${CONTAINER_CLI:-container}"
+# Must be at least fleet/go.mod's go version; GOTOOLCHAIN=local refuses to
+# download a newer one.
+fleet_go_image=golang:1.27.4-bookworm@sha256:4fa7c968ba93f1635670522dbb01a2c78150443e1385746924566079f36570ea
 
 usage() {
   cat <<'EOF'
@@ -21,6 +27,8 @@ Packs:
   agent-gh   agent + gh
   full       agent-gh + Neovim + ZLS (default)
   all        build every pack
+  fleet      not an image: cross-compile fleetd for macOS arm64 into
+             fleet/bin/fleetd, inside a pinned Go image
 
 Tags: pi-tools:local, pi-editor:local, pi-agent-lite:local,
       pi-agent-gh:local, pi-agent:local.
@@ -38,6 +46,24 @@ command -v "$cli" >/dev/null 2>&1 || {
 
 pack=${1:-full}
 shift || true
+
+if [ "$pack" = fleet ]; then
+  [ $# -eq 0 ] || { echo "build.sh: fleet takes no options" >&2; exit 2; }
+  src=$(CDPATH= cd -- "$here/../fleet" && pwd -P)
+  want=$(sed -n 's/^go //p' "$src/go.mod")
+  have=${fleet_go_image#golang:}
+  have=${have%%-*}
+  if [ "$(printf '%s\n%s\n' "$want" "$have" | sort -V | head -n 1)" != "$want" ]; then
+    echo "build.sh: $fleet_go_image is Go $have; fleet/go.mod needs $want" >&2
+    exit 1
+  fi
+  mkdir -p "$src/bin"
+  printf 'build.sh: fleet -> %s/bin/fleetd (darwin/arm64, Go %s)\n' "$src" "$have" >&2
+  exec "$cli" run --rm -e GOTOOLCHAIN=local -e GOPROXY=off -e GOFLAGS=-mod=readonly -e CGO_ENABLED=0 \
+    -e GOOS=darwin -e GOARCH=arm64 -e GOCACHE=/tmp/go-cache \
+    -v "$src:/src:ro" -v "$src/bin:/out" -w /src \
+    "$fleet_go_image" go build -trimpath -o /out/fleetd ./cmd/fleetd
+fi
 if [ $# -gt 0 ]; then
   case $1 in
     -*) ;;
