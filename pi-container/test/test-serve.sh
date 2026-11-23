@@ -31,7 +31,9 @@ chmod +x "$bin/tailscale" "$bin/fleetd"
 port=$(python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1",0)); print(s.getsockname()[1])')
 
 reset() {
+  rm -f "$cfg/env"
   printf 'OPENROUTER_API_KEY=sk-or-v1-real\nGITHUB_TOKEN=github_pat_test\n' > "$cfg/env"
+  chmod 600 "$cfg/env"
   cp "$here/fixtures/tailscale/status.json" "$tmp/status.json"
   rm -rf "$world/fail"
   printf '[{"id":"sha256:t"}]' > "$world/images/pi-agent_local.json"
@@ -81,6 +83,10 @@ reset; printf 'OPENROUTER_API_KEY=sk-or-v1-placeholder\nGITHUB_TOKEN=x\n' > "$cf
 refuses "placeholder key" "set OPENROUTER_API_KEY in $cfg/env"
 reset; printf 'OPENROUTER_API_KEY=sk-or-v1-real\n' > "$cfg/env"; serve --check
 refuses "no GitHub token" "set GITHUB_TOKEN"
+reset; chmod 644 "$cfg/env"; serve --check
+refuses "env file mode 644" "$cfg/env must be mode 600"
+reset; chmod 400 "$cfg/env"; serve --check
+eq 0 "$(st)" "env file mode 400 passes: $(out)"
 reset; rm "$cfg/env"; serve --check
 refuses "no env file" "no env file"
 reset; extra="OPENROUTER_API_KEY=sk-or-v1-real"; serve --check; extra=""

@@ -4,8 +4,8 @@
 #   run.sh serve [--check] [fleetd flags]
 #
 # Checks Tailscale (logged in as a user, not a tagged device, HTTPS
-# certificates on), the container system, the agent image, the env file (real
-# OpenRouter key and GITHUB_TOKEN), that this shell does not hold the real
+# certificates on), the container system, the agent image, the env file (mode 600 or
+# 400, real OpenRouter key and GITHUB_TOKEN), that this shell does not hold the real
 # key, the fleetd binary and the port. If any check fails it prints all of
 # them and refuses to start. --check stops after the checks.
 #
@@ -22,6 +22,7 @@ set -uo pipefail
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 root=$(CDPATH= cd -- "$here/.." && pwd -P)
 . "$here/names.sh"
+. "$here/lib/paths.sh"
 cfg="${PI_CONFIG_DIR:-$(pi_default_config_dir)}"
 env_file="${PI_ENV_FILE:-$cfg/env}"
 cli="${CONTAINER_CLI:-container}"
@@ -78,6 +79,10 @@ else no "image $image is missing; run: $here/build.sh"; fi
 if [ ! -r "$env_file" ]; then
   no "no env file at $env_file; see pi-container/README.md"
 else
+  case $(pi_file_mode "$env_file") in
+    600|400) ok "$env_file is mode $(pi_file_mode "$env_file")" ;;
+    *) no "$env_file must be mode 600 (chmod 600 $env_file); run.sh refuses it otherwise" ;;
+  esac
   if grep -q '^OPENROUTER_API_KEY=.' "$env_file" && ! grep -q "^OPENROUTER_API_KEY=$placeholder[[:space:]]*$" "$env_file"; then
     ok "OpenRouter key is in $env_file, for the proxy"
   else no "set OPENROUTER_API_KEY in $env_file"; fi

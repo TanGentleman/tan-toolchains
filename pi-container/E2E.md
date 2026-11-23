@@ -230,7 +230,7 @@ st() { curl -s "$URL/v1/sessions/$1" | jq '{commit, base, repo, branch, sandbox,
 - [ ] `pic serve --check` prints only `ok` lines. Each of these prints its
       `FAIL` line and refuses: Tailscale logged out, HTTPS certificates off,
       `container system stop`, `PI_IMAGE=nope:local`, `GITHUB_TOKEN` removed
-      from the env file, `OPENROUTER_API_KEY=x pic serve --check`.
+      from the env file, `chmod 644` on the env file, `OPENROUTER_API_KEY=x pic serve --check`.
 - [ ] `caffeinate -i pic serve`; from the phone, spawn with repo
       `$owner/tan-toolchains-e2e`, branch empty, prompt `Create hello.txt
       containing hi.` The turn ends with `exited` code 0.

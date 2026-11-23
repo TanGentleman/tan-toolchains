@@ -18,6 +18,7 @@ pic=$(cd ../pi-container && pwd -P)
 cp "$pic/test/fixtures/tailscale/status.json" "$FAKE/status.json"
 mkdir -p "$HOME/.config/pi-container" "$tmp/world/images"
 printf 'OPENROUTER_API_KEY=sk-or-v1-real\nGITHUB_TOKEN=t\n' >"$HOME/.config/pi-container/env"
+chmod 600 "$HOME/.config/pi-container/env"
 printf '[{"id":"sha256:t"}]' >"$tmp/world/images/pi-agent_local.json"
 export CONTAINER_CLI=$pic/test/fake-container.sh FAKE_CONTAINER_WORLD=$tmp/world
 plist=$HOME/Library/LaunchAgents/dev.fleet.fleetd.plist
