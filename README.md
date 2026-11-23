@@ -15,11 +15,13 @@ images build everything.
 
 ## Docs
 
-- [pi-container/README.md](pi-container/README.md): setup, use, limits, and links to the configuration and operations docs.
+- [pi-container/README.md](pi-container/README.md): setup, use, limits, and its own docs index.
 - [fleet/docs/macos.md](fleet/docs/macos.md): fleet setup on a Mac, with a check per step.
 - [fleet/README.md](fleet/README.md): model, API, tests, and what is left out.
-- [pi-container/E2E.md](pi-container/E2E.md): manual macOS checklist.
-- [AGENTS.md](AGENTS.md): development rules, toolchain policy, and version pins.
+
+Layout: `pi-container/` and `fleet/` are the above. `zigpeek/` (Zig docs for
+Pi) and `enforcer/` (a Pi prompt hook) are built into the `full` image.
+Working on the repo: [AGENTS.md](AGENTS.md).
 
 ## Network boundary
 

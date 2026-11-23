@@ -82,6 +82,9 @@ Environment variables:
 
 ## Build and test
 
+pi-container builds it into the image; you need Zig 0.17.0 only to work on
+this directory.
+
 ```sh
 cd enforcer
 zig build test          # unit and CLI tests

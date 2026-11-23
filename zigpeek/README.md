@@ -1,7 +1,8 @@
 # zigpeek
 
 Zig stdlib and `@`-builtin docs read from the installed compiler. No network
-access, no bundled docs.
+access, no bundled docs. pi-container builds it into the image; you need Zig
+0.17.0 only to work on this directory.
 
 ```sh
 cd zigpeek

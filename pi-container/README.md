@@ -109,6 +109,10 @@ for contents and tags.
 | Neovim and ZLS only | `PI_IMAGE=pi-editor:local pic --manual` |
 | Separate state for a project | `PI_INSTANCE=work PI_IMAGE=pi-agent-lite:local pic --clone you/your-repo` |
 
+Pi uses [zigpeek](../zigpeek/README.md) for Zig API questions. The
+[enforcer](../enforcer/README.md) prompt hook ships off; its README shows how to
+turn it on for an instance.
+
 `/model` picks a model; `:free` costs nothing. `/quit` exits and deletes the Pi VM. Do not run `/login`; it saves a real key into the agent volume.
 
 The default mode mounts the current folder. Use it only for repos you trust; use `--clone` otherwise. `run.sh --help` lists the flags.
