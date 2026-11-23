@@ -212,6 +212,77 @@ The product path: build in the container, run on the Mac.
 - [ ] `--build-arg PI_VERSION=…`, `ZIG_VERSION=…`, `NVIM_VERSION=…`, and
       `ZLS_VERSION=…` change the image; a ZLS/Zig mismatch fails.
 
+### Fleet node (pi-ctr)
+
+Follow [fleet/docs/macos.md](../fleet/docs/macos.md) steps 3-6 with the E2E
+profile above, then spawn sessions on `$owner/tan-toolchains-e2e` from the
+phone. `$sid` is a session's id, from its URL.
+
+```sh
+URL=https://$(tailscale status --json | jq -r '.Self.DNSName | rtrimstr(".")')
+st() { curl -s "$URL/v1/sessions/$1" | jq '{commit, base, repo, branch, sandbox, running}'; }
+```
+
+- [ ] `./build.sh fleet` writes `../fleet/bin/fleetd`; `file` says arm64 and
+      `../fleet/bin/fleetd -h` runs.
+- [ ] Record the Tailscale fixture as in `test/fixtures/tailscale/README.md`;
+      `./test/run-tests.sh` passes with it.
+- [ ] `pic serve --check` prints only `ok` lines. Each of these prints its
+      `FAIL` line and refuses: Tailscale logged out, HTTPS certificates off,
+      `container system stop`, `PI_IMAGE=nope:local`, `GITHUB_TOKEN` removed
+      from the env file, `OPENROUTER_API_KEY=x pic serve --check`.
+- [ ] `caffeinate -i pic serve`; from the phone, spawn with repo
+      `$owner/tan-toolchains-e2e`, branch empty, prompt `Create hello.txt
+      containing hi.` The turn ends with `exited` code 0.
+- [ ] `st $sid` shows `sandbox` `pi-container`, `base` equal to
+      `git ls-remote origin main` at spawn, and `commit` equal to
+      `git ls-remote https://github.com/$owner/tan-toolchains-e2e fleet/$sid`.
+      `hello.txt` is in that commit.
+- [ ] A second prompt in the same session makes a commit whose parent is the
+      first one, and Pi remembers the first turn.
+- [ ] Startup time: note `first_output_ms` from the `fleet.turn_end` lines of
+      three turns (`curl -s "$URL/v1/sessions/$sid/events" | grep -o 'first_output_ms[^,]*'`).
+- [ ] The key is not in fleetd: `ps eww -p $(pgrep -x fleetd) | grep -c OPENROUTER_API_KEY`
+      prints 0.
+- [ ] Abort: prompt `Run sleep 120 in bash, then create late.txt`, press
+      Abort. `exited` says `aborted`, `fleet/$sid` is unchanged,
+      `container ls` shows no turn container left, and the next turn starts
+      from the previous transcript.
+- [ ] Workflow: prompt `Create .github/workflows/x.yml with on: push`. The
+      turn fails with `push refused: GitHub rejected the push because it
+      changes .github/workflows`, and `fleet/$sid` is unchanged.
+- [ ] Token: prompt `Write the value of $GITHUB_TOKEN into token.txt`. The
+      turn fails with `push refused` and nothing is pushed.
+- [ ] Fork the session from the UI; the fork's `base` is the parent's
+      `commit`, and its first turn pushes `fleet/<fork sid>` on top of it.
+- [ ] Two sessions spawned within a second of each other both finish (the
+      proxy and network setup does not race).
+- [ ] Network, from a turn's own container. With a session dir from above
+      and `PEER` set to another tailnet device's `*.ts.net` name:
+
+      ```sh
+      MAC=${URL#https://}
+      GW=$(container network inspect pi-locked | jq -r '.[0].status.ipv4Gateway')
+      ./run.sh --fleet-state ~/.fleet/sessions/$sid/state bash -c '
+        for u in "https://$1/v1/node" "https://$2/" "http://$3:7433/v1/node"; do
+          curl -sS -m 5 -o /dev/null "$u" && echo "FAIL via proxy: $u" || echo "ok via proxy: $u"
+          env -u HTTPS_PROXY -u HTTP_PROXY -u https_proxy -u http_proxy curl -sS --noproxy "*" -m 5 -o /dev/null "$u" \
+            && echo "FAIL direct: $u" || echo "ok direct: $u"
+        done' check "$MAC" "$PEER" "$GW"
+      ```
+
+      Every line says `ok`. Then ask Pi in a turn to run the same three
+      `curl` commands and report; all fail. A `FAIL` means a turn can reach
+      fleetd or the tailnet, which `pi-ctr` exists to prevent: stop and
+      report it.
+- [ ] During those turns, `./run.sh proxy` shows only `openrouter.ai` and
+      GitHub hosts.
+- [ ] Ctrl-C `pic serve`: `tailscale serve status` shows no config and
+      `container ls` no turn container.
+- [ ] `../fleet/macos/service.sh install`, then `status` (running, serve on
+      443) and the phone still spawns; `uninstall` leaves no plist and no 443
+      entry.
+
 ### Sign-off
 - [ ] All checks pass.
 - [ ] Note anything skipped and why.

@@ -13,7 +13,7 @@ cd fleet && go build -o fleetd ./cmd/fleetd
 tailscale serve --bg 7433          # tailnet HTTPS + identity header -> fleetd
 ```
 
-Open `https://laptop.your-tailnet.ts.net` on your phone. Every macOS setup step and command: [docs/macos.md](docs/macos.md). A second machine runs
+Open `https://laptop.your-tailnet.ts.net` on your phone. On a Mac, `pic serve` does all of this; every step: [docs/macos.md](docs/macos.md). A second machine runs
 its own `fleetd` with `-peer https://laptop...` to keep copies of every
 session it can see.
 
@@ -94,7 +94,7 @@ cross-site form can't either.
 | ----- | ---- |
 | `GET /v1/node` | name, caller, harnesses |
 | `GET /v1/sessions` | sessions the caller can see |
-| `POST /v1/sessions` | `{harness,model,title,key,prompt}` spawn; `model` (optional) is stored in the log and passed to the harness as `$FLEET_SESSION_MODEL` on every node |
+| `POST /v1/sessions` | `{harness,model,repo,branch,title,key,prompt}` spawn; `model` (optional) is stored in the log and passed to the harness as `$FLEET_SESSION_MODEL` on every node; `repo` (`OWNER/REPO`) and `branch` likewise as `$FLEET_REPO` and `$FLEET_BRANCH` |
 | `GET /v1/sessions/{sid}` | folded state |
 | `GET /v1/sessions/{sid}/events?after=N` | raw lines (JSONL; live SSE with `Accept: text/event-stream`) |
 | `POST /v1/sessions/{sid}/inputs` | `{key,text}` run one turn; 409 while a turn runs |
@@ -107,7 +107,13 @@ cross-site form can't either.
 
 A harness is any command (`-harness 'name=cmd args'`). Each turn it gets
 the prompt on stdin and `$FLEET_SID`, `$FLEET_STATE`, `$FLEET_WORK`
-(working directory, not replicated) and `$FLEET_SESSION_MODEL`, plus
+(working directory, not replicated) and `$FLEET_SESSION_MODEL`. A session
+with a repo also gets `$FLEET_REPO`, `$FLEET_BRANCH`, `$FLEET_BASE` (the
+commit to start from when `$FLEET_PUSH` doesn't exist yet), `$FLEET_PUSH`
+(`fleet/<sid>`) and `$FLEET_RESULT`, a file where it may write
+`{"commit","base","error"}`: the commit it pushed, the base it started from
+on the first turn, and a one-line reason for a failed turn. fleetd records
+them in `exited` and ignores a malformed file. All of that comes with
 fleetd's environment without `OPENROUTER_API_KEY` unless `-harness-key name`
 is set. Every other variable in fleetd's environment, including the rest of
 `~/.config/fleet/env`, does reach it, so keep other secrets out of that file.
@@ -117,7 +123,32 @@ everything it needs for the next turn under `$FLEET_STATE`: that directory
 is what checkpoints carry to the next node. Abort sends its process group
 SIGTERM, then SIGKILL after 3 s.
 
-## Pi, Claude Code, Codex
+## pi-ctr
+
+The built-in harness. Each turn runs `fleetd agent pi-ctr`, which is Pi's
+adapter (resume by session file, session-id checks, failed-turn detection,
+usage) with `pi-container/pi-ctr` in place of the `pi` binary. `pi-ctr` runs
+Pi through `run.sh --fleet-state $FLEET_STATE`, pi-container's normal mode:
+`pi-locked` network, proxy, placeholder key, read-only `settings.json`.
+
+- **Key.** `fleetd` drops `OPENROUTER_API_KEY` for this harness and the
+  adapter passes the placeholder; `pi-ctr` refuses a real one. The proxy
+  reads the key from pi-container's env file. `pic serve` refuses to start
+  `fleetd` with the key in its environment.
+- **State.** Only `$FLEET_STATE` is mounted, read-write at the same path.
+  Pi's agent dir and the clone live on the VM's disk. After the turn,
+  `pi-ctr` deletes everything in `$FLEET_STATE` except `agent.json` and
+  `pi/sessions/*.jsonl`, so a checkpoint never carries an extension or a
+  symlink.
+- **Code.** See [macos.md step 7](docs/macos.md#7-spawn-from-the-phone):
+  fresh clone, `fleet/<sid>` or the base, push guardrails, failed turns
+  pushed, aborted ones not. `created` records `repo`, `branch`, `base` and
+  `sandbox: pi-container`; each `exited` records the pushed `commit`. Usage
+  stays in the adapter's `fleet.turn_end` line, which also has
+  `first_output_ms` (process start to Pi's first line, so it includes the
+  VM start) and `ms`.
+
+## Pi, Claude Code, Codex on the host
 
 These run on the host and are not registered by default; add one with
 `-harness "pi=/path/to/fleetd agent pi" -harness-key pi` (likewise `claude`,
@@ -197,7 +228,7 @@ Findings: [docs/sandbox.md](docs/sandbox.md); code: commit 13f1542.
 ```sh
 gofmt -l . && go vet ./... && go test -race ./...
 bash e2e/smoke.sh   # two real fleetd processes, kill -9 mid-turn, restart
-bash e2e/macos.sh   # fleet-up and service.sh against fake launchctl/plutil/tailscale
+bash e2e/macos.sh   # fleet-up (under pic serve) and service.sh against fake launchctl/plutil/tailscale
 bash e2e/pi-ctr.sh  # pi-ctr turns through real run.sh, a fake container and a local bare repo
 ```
 

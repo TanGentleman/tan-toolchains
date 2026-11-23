@@ -82,7 +82,14 @@ pic --manual --clone you/your-repo
 PI_CLONE=you/your-repo pic --manual
 
 pic --allow-egress       # Pi with full network egress, no proxy (trusted repos only)
+
+pic serve                # fleetd on your tailnet; spawn Pi sessions from your phone
 ```
+
+`pic serve` runs this Mac as a [fleet](../fleet/README.md) node whose turns
+are headless Pi runs in this container (`pi-ctr`, through
+`run.sh --fleet-state`), each on a fresh clone that is pushed to a
+`fleet/<session>` branch. Setup: [fleet/docs/macos.md](../fleet/docs/macos.md).
 
 A trailing command runs in the normal Pi container instead of `pi`. For example,
 `pic bash` has the proxy, settings, and agent volume mounted; `pic --manual` has
@@ -146,3 +153,4 @@ The default mode mounts the current folder. Use it only for repos you trust; use
 - Zig 0.17's `std.http.Client` mishandles HTTPS through a CONNECT proxy, so dev-time `zig fetch` inside the container can fail. This is a container limitation, not a reason to add network code to a shipped tool.
 - `run.sh` refuses to mount `~`, `/`, ancestors of `~`, secrets directories, or anything overlapping the current/default config directory or its env/settings files.
 - `--clone` keeps the repo in a volume until you `git push`; uncommitted changes stay outside. Clone volumes are named per profile and instance.
+- `--fleet-state DIR` (used by `pi-ctr`) keeps no volume: the clone and Pi's agent dir go with the VM, and only `DIR`, a real directory below `~/.fleet/sessions`, is mounted.
