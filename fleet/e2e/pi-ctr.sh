@@ -5,6 +5,9 @@
 # bare repo standing in for GitHub through git's insteadOf. Also: owners
 # only, retries, abort, and kill -9 of fleetd in the middle of a turn.
 set -euo pipefail
+# Hermetic: an inherited PI_* (E2E.md exports PI_CONFIG_DIR and PI_ENV_FILE)
+# would point run.sh at a real profile and its env file.
+for v in $(compgen -v PI_); do unset "$v"; done
 cd "$(dirname "$0")/.."
 fleet=$(pwd -P)
 pic=$(cd ../pi-container && pwd -P)
