@@ -17,6 +17,8 @@
   .ev { padding: 0.2rem 0; border-bottom: 1px solid #8882; }
   .input { color: #2a7; } .meta { opacity: 0.6; } .err { color: #c33; }
   .bar { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+  .hint { margin: -0.3rem 0 0.6rem; font-size: 0.9rem; opacity: 0.75; }
+  .hint b { font-weight: 600; }
 </style>
 <header><h1><a href="#">fleet</a></h1><small id="who"></small></header>
 <main id="main"></main>
@@ -37,25 +39,32 @@ function fail(e) { main.prepend($(`<p class="err">${esc(e.message || e)}</p>`));
 async function home() {
   const list = await api("GET", "/v1/sessions");
   main.replaceChildren();
-  {
-    const f = $(`<form>
-      <input name="repo" placeholder="owner/repo (optional)" autocapitalize="off">
-      <input name="branch" placeholder="branch (default: the repo's default)" autocapitalize="off">
-      <input name="model" placeholder="model (optional)">
-      <input name="prompt" placeholder="first prompt" required><button>Spawn</button></form>`);
-    f.onsubmit = async (e) => {
-      e.preventDefault();
-      const d = new FormData(f);
-      try { const r = await api("POST", "/v1/sessions", { model: d.get("model").trim(), repo: d.get("repo").trim(), branch: d.get("branch").trim(), title: d.get("prompt").slice(0, 60), key: key(), prompt: d.get("prompt") }); location.hash = r.sid; } catch (e) { fail(e); }
-    };
-    main.append(f);
-  }
+  const f = $(`<form>
+    <input name="repo" placeholder="owner/repo" autocapitalize="off">
+    <input name="branch" placeholder="branch (blank: default branch)" autocapitalize="off">
+    <input name="model" placeholder="model (default: settings.json's)">
+    <input name="prompt" placeholder="first prompt" required><button>Spawn</button></form>`);
+  const hint = $(`<p class="hint"></p>`);
+  const explain = () => {
+    const repo = f.elements.repo.value.trim();
+    hint.innerHTML = repo
+      ? `Each turn clones <b>${esc(repo)}</b> and pushes to <b>fleet/&lt;session&gt;</b>.`
+      : `<b>No repo: scratch.</b> Files Pi writes are gone after each turn; only the transcript is kept.`;
+  };
+  f.elements.repo.oninput = explain;
+  explain();
+  f.onsubmit = async (e) => {
+    e.preventDefault();
+    const d = new FormData(f);
+    try { const r = await api("POST", "/v1/sessions", { model: d.get("model").trim(), repo: d.get("repo").trim(), branch: d.get("branch").trim(), title: d.get("prompt").slice(0, 60), key: key(), prompt: d.get("prompt") }); location.hash = r.sid; } catch (e) { fail(e); }
+  };
+  main.append(f, hint);
   const ul = $("<ul></ul>");
   for (const s of list) {
     const where = s.running ? "turn running" : "idle";
-    ul.append($(`<li><a href="#${s.sid}">${esc(s.title || s.sid)}<br><small>${esc(s.owner)} · ${where} · ${s.head} events${s.usage && s.usage.input ? ` · ${s.usage.input}/${s.usage.output} tok` : ""}${s.repo ? ` · ${esc(s.repo)}${s.commit ? "@" + esc(s.commit.slice(0, 8)) : ""}` : ""}${s.fork_of ? " · fork" : ""}</small></a></li>`));
+    ul.append($(`<li><a href="#${s.sid}">${esc(s.title || s.sid)}<br><small>${esc(s.owner)} · ${where} · ${s.head} events${s.usage && s.usage.input ? ` · ${s.usage.input}/${s.usage.output} tok` : ""}${s.repo ? ` · ${esc(s.repo)}${s.commit ? "@" + esc(s.commit.slice(0, 8)) : ""}` : " · scratch"}${s.fork_of ? " · fork" : ""}</small></a></li>`));
   }
-  if (!list.length) ul.append($(`<li class="dim">No sessions you can see yet.</li>`));
+  if (!list.length) ul.append($(`<li class="dim">No sessions yet.</li>`));
   main.append(ul);
 }
 
@@ -74,6 +83,9 @@ async function view(sid) {
   const st = await api("GET", `/v1/sessions/${sid}`);
   main.replaceChildren();
   main.append($(`<p><b>${esc(st.title || sid)}</b><br><small>${esc(sid)} · owner ${esc(st.owner)}${st.running ? " · turn running" : ""}${st.fork_of ? ` · forked from <a href="#${st.fork_of}">${esc(st.fork_of)}</a>` : ""}</small></p>`));
+  main.append(st.repo
+    ? $(`<p class="hint">${esc(st.repo)} · pushes to <b>fleet/${esc(sid)}</b>${st.commit ? ` · last push ${esc(st.commit.slice(0, 12))}` : ""}</p>`)
+    : $(`<p class="hint"><b>Scratch session:</b> no repo, so files Pi writes are gone after each turn. Fork keeps only the transcript.</p>`));
   const bar = $(`<div class="bar"></div>`);
   const btn = (label, fn) => { const b = $(`<button>${label}</button>`); b.onclick = () => fn().then(() => view(sid)).catch(fail); bar.append(b); };
   if (st.running) btn("Abort", () => api("POST", `/v1/sessions/${sid}/abort`));
