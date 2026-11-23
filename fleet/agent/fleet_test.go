@@ -202,7 +202,7 @@ func TestLive(t *testing.T) {
 
 // Cheap defaults for live runs; override with FLEET_LIVE_<KIND>_MODEL.
 var liveModels = func() map[string]string {
-	m := map[string]string{"pi": "deepseek/deepseek-v4.1-flash", "claude": "anthropic/claude-haiku-4.5", "codex": "openai/gpt-5.1-codex-mini"}
+	m := map[string]string{"pi": "thinkingmachines/inkling-2-small", "claude": "anthropic/claude-haiku-5.5", "codex": "openai/gpt-6-luna"}
 	for k := range m {
 		if v := os.Getenv("FLEET_LIVE_" + strings.ToUpper(k) + "_MODEL"); v != "" {
 			m[k] = v

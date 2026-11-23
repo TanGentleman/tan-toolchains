@@ -356,7 +356,7 @@ func TestBackgroundPull(t *testing.T) {
 
 func TestModelFollowsSessionAndForks(t *testing.T) {
 	a := startNode(t, "a", t.TempDir())
-	sid, err := a.Spawn("tan", "k1", "hello", core.CreatedData{Harness: "fake", Model: "openai/gpt-5-nano", Title: "demo"})
+	sid, err := a.Spawn("tan", "k1", "hello", core.CreatedData{Harness: "fake", Model: "openai/gpt-6-luna", Title: "demo"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -366,7 +366,7 @@ func TestModelFollowsSessionAndForks(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, id := range []string{sid, fid} {
-		if st, _ := a.State("tan", id); st.Model != "openai/gpt-5-nano" {
+		if st, _ := a.State("tan", id); st.Model != "openai/gpt-6-luna" {
 			t.Fatalf("%s model = %q", id, st.Model)
 		}
 	}

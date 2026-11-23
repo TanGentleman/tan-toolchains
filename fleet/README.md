@@ -155,7 +155,7 @@ whole home under `$FLEET_STATE`, so a checkpoint carries the conversation.
 
 ```sh
 export OPENROUTER_API_KEY=sk-or-...           # stays on the node; scrubbed from output
-export FLEET_MODEL=deepseek/deepseek-v4.1-flash    # or FLEET_PI_MODEL, FLEET_CLAUDE_MODEL, ...
+export FLEET_MODEL=thinkingmachines/inkling-2-small  # or FLEET_PI_MODEL, FLEET_CLAUDE_MODEL, ...
 ./fleetd -name laptop -owner you@github ...   # then spawn with harness "claude"
 ```
 

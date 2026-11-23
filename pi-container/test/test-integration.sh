@@ -169,7 +169,7 @@ case_normal_run() {
   settings=$(cat "$cfg/settings.json" 2>/dev/null || true)
   contains 'lastChangelogVersion' "$settings" "settings seeds lastChangelogVersion"
   contains '1.4.0' "$settings" "settings version comes from image env"
-  contains 'deepseek/deepseek-v4.1-flash-1017' "$settings" "default model seeded"
+  contains 'thinkingmachines/inkling-2-small' "$settings" "default model seeded"
   [ -f "$cfg/private/proxy.env" ] && pass || fail "proxy.env was not written"
   [ -f "$cfg/pi.env" ] && pass || fail "pi.env was not written"
   eq 600 "$(stat -Lc %a "$cfg/pi.env" 2>/dev/null || stat -Lf %Lp "$cfg/pi.env")" "pi.env is mode 600"

@@ -60,7 +60,7 @@ on the Mac; changes apply on the next launch.
 | Setting | Default | Notes |
 | --- | --- | --- |
 | `defaultProvider` | `openrouter` | Pi provider. |
-| `defaultModel` | `deepseek/deepseek-v4.1-flash-1017` | Pi model. |
+| `defaultModel` | `thinkingmachines/inkling-2-small` | Pi model. |
 | `lastChangelogVersion` | Image Pi version | Set from `PI_CONTAINER_PI_VERSION`, or the Dockerfile version when the image records none. Stops Pi from updating it. |
 
 If you rebuild with another `PI_VERSION`, update `lastChangelogVersion` in an

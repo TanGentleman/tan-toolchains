@@ -332,7 +332,7 @@ func readResult(path, base string) (r core.ExitedData, bad string) {
 	return core.ExitedData{Commit: v.Commit, Base: v.Base, Reason: v.Error}, ""
 }
 
-// validModel accepts ids like "anthropic/claude-haiku-4.5" or "".
+// validModel accepts ids like "anthropic/claude-haiku-5.5" or "".
 func validModel(m string) bool {
 	if len(m) > 200 {
 		return false

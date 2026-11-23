@@ -458,7 +458,7 @@ ensure_settings() {
   "\$schema": "https://pi.dev/schemas/settings.schema.json",
   "lastChangelogVersion": "$pi_version",
   "defaultProvider": "openrouter",
-  "defaultModel": "deepseek/deepseek-v4.1-flash-1017"
+  "defaultModel": "thinkingmachines/inkling-2-small"
 }
 EOF
   )
