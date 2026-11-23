@@ -1,51 +1,24 @@
 # tan-toolchains
 
-One tool per directory.
+Run Pi agents in Apple `container` VMs on your Mac, each locked to a proxy that
+allows only GitHub and OpenRouter, and start them from your phone.
 
-| Tool | What it is |
-| ---- | ---------- |
-| [`zigpeek/`](zigpeek/) | Zig stdlib + `@`-builtin docs from your installed compiler. No network. |
-| [`enforcer/`](enforcer/) | A Pi prompt hook that blocks a pasted GitHub token. No network. |
-| [`pi-container/`](pi-container/) | Pi in an Apple `container` VM behind an egress proxy, with Zig, Neovim, ZLS, zigpeek, and enforcer. |
-| [`fleet/`](fleet/) | `fleetd`: spawn, record and fork Pi sessions on one machine, driven from any tailnet device. |
+## Setup
 
-## Quick start
+You need an Apple silicon Mac on macOS 26 with Homebrew, `container` and `jq`,
+and an OpenRouter key. Nothing else goes on the Mac: no Zig, Go or Node; the
+images build everything.
 
-Each tool has its own setup. Start with the one you want:
-
-| To | You need | Follow |
-| --- | --- | --- |
-| Run Pi in a VM on your Mac | Apple silicon, macOS 26, Homebrew, an OpenRouter key; optionally a [GitHub token](pi-container/docs/configuration.md#host-env-file) | [pi-container setup](pi-container/README.md#setup) |
-| Start Pi sessions from your phone | the above, plus Tailscale; no Go | [fleet on macOS](fleet/docs/macos.md), every step with a check |
-| Build zigpeek or enforcer on the host | [Zig 0.17.0](#zig-0170) | [zigpeek](zigpeek/README.md), [enforcer](enforcer/README.md#build-and-test) |
-
-pi-container and fleet need no host Zig: the image builds zigpeek and
-enforcer with its own.
-
-## Zig 0.17.0
-
-zigpeek, enforcer and the image pin Zig 0.17.0. Use a package manager's Zig
-only if `zig version` prints `0.17.0`. Otherwise download it from
-ziglang.org and verify it with [minisign](https://jedisct1.github.io/minisign/)
-and Zig's key (the same key `pi-container/Dockerfile` uses):
-
-```sh
-v=0.17.0 t=aarch64-macos   # or x86_64-macos, x86_64-linux, aarch64-linux
-curl -fLO "https://ziglang.org/download/$v/zig-$t-$v.tar.xz"
-curl -fLO "https://ziglang.org/download/$v/zig-$t-$v.tar.xz.minisig"
-minisign -Vm "zig-$t-$v.tar.xz" -P RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U
-tar -xJf "zig-$t-$v.tar.xz"   # then put zig-$t-$v/ on PATH
-zig version                   # 0.17.0
-```
+- Pi in a VM: [pi-container setup](pi-container/README.md#setup).
+- Pi sessions from your phone, which adds Tailscale:
+  [fleet on macOS](fleet/docs/macos.md), every step with a check.
 
 ## Docs
 
-- [zigpeek/README.md](zigpeek/README.md): commands, build, and the stdlib index.
-- [enforcer/README.md](enforcer/README.md): the Pi prompt hook, policy, and safety rules.
 - [pi-container/README.md](pi-container/README.md): setup, use, limits, and links to the configuration and operations docs.
-- [fleet/docs/macos.md](fleet/docs/macos.md): fleet setup on a Mac, from zero, with a check per step.
-- [pi-container/E2E.md](pi-container/E2E.md): manual macOS checklist.
+- [fleet/docs/macos.md](fleet/docs/macos.md): fleet setup on a Mac, with a check per step.
 - [fleet/README.md](fleet/README.md): model, API, tests, and what is left out.
+- [pi-container/E2E.md](pi-container/E2E.md): manual macOS checklist.
 - [AGENTS.md](AGENTS.md): development rules, toolchain policy, and version pins.
 
 ## Network boundary

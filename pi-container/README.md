@@ -6,20 +6,16 @@ Run [Pi](https://pi.dev) on OpenRouter in an Apple [`container`](https://github.
 
 The default `full` image has Pi, git, gh, ripgrep, fd, Zig 0.17.0, Neovim 0.12.6, ZLS 0.17.0, zigpeek, and enforcer. Other packs omit Pi, gh, or the editor tools; see [Image packs](docs/configuration.md#image-packs). Zig's cache is prewarmed. Images are aarch64-only and fail early on other architectures.
 
-`zigpeek` answers Zig API questions offline from the compiler's own docs; its
-skill file tells Pi to use it. See [../zigpeek/README.md](../zigpeek/README.md).
-
-`enforcer` is a Pi prompt hook that blocks a pasted GitHub token. It is
-installed but disabled. See [../enforcer/README.md](../enforcer/README.md).
-
 ## Setup
 
-Run these commands from `pi-container/`. Requires macOS 26, Apple silicon,
-`container`, and `jq`.
+Requires macOS 26, Apple silicon, Homebrew, `container`, and `jq`; nothing
+else on the Mac. The image builds its own tools.
 
 ```bash
 brew install container jq
 container system start
+git clone https://github.com/TanGentleman/tan-toolchains
+cd tan-toolchains/pi-container
 
 mkdir -p ~/.config/pi-container
 cat > ~/.config/pi-container/env <<'EOF'
@@ -111,23 +107,9 @@ for contents and tags.
 | Everything, with `gh` | `pic --clone you/your-repo` |
 | No `gh`, tokenless | `PI_IMAGE=pi-agent-lite:local pic --clone you/your-repo` |
 | Neovim and ZLS only | `PI_IMAGE=pi-editor:local pic --manual` |
-| Zig tools only | `PI_IMAGE=pi-tools:local pic bash` |
 | Separate state for a project | `PI_INSTANCE=work PI_IMAGE=pi-agent-lite:local pic --clone you/your-repo` |
 
 `/model` picks a model; `:free` costs nothing. `/quit` exits and deletes the Pi VM. Do not run `/login`; it saves a real key into the agent volume.
-
-To enable the prompt hook for an instance, run `enforcer on` in its agent
-volume, then restart Pi:
-
-```bash
-./run.sh bash
-enforcer on
-# exit, then start Pi again
-./run.sh
-```
-
-`enforcer off` removes it. The hook is per-instance because the extension lives
-in the agent volume.
 
 The default mode mounts the current folder. Use it only for repos you trust; use `--clone` otherwise. `run.sh --help` lists the flags.
 
