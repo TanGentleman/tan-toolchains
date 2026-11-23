@@ -26,6 +26,7 @@ cat > ~/.config/pi-container/env <<'EOF'
 OPENROUTER_API_KEY=
 
 # Optional: GitHub and commit identity. The agent/editor packs do not need these.
+# Token scope: docs/configuration.md#host-env-file
 # GITHUB_TOKEN=
 # GIT_AUTHOR_NAME=
 # GIT_AUTHOR_EMAIL=

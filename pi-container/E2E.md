@@ -16,17 +16,13 @@ active image, which you rebuild by hand in Build and keys.
 ## Setup
 
 Use a disposable repo and a separate fine-grained token so the test never
-touches your main repo.
+touches your main repo. On github.com, create a private repo named
+`tan-toolchains-e2e` with a README, and a fine-grained token for only that
+repo with the [usual scope](docs/configuration.md#host-env-file). Then isolate
+the test:
 
 ```sh
-owner=$(gh api user -q .login)
-gh repo create "$owner/tan-toolchains-e2e" --private --add-readme
-```
-
-Create a fine-grained token for only that repo: Contents: Read and write;
-Metadata: Read. Keep Workflows off. Then isolate the test:
-
-```sh
+owner=your-github-login
 export PI_CONFIG_DIR="$(mktemp -d)"
 export PI_ENV_FILE="$PI_CONFIG_DIR/env"
 export PI_BACKUP_DIR="$(mktemp -d)"

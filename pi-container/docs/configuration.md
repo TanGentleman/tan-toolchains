@@ -33,7 +33,7 @@ requires it for the OpenRouter key; manual mode does not require it.
 | Key | Used by | Notes |
 | --- | --- | --- |
 | `OPENROUTER_API_KEY` | `pi-proxy`, `--allow-egress` | Required for normal Pi, `proxy`, and `--allow-egress`. Pi receives `sk-or-v1-placeholder` in normal mode; the proxy adds the real key. Egress mode passes the real key in `private/egress.env`. Set a credit limit. |
-| `GITHUB_TOKEN` | Pi, `check` | Optional. Use a fine-grained, one-repo token with Contents and Pull requests: Read and write. Keep Workflows off. |
+| `GITHUB_TOKEN` | Pi, `check` | Optional. Fine-grained, **Only select repositories**, **Contents: Read and write**, nothing else: not Workflows, not Administration (Metadata: Read is added for you). Add **Pull requests: Read and write** only if Pi should open PRs with `gh`; fleet doesn't. Anything in the VM can use it to push any branch of those repos, so protect your default branch with a ruleset. |
 | `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL` | Pi | Optional commit identity. |
 | `GIT_COMMITTER_NAME`, `GIT_COMMITTER_EMAIL` | Pi | Optional; set only when the committer differs from the author. |
 

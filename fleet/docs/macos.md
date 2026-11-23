@@ -67,16 +67,10 @@ prints `FAIL` and builds nothing.
 ## 4. Keys
 
 Make a GitHub **fine-grained** token (Settings → Developer settings →
-Fine-grained tokens):
-
-- Repository access: **Only select repositories**: the ones agents may push to.
-- Permissions: **Contents: Read and write**. Nothing else: **not Workflows**,
-  **not Administration**.
-
-The token is inside the VM, so anything a turn runs can use it: it can push
-any branch of those repos, but not `.github/workflows` changes, settings or
-branch protection. Protect your default branch with a ruleset if a turn must
-never touch it.
+Fine-grained tokens) for the repos agents may push to, with the scope in
+[configuration.md](../../pi-container/docs/configuration.md#host-env-file):
+Contents: Read and write, nothing else. The token is inside the VM, so
+anything a turn runs can use it.
 
 ```sh
 mkdir -p ~/.config/pi-container
