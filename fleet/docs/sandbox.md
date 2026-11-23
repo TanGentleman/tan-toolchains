@@ -1,10 +1,14 @@
-# External sandboxes: findings and next steps
+# External sandboxes: findings (archived)
+
+**Archived.** `pi-ctr` now runs Pi itself, not just its tools, in
+pi-container's VM, so the `pi-sbx` harness and its test were removed. The
+code is at commit 13f1542 (`fleet/sandbox/pi-v86.sh`, `fleet/e2e/sandbox.sh`).
+The findings below are kept as they were when that commit was tested.
 
 Notes from reading Prime Radiant's [External sandboxes for coding agents][post]
 and its source, and from running one of its sandboxes under `fleetd`. The
-short version: the pattern fits fleet with no change to `fleetd`, because a
-harness is already any command. `sandbox/pi-v86.sh` is a working, experimental
-harness, and `e2e/sandbox.sh` tests it without a key.
+pattern fit fleet with no change to `fleetd`, because a harness is already
+any command.
 
 Source read (commits as cloned on 2026-11-23): [external-sandbox][es] `0681c98`
 (protocol and conformance runner), [external-sandbox-v86][v86] `4134917`,
@@ -96,47 +100,8 @@ turn fails.
 
 ## Next steps
 
-In order. Each is small, and you can stop after any of them.
-
-1. **Run `e2e/sandbox.sh` on a Mac.** Install as in
-   [macos.md step 12](macos.md#12-optional-run-pis-tools-in-a-sandbox-experimental),
-   then `FLEET_SANDBOX_DIR=~/fleet-tools bash e2e/sandbox.sh`. Pass this
-   before relying on `pi-sbx`.
-2. **Log the sandbox in the session.** Have `pi-v86.sh` print one
-   `{"type":"fleet.sandbox", ...}` line with backend, protocol revision,
-   mounts and `network` from `/health` before Pi starts. Harness stdout is
-   already forwarded into `events.jsonl`, so no `fleetd` change.
-3. **Apple Containers backend.** Same wrapper with
-   `uvx external-sandbox-container` (default port 8687, `--network none`,
-   `--cap-drop ALL`, [ctr]). Needs `container system start` and a first
-   image build with network. Compare turn time against v86.
-4. **Keep the key out of Pi's process too.** Combine with the loopback proxy
-   in [macos.md step 11](macos.md#11-optional-keep-the-real-key-out-of-fleetd)
-   so Pi holds only the placeholder. Then neither the host process nor the
-   guest has the real key.
-5. **One guest per session, not per turn,** if boot time matters. A small
-   local supervisor keyed by `$FLEET_SID` that starts a guest on first use
-   and stops it after idle. Keep guest state disposable so checkpoints stay
-   the only state.
-6. **Scoped network when needed.** For tasks that need GitHub or a package
-   registry, use v86's `--proxy-config` with exact origins, methods and paths,
-   and `secretEnv` credentials ([v86 proxy docs][v86proxy]). Keep the default
-   network-free harness, and add this as a second harness name so the choice
-   is visible per session.
-7. **Run the conformance suite** from [external-sandbox][es] against whichever
-   backend is used, pinned to a version, as an opt-in e2e like `lens.sh`.
-8. **Codex next, Claude last.** Codex can use `/codex` ([codex setup][escodex]).
-   Claude stays unsandboxed or runs in `pi-container` until its file tools
-   can be redirected.
-9. **Trajectories.** fleet already replicates every event and checkpoint
-   between peers, so it does not need [agent-session-archiver][asa]. Its
-   layout (user, host, project, harness, trace id; old versions kept) is a
-   reasonable export format for sessions run outside fleet. Pair it with the
-   Lens/LangGraph trace-id work from the earlier Lens notes.
-
-Do not: mount `$FLEET_STATE` or the whole data folder, drop
-`--no-builtin-tools`, add network to the default harness, or call any of
-this a security boundary before step 7 and a review.
+None planned. If a host harness needs its tools sandboxed again, start from
+13f1542 and the gaps above.
 
 [post]: https://blog.primeradiant.com/external-sandboxes-for-coding-agents/
 [es]: https://github.com/prime-radiant-inc/external-sandbox

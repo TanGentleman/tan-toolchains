@@ -12,7 +12,7 @@ go build -o "$tmp/fleetd" ./cmd/fleetd
 
 A=http://127.0.0.1:17431 B=http://127.0.0.1:17432
 start() { # name port
-  "$tmp/fleetd" -name "$1" -url "http://127.0.0.1:$2" -data "$tmp/$1" -listen "127.0.0.1:$2" -owner tan 2>>"$tmp/$1.log" &
+  "$tmp/fleetd" -name "$1" -url "http://127.0.0.1:$2" -data "$tmp/$1" -listen "127.0.0.1:$2" -owner tan -harness "fake=$tmp/fleetd fake" 2>>"$tmp/$1.log" &
   pids+=($!)
   for _ in $(seq 50); do curl -fs -H 'Tailscale-User-Login: tan' "http://127.0.0.1:$2/v1/node" >/dev/null && return; sleep 0.1; done
   cat "$tmp/$1.log"; exit 1

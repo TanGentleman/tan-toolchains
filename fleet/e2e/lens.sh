@@ -18,7 +18,7 @@ KEY=sk-or-v1-fake OR=127.0.0.1:17488 F=127.0.0.1:17433
 "$tmp/fakeor" -listen $OR -trap 127.0.0.1:17489 -key $KEY >"$tmp/fakeor.log" 2>&1 &
 pids+=($!)
 OPENROUTER_API_KEY=$KEY FLEET_OPENROUTER_BASE=http://$OR/api \
-  "$tmp/fleetd" -name lens -url http://$F -data "$tmp/node" -listen $F -owner tan 2>"$tmp/fleetd.log" &
+  "$tmp/fleetd" -name lens -url http://$F -data "$tmp/node" -listen $F -owner tan -harness "pi=$tmp/fleetd agent pi" -harness-key pi 2>"$tmp/fleetd.log" &
 pids+=($!)
 for _ in $(seq 50); do curl -fs -H 'Tailscale-User-Login: tan' http://$F/v1/node >/dev/null && break; sleep 0.1; done
 

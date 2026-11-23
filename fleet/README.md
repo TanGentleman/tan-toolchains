@@ -9,7 +9,7 @@ fork a session no matter where it started. Go standard library only.
 ```sh
 cd fleet && go build -o fleetd ./cmd/fleetd
 ./fleetd -name laptop -url https://laptop.your-tailnet.ts.net -owner you@github \
-  -harness 'mine=/path/to/adapter'   # built in: fake, pi, claude, codex
+  -harness 'mine=/path/to/adapter'   # built in: pi-ctr
 tailscale serve --bg 7433          # tailnet HTTPS + identity header -> fleetd
 ```
 
@@ -65,19 +65,23 @@ Rules the code enforces, each with a test:
 ## What access means
 
 Harnesses run as the user running `fleetd`, with no sandbox unless the
-harness adds one (`pi-sbx` covers only Pi's tool calls). So:
+harness adds one. `pi-ctr` runs Pi in pi-container's VM; a custom
+`-harness` runs on the Mac. So:
 
 - **A `-spawner` can run any command as you** and spend your OpenRouter key:
-  spawning `pi`, `claude` or `codex` lets them ask the agent to do anything.
+  a `pi-ctr` turn can do anything inside its container and push to
+  `fleet/<sid>`; a host harness such as `fleetd agent pi` can do anything.
 - **A `steer` or `admin` share of a session is the same,** for that session:
   its next turn runs whatever they ask. `view` is read only, but shows every
   file and command output the agent saw.
 - **Loopback is the credential.** `fleetd` believes `Tailscale-User-Login`
   on any request to its loopback port that passes the `Host` check. Any
-  process on the machine can send one, including an agent in a turn, so a
-  plain `pi`, `claude` or `codex` turn can act as the owner: spawn, read or
-  share any session. Give spawners and `steer` only to people you would give
-  a shell, and use `pi-sbx` for prompts you don't trust.
+  process on the machine can send one, including an agent in a host
+  harness's turn, so such a turn can act as the owner: spawn, read or share
+  any session. A `pi-ctr` turn's network is pi-locked, which is meant to
+  stop it reaching the Mac's port 7433 (checked on a Mac in
+  pi-container/E2E.md). Give spawners and `steer` only to people you would
+  give a shell.
 
 ## API
 
@@ -107,7 +111,7 @@ the prompt on stdin and `$FLEET_SID`, `$FLEET_STATE`, `$FLEET_WORK`
 fleetd's environment without `OPENROUTER_API_KEY` unless `-harness-key name`
 is set. Every other variable in fleetd's environment, including the rest of
 `~/.config/fleet/env`, does reach it, so keep other secrets out of that file.
-A custom name can't reuse a built-in one (`fake`, `pi`, `claude`, `codex`).
+A custom name can't reuse the built-in `pi-ctr`.
 It must keep
 everything it needs for the next turn under `$FLEET_STATE`: that directory
 is what checkpoints carry to the next node. Abort sends its process group
@@ -115,8 +119,9 @@ SIGTERM, then SIGKILL after 3 s.
 
 ## Pi, Claude Code, Codex
 
-`fleetd` registers `pi`, `claude` and `codex` as harnesses. Each runs
-`fleetd agent KIND` (package `agent`) once per turn, which runs the CLI in its
+These run on the host and are not registered by default; add one with
+`-harness "pi=/path/to/fleetd agent pi" -harness-key pi` (likewise `claude`,
+`codex`). Each runs `fleetd agent KIND` (package `agent`) once per turn, which runs the CLI in its
 headless JSON mode, forwards every stdout line unchanged, and keeps the CLI's
 whole home under `$FLEET_STATE`, so a checkpoint carries the conversation.
 
@@ -181,15 +186,11 @@ log shows no GitHub tunnels and no denials. `TestBehindV5Proxy` runs the real
 `proxy.py` on loopback against `fakeor`, which accepts only the key the proxy
 holds; `TestLiveBehindV5Proxy` does the same against openrouter.ai.
 
-### Pi with its tools in a sandbox (experimental)
+### Pi with its tools in a sandbox (archived)
 
-`sandbox/pi-v86.sh` is a harness that runs Pi on the host with
-[external-sandbox-pi](https://github.com/prime-radiant-inc/external-sandbox-pi)
-and `--no-builtin-tools`, so every tool call runs in a fresh
-[external-sandbox-v86](https://github.com/prime-radiant-inc/external-sandbox-v86)
-guest that mounts only `$FLEET_WORK` and has no network. Register it with
-`-harness 'pi-sbx=/path/to/sandbox/pi-v86.sh' -harness-key pi-sbx`. Findings, gaps and next
-steps: [docs/sandbox.md](docs/sandbox.md).
+The experimental `pi-sbx` harness (Pi on the host, its tools in an
+external-sandbox-v86 guest) was removed once `pi-ctr` put Pi itself in a VM.
+Findings: [docs/sandbox.md](docs/sandbox.md); code: commit 13f1542.
 
 ## Tests
 
@@ -197,7 +198,7 @@ steps: [docs/sandbox.md](docs/sandbox.md).
 gofmt -l . && go vet ./... && go test -race ./...
 bash e2e/smoke.sh   # two real fleetd processes, kill -9 mid-turn, restart
 bash e2e/macos.sh   # fleet-up and service.sh against fake launchctl/plutil/tailscale
-FLEET_SANDBOX_DIR=~/fleet-tools bash e2e/sandbox.sh   # optional, see docs/sandbox.md
+bash e2e/pi-ctr.sh  # pi-ctr turns through real run.sh, a fake container and a local bare repo
 ```
 
 - `core`: rules table, plus a seeded simulation of 3 nodes running random

@@ -66,10 +66,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	hs := map[string]node.Harness{"fake": node.Exec{Argv: []string{exe, "fake"}}}
-	for _, k := range []string{"pi", "claude", "codex"} {
-		hs[k] = node.Exec{Argv: []string{exe, "agent", k}}
-	}
+	// pi-ctr is the one built-in harness: Pi in pi-container, whose proxy
+	// holds the real key, so the harness never gets fleetd's copy. Tests add
+	// `-harness "fake=fleetd fake"`; host CLIs are `-harness "pi=fleetd agent pi"`.
+	builtin := []string{"pi-ctr"}
+	hs := map[string]node.Harness{"pi-ctr": node.Exec{Argv: []string{exe, "agent", "pi-ctr"}, Drop: []string{"OPENROUTER_API_KEY"}}}
 	for _, h := range harnesses {
 		k, v, ok := strings.Cut(h, "=")
 		argv := strings.Fields(v)
@@ -77,7 +78,7 @@ func main() {
 			log.Fatalf("fleetd: bad -harness %q", h)
 		}
 		if _, dup := hs[k]; dup {
-			log.Fatalf("fleetd: -harness %q: %s is already a harness (fake, pi, claude and codex are built in)", h, k)
+			log.Fatalf("fleetd: -harness %q: %s is already a harness (%s is built in)", h, k, strings.Join(builtin, ", "))
 		}
 		h := node.Exec{Argv: argv}
 		if !slices.Contains(keyed, k) {
@@ -86,14 +87,15 @@ func main() {
 		hs[k] = h
 	}
 	for _, k := range keyed {
-		if _, ok := hs[k].(node.Exec); !ok || slices.Contains([]string{"fake", "pi", "claude", "codex"}, k) {
+		if _, ok := hs[k].(node.Exec); !ok || slices.Contains(builtin, k) {
 			log.Fatalf("fleetd: -harness-key %q is not a custom -harness", k)
 		}
 	}
 	n, err := node.New(node.Config{
 		Name: *name, URL: *url, Data: *data, Harnesses: hs, Peers: peers, PeerLogin: owners[0],
-		Hosts:  []string{*listen, net.JoinHostPort("localhost", port)},
-		Policy: core.Policy{Owners: owners, Spawners: spawners},
+		Sandboxes: map[string]string{"pi-ctr": "pi-container"},
+		Hosts:     []string{*listen, net.JoinHostPort("localhost", port)},
+		Policy:    core.Policy{Owners: owners, Spawners: spawners},
 	})
 	if err != nil {
 		log.Fatal(err)

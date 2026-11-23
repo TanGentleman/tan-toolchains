@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# fleetd's pi-ctr harness end to end, with no Mac: real fleetd, real
+# fleetd's built-in pi-ctr harness end to end, with no Mac: real fleetd, real
 # pi-container run.sh and pi-ctr, a fake `container` that runs the command
 # here (test/fake-container.sh, FAKE_CONTAINER_EXEC), a fake Pi, and a local
 # bare repo standing in for GitHub through git's insteadOf.
@@ -48,10 +48,9 @@ printf '#!/usr/bin/env bash\nexport FAKE_CONTAINER_WORLD=%q FAKE_CONTAINER_LOG=%
 chmod +x "$tmp/bin/pi-ctr-spy" "$tmp/container"
 
 U=http://127.0.0.1:17441
-env HOME="$home" OPENROUTER_API_KEY="$real" PI_CTR_MAX_FILE_BYTES=1000 \
+env HOME="$home" OPENROUTER_API_KEY="$real" PI_CTR_MAX_FILE_BYTES=1000 FLEET_PI_CTR_BIN="$tmp/bin/pi-ctr-spy" \
   CONTAINER_CLI="$tmp/container" \
-  "$tmp/fleetd" -name a -url $U -listen 127.0.0.1:17441 -owner tan \
-  -harness "ctr=$tmp/fleetd agent pi-ctr -bin $tmp/bin/pi-ctr-spy" 2>>"$tmp/fleetd.log" &
+  "$tmp/fleetd" -name a -url $U -listen 127.0.0.1:17441 -owner tan 2>>"$tmp/fleetd.log" &
 pid=$!
 api() { curl -fsS -X "$1" -H 'Tailscale-User-Login: tan' -H 'Content-Type: application/json' ${3:+-d "$3"} "$U$2"; }
 for _ in $(seq 50); do api GET /v1/node >/dev/null 2>&1 && break; sleep 0.1; done
@@ -75,12 +74,13 @@ events() { api GET "/v1/sessions/$1/events"; }
 has() { events "$1" > "$tmp/events"; grep -q -- "$2" "$tmp/events"; }
 
 # Turn 1: clone o/r, start from dev, push to fleet/<sid>, report dev as base.
-sid=$(api POST /v1/sessions '{"harness":"ctr","repo":"o/r","branch":"dev","key":"k1","prompt":"write one"}' | jq -r .sid)
+sid=$(api POST /v1/sessions '{"harness":"pi-ctr","repo":"o/r","branch":"dev","key":"k1","prompt":"write one"}' | jq -r .sid)
 idle "$sid"
 c1=$(tip "fleet/$sid")
 [ -n "$c1" ] || fail "turn 1 pushed nothing: $(events "$sid" | tail -5)"
 [ "$(st "$sid" commit)" = "$c1" ] || fail "exited commit $(st "$sid" commit), branch has $c1"
 [ "$(st "$sid" base)" = "$dev" ] || fail "base $(st "$sid" base), want dev $dev"
+[ "$(st "$sid" sandbox)" = pi-container ] || fail "created does not record the sandbox"
 [ "$(git -C "$tmp/gh/o/r.git" rev-parse "$c1^")" = "$dev" ] || fail "turn 1 did not start from dev"
 [ "$(git -C "$tmp/gh/o/r.git" show "$c1:notes.txt")" = "write one" ] || fail "turn 1's change missing"
 
@@ -137,7 +137,7 @@ say "$fid" f2 "write fork"
 [ "$(git -C "$tmp/gh/o/r.git" rev-parse "$(tip "fleet/$fid")^")" = "$c4" ] || fail "fork did not start from the parent's commit"
 
 # No branch: the default branch, reported as base.
-nid=$(api POST /v1/sessions '{"harness":"ctr","repo":"o/r","key":"k2","prompt":"write main"}' | jq -r .sid)
+nid=$(api POST /v1/sessions '{"harness":"pi-ctr","repo":"o/r","key":"k2","prompt":"write main"}' | jq -r .sid)
 idle "$nid"
 [ "$(st "$nid" base)" = "$main" ] || fail "no-branch base $(st "$nid" base), want main $main"
 
