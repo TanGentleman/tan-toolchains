@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Headless Pi integration: prove `on` installs a hook that runs before the model.
-# Requires `pi` on PATH and no API keys in the environment.
+# Requires `pi` on PATH and no API keys in the environment. A model is named
+# because Pi 1.6+ warns on stderr at startup when none is available.
 set -euo pipefail
 
 here=$(cd "$(dirname "$0")" && pwd)
@@ -35,7 +36,8 @@ run_pi() { # prompt, stdout, stderr
       PI_TELEMETRY=0 \
       TERM=xterm \
       pi -p --no-session --offline --no-skills --no-prompt-templates \
-      --no-themes --no-context-files "$prompt" >"$out" 2>"$err"
+      --no-themes --no-context-files --provider openrouter --model anthropic/claude-haiku-4.5 \
+      "$prompt" >"$out" 2>"$err"
   ) || code=$?
   return "$code"
 }
