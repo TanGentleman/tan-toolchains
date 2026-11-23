@@ -38,12 +38,24 @@ fn readExisting(io: Io, gpa: Allocator, dir: Io.Dir, name: []const u8) !?[]u8 {
     return try dir.readFileAlloc(io, name, gpa, .limited(max_file_bytes));
 }
 
+const lock_name = ".enforcer.lock";
+
+/// One lock file per directory, opened by absolute path. On macOS 26, an
+/// O_CREAT open relative to a directory handle can fail with ENOENT while
+/// another process creates the same file; the open by absolute path does
+/// not. Where `realPath` is not supported, open relative to `dir`.
 fn lockFile(io: Io, dir: Io.Dir) !Io.File {
-    return dir.createFile(io, ".enforcer.lock", .{
+    const options: Io.Dir.CreateFileOptions = .{
         .read = true,
         .truncate = false,
         .lock = .exclusive,
-    });
+    };
+    var dir_buf: [Io.Dir.max_path_bytes]u8 = undefined;
+    var path_buf: [Io.Dir.max_path_bytes]u8 = undefined;
+    const n = dir.realPath(io, &dir_buf) catch return dir.createFile(io, lock_name, options);
+    const path = std.fmt.bufPrint(&path_buf, "{s}/{s}", .{ dir_buf[0..n], lock_name }) catch
+        return error.NameTooLong;
+    return Io.Dir.cwd().createFile(io, path, options);
 }
 
 /// Replace `name` with `bytes` if the content differs. The existing mode is
