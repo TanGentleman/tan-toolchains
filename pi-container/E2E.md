@@ -279,9 +279,6 @@ st() { curl -s "$URL/v1/sessions/$1" | jq '{commit, base, repo, branch, sandbox,
       GitHub hosts.
 - [ ] Ctrl-C `pic serve`: `tailscale serve status` shows no config and
       `container ls` no turn container.
-- [ ] `../fleet/macos/service.sh install`, then `status` (running, serve on
-      443) and the phone still spawns; `uninstall` leaves no plist and no 443
-      entry.
 
 ### Sign-off
 - [ ] All checks pass.

@@ -130,8 +130,7 @@ func (n *Node) Close() {
 	n.once.Do(func() {
 		close(n.stop)
 		n.wg.Wait()
-		// In parallel: each turn may take its whole grace period, and launchd
-		// SIGKILLs fleetd about 20 s after asking it to stop.
+		// In parallel: each turn may take its whole grace period.
 		var wg sync.WaitGroup
 		for _, s := range n.list() {
 			wg.Add(1)

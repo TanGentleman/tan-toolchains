@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # `run.sh serve` (serve.sh) against fake tailscale, container and fleetd:
-# every refusal, and a real start and stop through fleet/macos/fleet-up.
+# every refusal, and a real start and stop.
 set -uo pipefail
 
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 . "$here/lib.sh"
-unset PI_INSTANCE PI_CLONE PI_CONFIG_DIR PI_ENV_FILE PI_IMAGE OPENROUTER_API_KEY FLEETD FLEET_PORT FLEET_SERVE FLEET_LOG
+unset PI_INSTANCE PI_CLONE PI_CONFIG_DIR PI_ENV_FILE PI_IMAGE OPENROUTER_API_KEY FLEETD FLEET_PORT
 
 tmp=$(mktemp -d)
 bg=""
@@ -105,7 +105,7 @@ rc 2 "serve with run options" env HOME="$home" bash "$root/run.sh" --clone o/r s
 reset
 rm -f "$tmp/fleetd.out"
 extra="OPENROUTER_API_KEY=sk-or-v1-placeholder"
-# exec, so $bg is fleet-up itself and TERM reaches its trap.
+# exec, so $bg is serve.sh itself and TERM reaches its trap.
 (exec env HOME="$home" PATH="$bin:$PATH" TS_STATUS="$tmp/status.json" TS_CALLS="$tmp/calls" \
   CONTAINER_CLI="$here/fake-container.sh" FAKE_CONTAINER_WORLD="$world" FLEETD="$bin/fleetd" \
   FLEET_PORT="$port" FAKE_FLEETD_OUT="$tmp/fleetd.out" $extra \

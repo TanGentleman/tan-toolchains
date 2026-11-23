@@ -9,14 +9,13 @@
 # key, the fleetd binary and the port. If any check fails it prints all of
 # them and refuses to start. --check stops after the checks.
 #
-# Then it runs fleet/macos/fleet-up: fleetd and a foreground
-# `tailscale serve --https=443` in front of it, both stopped by Ctrl-C.
+# Then it runs fleetd and a foreground `tailscale serve --https=443` in front
+# of it. Ctrl-C, or either one exiting, stops both, and the serve config goes
+# with the tailscale process.
 # -name, -url and -owner default to this Mac's Tailscale name, URL and login.
 #
 #   FLEETD      fleetd binary (default: fleet/bin/fleetd from build.sh fleet)
 #   FLEET_PORT  loopback port (default 7433)
-#   FLEET_SERVE 0 to skip `tailscale serve` (service.sh keeps a persistent one)
-#   FLEET_LOG   if set, append this script's output there too
 set -uo pipefail
 
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
@@ -30,7 +29,6 @@ image="${PI_IMAGE:-pi-agent:local}"
 fleetd="${FLEETD:-$root/fleet/bin/fleetd}"
 port="${FLEET_PORT:-7433}"
 placeholder=sk-or-v1-placeholder
-[ -z "${FLEET_LOG:-}" ] || exec >>"$FLEET_LOG" 2>&1
 
 check=0
 if [ "${1:-}" = --check ]; then check=1; shift; fi
@@ -114,5 +112,20 @@ defaults=()
 [ "$has_url" = 1 ] || defaults+=(-url "https://$dns")
 [ "$has_owner" = 1 ] || defaults+=(-owner "$login")
 echo "pic serve: https://$dns -> 127.0.0.1:$port" >&2
-exec env -u OPENROUTER_API_KEY FLEET_ENV=- FLEETD="$fleetd" FLEET_PI_CTR_BIN="$here/pi-ctr" FLEET_PORT="$port" \
-  "$root/fleet/macos/fleet-up" "${defaults[@]}" "$@"
+fpid="" spid=""
+stop() {
+  trap - INT TERM EXIT
+  for p in $spid $fpid; do kill -TERM "$p" 2>/dev/null || true; done
+  wait 2>/dev/null || true
+}
+trap 'stop; exit 130' INT
+trap 'stop; exit 143' TERM
+trap stop EXIT
+env -u OPENROUTER_API_KEY FLEET_PI_CTR_BIN="$here/pi-ctr" \
+  "$fleetd" -listen "127.0.0.1:$port" ${defaults[@]+"${defaults[@]}"} "$@" &
+fpid=$!
+tailscale serve --https=443 "http://127.0.0.1:$port" &
+spid=$!
+while kill -0 "$fpid" 2>/dev/null && kill -0 "$spid" 2>/dev/null; do sleep 1; done
+echo "pic serve: $(kill -0 "$fpid" 2>/dev/null && echo 'tailscale serve' || echo fleetd) exited; stopping" >&2
+exit 1
