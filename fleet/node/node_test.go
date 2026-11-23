@@ -325,10 +325,24 @@ func TestExecAbortKillsGroup(t *testing.T) {
 		t.Fatalf("abort took %v", d)
 	}
 	time.Sleep(50 * time.Millisecond)
-	if err := syscall.Kill(pid, 0); err == nil {
+	if alive(pid) {
 		syscall.Kill(pid, syscall.SIGKILL)
 		t.Fatal("grandchild survived abort")
 	}
+}
+
+// alive reports whether pid is running. A zombie (killed, but its new parent
+// has not reaped it, as in containers whose PID 1 never does) counts as dead.
+func alive(pid int) bool {
+	if syscall.Kill(pid, 0) != nil {
+		return false
+	}
+	b, err := os.ReadFile(fmt.Sprintf("/proc/%d/stat", pid))
+	if err != nil {
+		return true // no /proc (macOS): launchd reaps, so kill(0) is enough
+	}
+	_, rest, _ := strings.Cut(string(b), ") ")
+	return !strings.HasPrefix(rest, "Z")
 }
 
 // TestBackgroundPull: a node listed as a peer copies sessions it can see
