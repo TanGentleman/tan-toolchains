@@ -200,24 +200,17 @@ helpers pasted, from `~/src/tan-toolchains/pi-container`.
 
 - [ ] The key is not in fleetd: `ps eww -p $(pgrep -x fleetd) | grep -c OPENROUTER_API_KEY`
       prints `0`.
-- [ ] A turn's VM can't reach fleetd, the Mac or another tailnet device.
-      Spawn any session on `$REPO`, wait for its turn to end, set `sid`, then:
+- [ ] A turn's VM reaches nothing it shouldn't. With `sid` set to a session
+      whose first turn has ended:
 
       ```sh
-      MAC=${URL#https://}
-      PEER=$(tailscale status --json | jq -r '[.Peer[].DNSName][0] | rtrimstr(".")')
-      GW=$(container network inspect pi-locked | jq -r '.[0].status.ipv4Gateway')
-      echo "$MAC $PEER $GW"   # three non-empty values
-      pic --fleet-state ~/.fleet/sessions/$sid/state bash -c '
-        for u in "https://$1/v1/node" "https://$2/" "http://$3:7433/v1/node"; do
-          curl -sS -m 5 -o /dev/null "$u" && echo "FAIL via proxy: $u" || echo "ok via proxy: $u"
-          env -u HTTPS_PROXY -u HTTP_PROXY -u https_proxy -u http_proxy curl -sS --noproxy "*" -m 5 -o /dev/null "$u" \
-            && echo "FAIL direct: $u" || echo "ok direct: $u"
-        done' check "$MAC" "$PEER" "$GW"
+      ./test/fleet-isolation.sh $sid
       ```
 
-      All six lines say `ok`. Any `FAIL` means a turn can act as you on
-      fleetd: stop and report it.
+      It ends with `isolation: ok`. `FAIL` or `BROKEN` is a blocker. Each
+      `REACHABLE` line is a service on this Mac a turn can connect to; turn
+      off any you don't want an agent to reach (System Settings → General →
+      Sharing, or stop the program).
 - [ ] `pic proxy` (in a third terminal, during the turns below) shows only
       `openrouter.ai` and GitHub hosts.
 

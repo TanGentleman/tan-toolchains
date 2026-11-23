@@ -59,6 +59,13 @@ The UI fills in a title from the prompt and a fresh retry key.
 - **The VM gets one writable folder:** the session's state folder
   (transcript and `agent.json`), plus read-only `settings.json` and the
   proxy's CA. Not `~/.fleet`, not other sessions, not your home.
+- **The VM can reach the Mac.** `pi-locked` is host-only, so a turn can
+  connect to any service the Mac listens on beyond loopback: Remote Login
+  (ssh), AirPlay, file sharing, a dev server on `0.0.0.0`. `fleetd` listens
+  on loopback only, so it isn't one of them. The tailnet and the internet
+  are out of reach unless the Mac forwards IP.
+  `pi-container/test/fleet-isolation.sh` checks all of this from a turn's
+  VM and lists the Mac services a turn can reach.
 - **The GitHub token is in the VM,** so anything a turn runs can use it. Use
   a fine-grained token: selected repos, Contents read/write, nothing else
   ([macos.md step 4](docs/macos.md#4-keys)). Without Workflows permission
@@ -71,9 +78,8 @@ The UI fills in a title from the prompt and a fresh retry key.
 - **Identity is a header.** `tailscale serve` sets `Tailscale-User-Login`
   and strips any the client sent. `fleetd` listens on loopback only, so any
   process on the Mac can send the header and act as an owner. That is safe
-  only because turns run in the VM, which must not reach the Mac's port
-  7433 or the tailnet; [docs/macos.md step 8](docs/macos.md#8-verify-before-relying-on-it)
-  checks this on a Mac.
+  only because a turn's VM can't reach the Mac's loopback or the tailnet
+  ([docs/macos.md step 8](docs/macos.md#8-verify-before-relying-on-it)).
 - **A web page can't reach it.** Requests must carry `Host` of the `-url`
   name or the listen address (`421` otherwise, so DNS rebinding fails) and
   POSTs must be `application/json` (`415` otherwise, so a cross-site form
