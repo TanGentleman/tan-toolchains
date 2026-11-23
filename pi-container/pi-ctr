@@ -1,0 +1,128 @@
+#!/usr/bin/env bash
+# pi-ctr: one fleet turn of Pi in pi-container's normal mode.
+#
+# fleetd's pi-ctr harness (`fleetd agent pi-ctr -bin pi-ctr`) runs this in
+# place of the pi binary, with Pi's arguments and the prompt on stdin. It runs
+# Pi through `run.sh --fleet-state $FLEET_STATE`: placeholder key, pi-locked
+# network, proxy. Only $FLEET_STATE is mounted; the clone and Pi's agent dir
+# live on the container's own disk and vanish with it.
+#
+# With $FLEET_REPO the turn clones it to /work/<repo>, checks out $FLEET_PUSH
+# (fleet/<sid>) if it exists, else $FLEET_BASE, else $FLEET_BRANCH (or the
+# default branch) and reports that commit as the base. After Pi it stages
+# everything, refuses to push files over PI_CTR_MAX_FILE_BYTES (default
+# 10 MiB) or anything that looks like a GitHub token, commits and pushes to
+# $FLEET_PUSH, and writes {"commit","base"} to $FLEET_RESULT, or {"error"}
+# when it refuses. A failed Pi turn
+# is still pushed; an aborted one is not.
+#
+# Afterwards only agent.json and pi/sessions/*.jsonl are kept in
+# $FLEET_STATE, so nothing else the container wrote reaches a checkpoint.
+set -uo pipefail
+
+here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+: "${FLEET_STATE:?pi-ctr: FLEET_STATE is unset}"
+: "${PI_CTR_HOME:?pi-ctr: PI_CTR_HOME (the real home, where run.sh finds its config) is unset}"
+case ${OPENROUTER_API_KEY:-} in
+  ''|sk-or-v1-placeholder) ;;
+  *) echo "pi-ctr: refusing to run with a real OPENROUTER_API_KEY; the proxy holds it" >&2; exit 2 ;;
+esac
+cap=${PI_CTR_MAX_FILE_BYTES:-10485760}
+case $cap in ''|*[!0-9]*) echo "pi-ctr: PI_CTR_MAX_FILE_BYTES must be a number" >&2; exit 2 ;; esac
+handoff="$FLEET_STATE/.pi-ctr-result"
+rm -f "$handoff"
+
+read -r -d '' turn <<'EOF' || true
+push=$1 base=$2 branch=$3 cap=$4 handoff=$5
+shift 5
+log() { printf 'pi-ctr: %s\n' "$*" >&2; }
+event() { # ok, error-or-commit
+  if [ "$1" = true ]; then
+    jq -cn --arg b "$push" --arg c "$2" '{type: "pi_ctr.push", ok: true, branch: $b, commit: $c}'
+  else
+    jq -cn --arg e "$2" '{type: "pi_ctr.push", ok: false, error: $e}'
+  fi
+}
+rm -f "$handoff"
+pid=""
+trap '[ -z "$pid" ] || kill -TERM "$pid" 2>/dev/null; log "aborted; pushing nothing"; exit 143' TERM INT
+if [ -z "$push" ]; then
+  "$@" <&0 & pid=$!
+  wait "$pid"
+  exit $?
+fi
+new_base=""
+if git ls-remote --exit-code --heads origin "refs/heads/$push" >/dev/null 2>&1; then
+  git fetch -q origin "refs/heads/$push" >&2 && git checkout -q -B "$push" FETCH_HEAD >&2 || { log "cannot check out $push"; exit 1; }
+elif [ -n "$base" ]; then
+  git cat-file -e "$base^{commit}" 2>/dev/null || git fetch -q origin "$base" >&2 || { log "cannot fetch base $base"; exit 1; }
+  git checkout -q -B "$push" "$base" >&2 || exit 1
+else
+  if [ -n "$branch" ]; then
+    git fetch -q origin "refs/heads/$branch" >&2 && git checkout -q -B "$push" FETCH_HEAD >&2 || { log "cannot check out $branch"; exit 1; }
+  else
+    git checkout -q -B "$push" >&2 || exit 1
+  fi
+  new_base=$(git rev-parse HEAD)
+fi
+"$@" <&0 & pid=$!
+wait "$pid"
+code=$?
+pid=""
+
+refuse() {
+  log "push refused: $1"
+  event false "push refused: $1"
+  jq -cn --arg e "push refused: $1" '{error: $e}' > "$handoff"
+  exit 4
+}
+git add -A >&2 || refuse "git add failed"
+while IFS= read -r -d '' f; do
+  size=$(wc -c < "$f" 2>/dev/null | tr -d ' ') || continue
+  [ "$size" -le "$cap" ] || refuse "$f is $size bytes, over the $cap byte cap"
+done < <(git diff --cached --name-only -z --diff-filter=AMT)
+added=$(git diff --cached --no-color --no-ext-diff --text -U0 | grep '^+' | grep -v '^+++ ' || true)
+if [ -n "${GITHUB_TOKEN:-}" ] && printf '%s' "$added" | grep -qF -- "$GITHUB_TOKEN"; then
+  refuse "the staged changes contain GITHUB_TOKEN"
+fi
+if command -v enforcer >/dev/null 2>&1 && command -v jq >/dev/null 2>&1; then
+  rc=0
+  printf '%s' "$added" | jq -Rs '{prompt: .}' | enforcer hook >/dev/null 2>&1 || rc=$?
+  [ "$rc" != 2 ] || refuse "enforcer found a GitHub token in the staged changes"
+fi
+# enforcer's needle (ghp_) plus GitHub's other token prefixes.
+if printf '%s' "$added" | grep -qE 'ghp_|gh[ousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,}'; then
+  refuse "the staged changes contain what looks like a GitHub token"
+fi
+git config user.name >/dev/null || git config user.name fleet
+git config user.email >/dev/null || git config user.email fleet@localhost
+if ! git diff --cached --quiet; then
+  git commit -q -m "fleet: $push (pi exit $code)" >&2 || refuse "git commit failed"
+fi
+if ! err=$(git push -q origin "HEAD:refs/heads/$push" 2>&1); then
+  printf '%s\n' "$err" >&2
+  case $err in
+    *workflow*) refuse "GitHub rejected the push because it changes .github/workflows; the token has no Workflows permission" ;;
+    *) refuse "git push to $push failed" ;;
+  esac
+fi
+commit=$(git rev-parse HEAD)
+printf '{"commit":"%s","base":"%s"}\n' "$commit" "$new_base" > "$handoff"
+event true "$commit"
+exit "$code"
+EOF
+
+clone=()
+[ -z "${FLEET_REPO:-}" ] || clone=(--clone "$FLEET_REPO")
+HOME=$PI_CTR_HOME "$here/run.sh" --fleet-state "$FLEET_STATE" "${clone[@]}" \
+  bash -c "$turn" turn "${FLEET_PUSH:-}" "${FLEET_BASE:-}" "${FLEET_BRANCH:-}" "$cap" "$handoff" pi "$@"
+code=$?
+
+if [ -f "$handoff" ] && [ ! -L "$handoff" ] && [ -n "${FLEET_RESULT:-}" ]; then
+  mv -f "$handoff" "$FLEET_RESULT"
+fi
+rm -f "$handoff"
+s=$FLEET_STATE
+find "$s" -mindepth 1 -type d ! -path "$s/pi" ! -path "$s/pi/sessions" -prune -exec rm -rf {} +
+find "$s" -mindepth 1 ! -type d ! \( -type f \( -path "$s/agent.json" -o -path "$s/pi/sessions/*.jsonl" \) \) -exec rm -f {} +
+exit "$code"

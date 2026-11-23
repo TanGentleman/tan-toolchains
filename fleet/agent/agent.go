@@ -28,6 +28,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 const DefaultBase = "https://openrouter.ai/api"
@@ -42,6 +43,10 @@ type Config struct {
 	Bin   string // executable; default Kind
 	Args  []string
 	Env   []string // extra NAME=VALUE for the child
+	// Contained means Bin runs Pi inside pi-container (pi-ctr). The child
+	// gets no HOME or agent dir from State: the container has its own, and
+	// the host's read-only settings apply.
+	Contained bool
 }
 
 // Common opt-outs for any tool that honours them.
@@ -92,7 +97,7 @@ func Run(c Config, prompt string, out, errw io.Writer) error {
 	if _, ok := kindEnv[c.Kind]; !ok {
 		return fmt.Errorf("agent: unknown kind %q (want pi, claude or codex)", c.Kind)
 	}
-	if c.Model == "" || c.State == "" || c.Work == "" {
+	if c.Model == "" && !c.Contained || c.State == "" || c.Work == "" {
 		return errors.New("agent: model, state and work are required")
 	}
 	if c.Key == "" {
@@ -161,6 +166,9 @@ func writeFile(path string, b []byte) error {
 // configure writes each CLI's config. It runs on every start so a moved
 // session picks up this node's base URL and the current opt-outs.
 func (a *adapter) configure() error {
+	if a.c.Contained {
+		return os.MkdirAll(a.statePath("pi", "sessions"), 0o700)
+	}
 	if err := os.MkdirAll(a.statePath("home"), 0o700); err != nil {
 		return err
 	}
@@ -235,7 +243,9 @@ func (a *adapter) env() []string {
 			env = append(env, k+"="+v)
 		}
 	}
-	env = append(env, "HOME="+a.statePath("home"))
+	if !a.c.Contained {
+		env = append(env, "HOME="+a.statePath("home"))
+	}
 	// Node's fetch ignores HTTPS_PROXY unless asked; without this Pi would
 	// try to reach openrouter.ai directly and fail on a locked network.
 	if (os.Getenv("HTTPS_PROXY") != "" || os.Getenv("https_proxy") != "") && os.Getenv("NODE_USE_ENV_PROXY") == "" {
@@ -245,7 +255,10 @@ func (a *adapter) env() []string {
 	env = append(env, kindEnv[a.c.Kind]...)
 	switch a.c.Kind {
 	case "pi":
-		env = append(env, "PI_CODING_AGENT_DIR="+a.statePath("pi", "agent"), "OPENROUTER_API_KEY="+a.c.Key)
+		if !a.c.Contained {
+			env = append(env, "PI_CODING_AGENT_DIR="+a.statePath("pi", "agent"))
+		}
+		env = append(env, "OPENROUTER_API_KEY="+a.c.Key)
 	case "claude":
 		// OpenRouter's documented Claude Code setup: bearer token, empty API key.
 		env = append(env, "CLAUDE_CONFIG_DIR="+a.statePath("claude"),
@@ -301,7 +314,10 @@ func (a *adapter) argv() ([]string, string, error) {
 	switch a.c.Kind {
 	case "pi":
 		// --no-approve keeps the repo's .pi/extensions from running as the host user.
-		args = []string{"--mode", "json", "-p", "--no-approve", "--no-skills", "--provider", "openrouter", "--model", a.c.Model}
+		args = []string{"--mode", "json", "-p", "--no-approve", "--no-skills"}
+		if a.c.Model != "" {
+			args = append(args, "--provider", "openrouter", "--model", a.c.Model)
+		}
 		if first {
 			args = append(args, "--session-dir", a.statePath("pi", "sessions"), "--session-id", id)
 		} else {
@@ -375,16 +391,21 @@ func (a *adapter) turn(text string, stderr io.Writer) error {
 	if err != nil {
 		return err
 	}
+	start := time.Now()
 	if err := cmd.Start(); err != nil {
 		return err
 	}
 
 	var got, failed string
+	var firstOut time.Duration
 	var use Usage
 	br := bufio.NewReaderSize(stdout, 1<<16)
 	for {
 		line, rerr := br.ReadBytes('\n')
 		if s := bytes.TrimRight(line, "\r\n"); len(s) > 0 {
+			if firstOut == 0 {
+				firstOut = time.Since(start)
+			}
 			if got == "" {
 				got = reported(a.c.Kind, s)
 			}
@@ -427,7 +448,8 @@ func (a *adapter) turn(text string, stderr io.Writer) error {
 	if serr := a.save(); err == nil {
 		err = serr
 	}
-	end := map[string]any{"type": "fleet.turn_end", "turn": a.nat.Turns, "code": code, "session": a.nat.Session, "usage": use}
+	end := map[string]any{"type": "fleet.turn_end", "turn": a.nat.Turns, "code": code, "session": a.nat.Session, "usage": use,
+		"first_output_ms": firstOut.Milliseconds(), "ms": time.Since(start).Milliseconds()}
 	if werr != nil {
 		end["error"] = werr.Error()
 	} else if failed != "" {

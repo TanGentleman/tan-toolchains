@@ -15,6 +15,13 @@
 #   run.stdout                      optional stdout for `run`
 #   fail/<key>                      presence forces exit 1 for that key
 #
+# FAKE_CONTAINER_EXEC=DIR makes `run` execute its command on this machine
+# instead: each run gets a fresh DIR/run.N standing in for the container's
+# disk, a "/work" path in the command and -w is rewritten to DIR/run.N/work, HOME is
+# DIR/run.N/home (seeded from DIR/gitconfig), only -e/--env-file variables
+# and PATH (FAKE_CONTAINER_PATH first) are set, and the environment is
+# appended to DIR/env.log. -v mounts are ignored, so a same-path mount works.
+#
 # Sanitising an image name replaces / and : with _ (pi-agent:local ->
 # pi-agent_local). Unknown commands exit 1 so a new CLI call cannot silently
 # pass tests.
@@ -100,6 +107,34 @@ case $cmd in
     ;;
   run)
     fail_if run
+    if [ -n "${FAKE_CONTAINER_EXEC:-}" ]; then
+      envs=() wd=/
+      while [ $# -gt 0 ]; do
+        case $1 in
+          --rm|-i|--init|-t) shift ;;
+          -e) envs+=("$2"); shift 2 ;;
+          --env-file) while IFS= read -r l || [ -n "$l" ]; do [ -z "$l" ] || envs+=("$l"); done < "$2"; shift 2 ;;
+          -w) wd=$2; shift 2 ;;
+          -v|--network|--cpus|--memory|--name|--label) shift 2 ;;
+          -*) printf 'fake-container: unhandled run option: %s\n' "$1" >&2; exit 1 ;;
+          *) break ;;
+        esac
+      done
+      shift # image
+      disk=$(mktemp -d "$FAKE_CONTAINER_EXEC/run.XXXXXX")
+      mkdir -p "$disk/work" "$disk/home"
+      [ ! -f "$FAKE_CONTAINER_EXEC/gitconfig" ] || cp "$FAKE_CONTAINER_EXEC/gitconfig" "$disk/home/.gitconfig"
+      argv=()
+      for a in "$@"; do
+        argv+=("$(printf '%s\n' "$a" | sed -E "s#(^|[^A-Za-z0-9._-])/work(\$|[/\"[:space:]])#\\1$disk/work\\2#g"; printf x)")
+        argv[${#argv[@]}-1]=${argv[${#argv[@]}-1]%$'\nx'}
+      done
+      wd=${wd/#\/work/$disk/work}
+      printf '%s\n' "${envs[@]}" "--" >> "$FAKE_CONTAINER_EXEC/env.log"
+      mkdir -p "$wd"
+      cd "$wd" || exit 1
+      exec env -i PATH="${FAKE_CONTAINER_PATH:+$FAKE_CONTAINER_PATH:}$PATH" HOME="$disk/home" "${envs[@]}" "${argv[@]}"
+    fi
     if [ -n "$world" ] && [ -f "$world/run.stdout" ]; then cat "$world/run.stdout"; fi
     ;;
   exec) fail_if exec ;;

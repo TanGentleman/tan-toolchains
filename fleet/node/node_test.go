@@ -649,6 +649,15 @@ func TestRepoTurnResult(t *testing.T) {
 			t.Fatalf("result %s: exit %+v", bad, r)
 		}
 	}
+	if st := turn(`{"error":"push refused: big.bin is too big"}`); st.Commit != sha2 {
+		t.Fatalf("error-only result changed the commit: %+v", st)
+	}
+	if r := lastExit(t, n, sid); r.Reason != "push refused: big.bin is too big" {
+		t.Fatalf("reported error not in exit reason: %+v", r)
+	}
+	if turn(`{"error":"two\nlines"}`); !strings.Contains(lastExit(t, n, sid).Reason, "result ignored") {
+		t.Fatal("multi-line error accepted")
+	}
 	if st := turn("-"); st.Commit != sha2 {
 		t.Fatalf("no result file changed the commit: %+v", st)
 	}

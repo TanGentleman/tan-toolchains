@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Rejects workflow changes the way GitHub does for a token without the
+# Workflows permission.
+while read -r old new ref; do
+  if git log --name-only --format= "$new" --not --all | grep -q '^\.github/workflows/'; then
+    echo "! [remote rejected] $ref (refusing to allow a Personal Access Token to create or update workflow \`.github/workflows/x.yml\` without \`workflow\` scope)" >&2
+    exit 1
+  fi
+done

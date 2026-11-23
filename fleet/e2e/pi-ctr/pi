@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+# Stand-in for Pi inside the fake container: keeps a session file the way
+# Pi does and acts on the prompt in the current directory (the clone).
+set -u
+dir="" id="" file=""
+while [ $# -gt 0 ]; do
+  case $1 in
+    --session-dir) dir=$2; shift 2 ;;
+    --session-id) id=$2; shift 2 ;;
+    --session) file=$2; shift 2 ;;
+    *) shift ;;
+  esac
+done
+prompt=$(cat)
+if [ -n "$file" ]; then
+  id=$(head -n 1 "$file" | jq -r .id)
+else
+  file="$dir/2026-01-01_$id.jsonl"
+  jq -cn --arg id "$id" '{type: "session", id: $id}' > "$file"
+fi
+jq -cn --arg id "$id" '{type: "session", id: $id}'
+jq -cn --arg p "$prompt" '{type: "message", role: "user", text: $p}' >> "$file"
+stop=stop
+case $prompt in
+  write*) printf '%s\n' "$prompt" >> notes.txt ;;
+  fail) echo half > failed.txt; stop=error ;;
+  token) printf 'key = ghp_%s\n' "$(printf 'x%.0s' $(seq 36))" > leak.txt ;;
+  exact) printf '%s\n' "$GITHUB_TOKEN" > leak.txt ;;
+  big) head -c 2000 /dev/zero > big.bin ;;
+  workflow) mkdir -p .github/workflows && echo 'on: push' > .github/workflows/x.yml ;;
+  ext)
+    mkdir -p "$FLEET_STATE/pi/agent/extensions" "$FLEET_STATE/pi/sessions/nested"
+    echo evil > "$FLEET_STATE/pi/agent/extensions/x.js"
+    echo evil > "$FLEET_STATE/evil"
+    echo evil > "$FLEET_STATE/pi/sessions/nested/x.jsonl"
+    ln -s /etc/hostname "$FLEET_STATE/pi/sessions/link.jsonl"
+    ;;
+  sleep) echo started > aborted.txt; jq -cn '{type: "sleeping"}'; sleep 30 ;;
+  key) printf '%s\n' "$OPENROUTER_API_KEY" > key.txt ;;
+esac
+jq -cn --arg s "$stop" '{type: "message_end", message: {role: "assistant", stopReason: $s, usage: {input: 3, output: 2}}}'

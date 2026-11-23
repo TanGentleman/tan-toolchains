@@ -356,3 +356,27 @@ func TestRedactAcrossWrites(t *testing.T) {
 		t.Fatal(b.String())
 	}
 }
+
+func TestContainedPi(t *testing.T) {
+	b := fakeCLI(t, `{ env; printf 'ARG %s\n' "$@"; } > "$FLEET_TEST_DUMP"
+echo '{"type":"session","id":"'"$(sed -n 's/^ARG \(.*-.*-.*\)$/\1/p' "$FLEET_TEST_DUMP" | tail -1)"'"}'
+`)
+	c := baseCfg(t, "pi", b)
+	dump := filepath.Join(t.TempDir(), "dump")
+	c.Contained, c.Model, c.Env = true, "", []string{"FLEET_TEST_DUMP=" + dump}
+	if err := Run(c, "hi", io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(dump)
+	for _, bad := range []string{"HOME=", "PI_CODING_AGENT_DIR=", "ARG --model", "ARG --provider"} {
+		if strings.Contains(string(got), "\n"+bad) || strings.HasPrefix(string(got), bad) {
+			t.Errorf("contained pi got %q:\n%s", bad, got)
+		}
+	}
+	if !strings.Contains(string(got), "ARG "+filepath.Join(c.State, "pi", "sessions")) {
+		t.Errorf("contained pi lacks the session dir in State:\n%s", got)
+	}
+	if _, err := os.Stat(filepath.Join(c.State, "pi", "agent")); err == nil {
+		t.Error("contained pi wrote an agent dir into State")
+	}
+}

@@ -22,6 +22,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/TanGentleman/tan-toolchains/fleet/core"
 	"github.com/TanGentleman/tan-toolchains/fleet/store"
@@ -302,7 +303,8 @@ func (n *Node) Spawn(login, key, prompt string, d core.CreatedData) (string, err
 	return sid, n.create(sid, login, key, d, prompt)
 }
 
-// readResult reads the commit and base a harness reports in $FLEET_RESULT.
+// readResult reads what a harness reports in $FLEET_RESULT: the commit it
+// pushed, the base it started from, and an error explaining a failed turn.
 // A missing file means nothing was pushed; anything malformed is ignored,
 // and bad says why.
 func readResult(path, base string) (r core.ExitedData, bad string) {
@@ -310,7 +312,7 @@ func readResult(path, base string) (r core.ExitedData, bad string) {
 	if errors.Is(err, os.ErrNotExist) {
 		return r, ""
 	}
-	var v struct{ Commit, Base string }
+	var v struct{ Commit, Base, Error string }
 	switch {
 	case err != nil:
 		return r, err.Error()
@@ -322,11 +324,13 @@ func readResult(path, base string) (r core.ExitedData, bad string) {
 		return r, "commit and base must be full lowercase hex ids"
 	case v.Base != "" && base != "" && v.Base != base:
 		return r, "base differs from the session's"
+	case len(v.Error) > 500 || strings.ContainsFunc(v.Error, unicode.IsControl):
+		return r, "error must be one line of at most 500 bytes"
 	}
 	if base != "" {
 		v.Base = ""
 	}
-	return core.ExitedData{Commit: v.Commit, Base: v.Base}, ""
+	return core.ExitedData{Commit: v.Commit, Base: v.Base, Reason: v.Error}, ""
 }
 
 // validModel accepts ids like "anthropic/claude-haiku-4.5" or "".
@@ -409,6 +413,8 @@ func (n *Node) turn(ctx context.Context, s *session, done chan struct{}, h Harne
 				var bad string
 				if res, bad = readResult(t.Result, t.Base); bad != "" {
 					reason += "; result ignored: " + bad
+				} else if res.Reason != "" {
+					reason += "; " + res.Reason
 				}
 			}
 		}
