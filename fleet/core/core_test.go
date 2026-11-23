@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand/v2"
+	"strings"
 	"testing"
 )
 
@@ -244,4 +245,84 @@ func checkAgree(t *testing.T, seed uint64, step int, reps map[string]map[string]
 			}
 		}
 	}
+}
+
+func TestRepoRules(t *testing.T) {
+	sha1, sha256 := strings.Repeat("a", 40), strings.Repeat("b", 64)
+	create := func(d CreatedData) (*replica, error) {
+		r := &replica{st: State{Sid: "s1"}}
+		d.Owner, d.Harness = "tan", "pi-ctr"
+		_, err := do(t, r, Cmd{Node: "a", By: "tan", Kind: Created, Data: d})
+		return r, err
+	}
+	for _, d := range []CreatedData{
+		{Repo: "nope"}, {Repo: "o/r.git"}, {Repo: "-o/r"}, {Repo: "o/r/x"}, {Repo: "o/r;rm"},
+		{Branch: "main"}, {Base: sha1},
+		{Repo: "o/r", Branch: "-x"}, {Repo: "o/r", Branch: "a..b"}, {Repo: "o/r", Branch: "a b"},
+		{Repo: "o/r", Branch: "x.lock"}, {Repo: "o/r", Branch: "a/.b"}, {Repo: "o/r", Branch: "a@{1}"},
+		{Repo: "o/r", Base: "abc"}, {Repo: "o/r", Base: strings.ToUpper(sha1)},
+	} {
+		if _, err := create(d); !errors.Is(err, ErrBadEvent) {
+			t.Errorf("created %+v: %v", d, err)
+		}
+	}
+	turn := func(r *replica, x ExitedData) error {
+		t.Helper()
+		if _, err := do(t, r, Cmd{Node: "a", By: "tan", Kind: Input, Data: InputData{Text: "go"}}); err != nil {
+			t.Fatal(err)
+		}
+		_, err := do(t, r, Cmd{Node: "a", Kind: Exited, Data: x})
+		if err != nil {
+			do(t, r, Cmd{Node: "a", Kind: Exited, Data: ExitedData{}})
+		}
+		return err
+	}
+
+	plain, err := create(CreatedData{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := turn(plain, ExitedData{Commit: sha1}); !errors.Is(err, ErrBadEvent) {
+		t.Fatalf("commit without a repo: %v", err)
+	}
+
+	r, err := create(CreatedData{Repo: "Tan-1/tan_tool.chains", Branch: "feat/x-1", Sandbox: "pi-container"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := turn(r, ExitedData{Commit: "xyz"}); !errors.Is(err, ErrBadEvent) {
+		t.Fatalf("bad commit: %v", err)
+	}
+	if err := turn(r, ExitedData{Commit: sha256, Base: sha1}); err != nil {
+		t.Fatal(err)
+	}
+	if err := turn(r, ExitedData{Base: sha256}); !errors.Is(err, ErrBadEvent) {
+		t.Fatalf("base changed: %v", err)
+	}
+	if err := turn(r, ExitedData{Base: sha1}); err != nil {
+		t.Fatalf("same base again: %v", err)
+	}
+	if err := turn(r, ExitedData{Code: 1}); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Fold(decode(t, r.lines))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Repo != "Tan-1/tan_tool.chains" || s.Branch != "feat/x-1" || s.Sandbox != "pi-container" || s.Base != sha1 || s.Commit != sha256 {
+		t.Fatalf("folded state %+v", s)
+	}
+}
+
+func decode(t *testing.T, lines [][]byte) []Event {
+	t.Helper()
+	var es []Event
+	for _, b := range lines {
+		var e Event
+		if err := json.Unmarshal(b, &e); err != nil {
+			t.Fatal(err)
+		}
+		es = append(es, e)
+	}
+	return es
 }

@@ -13,12 +13,16 @@
 //   - A turn is one input, its output lines and one exit. Only one turn runs
 //     at a time; an input while a turn runs is refused, never queued.
 //   - Nothing is ever merged. A session whose writer is gone is forked.
+//   - Repo, branch and sandbox are fixed at creation. Base is fixed once
+//     set, at creation or by the first exit that reports it. Commits are
+//     full lowercase hex ids (SHA-1 or SHA-256).
 package core
 
 import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"unicode/utf8"
 )
 
@@ -60,6 +64,10 @@ type CreatedData struct {
 	ForkOf  string `json:"fork_of,omitempty"`
 	ForkAt  uint64 `json:"fork_at,omitempty"`
 	Files   []File `json:"files,omitempty"`
+	Repo    string `json:"repo,omitempty"`    // OWNER/REPO the harness clones each turn
+	Branch  string `json:"branch,omitempty"`  // branch chosen at spawn; turns push to fleet/<sid>
+	Base    string `json:"base,omitempty"`    // commit to start from when fleet/<sid> doesn't exist
+	Sandbox string `json:"sandbox,omitempty"` // what isolates the harness, e.g. "pi-container"
 }
 
 type InputData struct {
@@ -69,6 +77,8 @@ type InputData struct {
 type ExitedData struct {
 	Code   int    `json:"code"`
 	Reason string `json:"reason,omitempty"`
+	Commit string `json:"commit,omitempty"` // pushed to fleet/<sid> by this turn
+	Base   string `json:"base,omitempty"`   // the commit turn 1 started from, when created had none
 }
 
 type CheckpointData struct {
@@ -102,6 +112,11 @@ type State struct {
 	Files     []File           `json:"files,omitempty"` // harness state after the latest turn
 	Shares    map[string]Level `json:"shares,omitempty"`
 	Updated   string           `json:"updated,omitempty"`
+	Repo      string           `json:"repo,omitempty"`
+	Branch    string           `json:"branch,omitempty"`
+	Base      string           `json:"base,omitempty"`
+	Sandbox   string           `json:"sandbox,omitempty"`
+	Commit    string           `json:"commit,omitempty"` // latest pushed commit
 
 	keys map[string]uint64
 }
@@ -137,7 +152,11 @@ func Apply(s *State, e Event) error {
 		if err := json.Unmarshal(e.Data, &d); err != nil {
 			return err
 		}
+		if err := checkCode(d); err != nil {
+			return err
+		}
 		s.Sid, s.Owner, s.Harness, s.Model, s.Title = e.Sid, d.Owner, d.Harness, d.Model, d.Title
+		s.Repo, s.Branch, s.Base, s.Sandbox = d.Repo, d.Branch, d.Base, d.Sandbox
 		s.ForkOf, s.ForkAt, s.Files = d.ForkOf, d.ForkAt, d.Files
 		s.Writer, s.WriterURL = e.Node, d.URL
 	case Input:
@@ -153,7 +172,28 @@ func Apply(s *State, e Event) error {
 		if !s.Running {
 			return fmt.Errorf("%w: exited while stopped", ErrBadEvent)
 		}
+		var d ExitedData
+		if len(e.Data) > 0 {
+			if err := json.Unmarshal(e.Data, &d); err != nil {
+				return err
+			}
+		}
+		if (d.Commit != "" || d.Base != "") && s.Repo == "" {
+			return fmt.Errorf("%w: commit on a session without a repo", ErrBadEvent)
+		}
+		if d.Commit != "" && !IsCommit(d.Commit) || d.Base != "" && !IsCommit(d.Base) {
+			return fmt.Errorf("%w: bad commit %q base %q", ErrBadEvent, d.Commit, d.Base)
+		}
+		if d.Base != "" && s.Base != "" && d.Base != s.Base {
+			return fmt.Errorf("%w: base changed from %s to %s", ErrBadEvent, s.Base, d.Base)
+		}
 		s.Running = false
+		if d.Base != "" {
+			s.Base = d.Base
+		}
+		if d.Commit != "" {
+			s.Commit = d.Commit
+		}
 	case Checkpoint:
 		var d CheckpointData
 		if err := json.Unmarshal(e.Data, &d); err != nil {
@@ -194,6 +234,75 @@ func Apply(s *State, e Event) error {
 	s.Head = e.Seq
 	s.Updated = e.T
 	return nil
+}
+
+func checkCode(d CreatedData) error {
+	switch {
+	case d.Repo == "" && (d.Branch != "" || d.Base != ""):
+		return fmt.Errorf("%w: branch or base without a repo", ErrBadEvent)
+	case d.Repo != "" && !IsRepo(d.Repo):
+		return fmt.Errorf("%w: repo %q is not OWNER/REPO", ErrBadEvent, d.Repo)
+	case d.Branch != "" && !IsBranch(d.Branch):
+		return fmt.Errorf("%w: bad branch %q", ErrBadEvent, d.Branch)
+	case d.Base != "" && !IsCommit(d.Base):
+		return fmt.Errorf("%w: base %q is not a full commit id", ErrBadEvent, d.Base)
+	}
+	return nil
+}
+
+// IsRepo reports whether s is a GitHub OWNER/REPO.
+func IsRepo(s string) bool {
+	owner, name, ok := strings.Cut(s, "/")
+	if !ok || owner == "" || name == "" || len(owner) > 39 || len(name) > 100 || name == "." || name == ".." ||
+		strings.HasPrefix(owner, "-") || strings.HasSuffix(name, ".git") {
+		return false
+	}
+	for _, c := range owner {
+		if !isAlnum(c) && c != '-' {
+			return false
+		}
+	}
+	for _, c := range name {
+		if !isAlnum(c) && c != '-' && c != '_' && c != '.' {
+			return false
+		}
+	}
+	return true
+}
+
+// IsBranch accepts a conservative subset of git branch names: no option-like
+// start, no "..", no lock or reflog syntax, nothing a shell or URL treats
+// specially.
+func IsBranch(s string) bool {
+	if s == "" || len(s) > 200 || s[0] == '-' || s[0] == '/' || s[len(s)-1] == '/' || s[len(s)-1] == '.' ||
+		strings.Contains(s, "..") || strings.Contains(s, "//") || strings.Contains(s, "@{") ||
+		strings.HasSuffix(s, ".lock") || strings.Contains(s, "/.") || s[0] == '.' {
+		return false
+	}
+	for _, c := range s {
+		if !isAlnum(c) && !strings.ContainsRune("-_./", c) {
+			return false
+		}
+	}
+	return true
+}
+
+// IsCommit reports whether s is a full SHA-1 or SHA-256 commit id in
+// lowercase hex.
+func IsCommit(s string) bool {
+	if len(s) != 40 && len(s) != 64 {
+		return false
+	}
+	for _, c := range s {
+		if !('0' <= c && c <= '9' || 'a' <= c && c <= 'f') {
+			return false
+		}
+	}
+	return true
+}
+
+func isAlnum(c rune) bool {
+	return 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9'
 }
 
 // Fold rebuilds State from a whole log.
