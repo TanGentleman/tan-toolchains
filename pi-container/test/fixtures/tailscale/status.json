@@ -1,17 +1,28 @@
 {
-  "Version": "1.90.0",
+  "Version": "1.104.7-tfb3b9b296-g0651cc45e",
   "BackendState": "Running",
-  "CertDomains": ["mac1.example-tailnet.ts.net"],
+  "CertDomains": [
+    "mac1.example-tailnet.ts.net"
+  ],
   "Self": {
-    "ID": "n1",
+    "ID": "nqmWhRMzKV11CNTRL",
     "HostName": "Mac1",
     "DNSName": "mac1.example-tailnet.ts.net.",
     "OS": "macOS",
-    "UserID": 1234,
+    "UserID": 8024892301747753,
+    "Tags": null,
     "Online": true
   },
   "User": {
-    "1234": {"ID": 1234, "LoginName": "you@github", "DisplayName": "You"}
+    "8024892301747753": {
+      "ID": 8024892301747753,
+      "LoginName": "you@github",
+      "DisplayName": "You"
+    }
   },
-  "CurrentTailnet": {"Name": "you@github", "MagicDNSSuffix": "example-tailnet.ts.net", "MagicDNSEnabled": true}
+  "CurrentTailnet": {
+    "Name": "you@github",
+    "MagicDNSSuffix": "example-tailnet.ts.net",
+    "MagicDNSEnabled": true
+  }
 }
