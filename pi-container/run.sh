@@ -9,6 +9,7 @@
 #                                           one headless fleet turn (pi-ctr)
 #                                              Pi or COMMAND with full egress
 #   run.sh [--instance NAME] check [O/R]    keys, GitHub, and the network lock
+#   run.sh serve [--check] [FLEETD FLAGS] fleetd with pi-ctr behind tailscale serve
 #   run.sh proxy                            follow the proxy container's logs
 #   run.sh proxy-stop                       stop the proxy container
 #   run.sh --help                           show this text
@@ -61,6 +62,7 @@ Run Pi inside Apple's container, on a host-only network.
                                              and Pi's agent dir live on the
                                              container's own disk
   run.sh [--instance NAME] check [O/R]    keys, GitHub, the network lock, and enforcer
+  run.sh serve [--check] [FLEETD FLAGS]   run fleetd (harness pi-ctr) behind tailscale serve
   run.sh proxy                            follow the proxy container's logs
   run.sh proxy-stop                       stop the proxy container
   run.sh --help                           show this text
@@ -118,6 +120,14 @@ done
 case "${1:-}" in
   --help|-h|help) usage; exit 0 ;;
   -*) echo "run.sh: unknown option '$1' (try --help)" >&2; exit 2 ;;
+  serve)
+    if [ "$manual$egress" != 00 ] || [ -n "$clone$fleet_state" ] || [ "$instance" != "${PI_INSTANCE:-$pi_default_instance}" ]; then
+      echo "run.sh: serve takes no run options" >&2
+      exit 2
+    fi
+    shift
+    exec "$here/serve.sh" "$@"
+    ;;
 esac
 if [ "$egress" = 1 ]; then
   if [ "$manual" = 1 ]; then

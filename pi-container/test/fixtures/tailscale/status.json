@@ -1,0 +1,17 @@
+{
+  "Version": "1.90.0",
+  "BackendState": "Running",
+  "CertDomains": ["mac1.example-tailnet.ts.net"],
+  "Self": {
+    "ID": "n1",
+    "HostName": "Mac1",
+    "DNSName": "mac1.example-tailnet.ts.net.",
+    "OS": "macOS",
+    "UserID": 1234,
+    "Online": true
+  },
+  "User": {
+    "1234": {"ID": 1234, "LoginName": "you@github", "DisplayName": "You"}
+  },
+  "CurrentTailnet": {"Name": "you@github", "MagicDNSSuffix": "example-tailnet.ts.net", "MagicDNSEnabled": true}
+}

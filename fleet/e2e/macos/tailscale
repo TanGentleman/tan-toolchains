@@ -1,9 +1,10 @@
 #!/bin/sh
-# Stand-in for `tailscale serve`: logs argv to $FAKE/calls and keeps the
-# persistent config in $FAKE/serve.json. Anything else, `reset` included, fails.
+# Stand-in for `tailscale serve` and `status --json` ($FAKE/status.json): logs
+# argv to $FAKE/calls and keeps the persistent config in $FAKE/serve.json. Anything else, `reset` included, fails.
 echo "tailscale $*" >>"$FAKE/calls"
 cfg=$FAKE/serve.json
 [ -f "$cfg" ] || echo '{}' >"$cfg"
+if [ "$*" = "status --json" ]; then cat "$FAKE/status.json"; exit; fi
 [ "$1" = serve ] || exit 1
 shift
 case "$*" in

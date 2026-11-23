@@ -1,8 +1,10 @@
 #!/bin/sh
-# Starts fleetd with the key file loaded and PATH set so the agent CLIs and
-# node are found (launchd starts with an almost empty environment).
+# Starts fleetd with the env file loaded and PATH set so `container`,
+# `tailscale` and Homebrew tools are found (launchd starts with an almost
+# empty environment).
 #
-#   FLEET_ENV  key/model file (default ~/.config/fleet/env)
+#   FLEET_ENV  env file (default ~/.config/fleet/env); "-" for none, as
+#              `pic serve` sets: pi-ctr needs no key in fleetd
 #   FLEETD     fleetd binary (default ~/.local/bin/fleetd)
 #   FLEET_LOG  if set, append stdout and stderr here, moving it to .1 first
 #              once it passes FLEET_LOG_MAX bytes (default 10 MB)
@@ -14,13 +16,15 @@ if [ -n "${FLEET_LOG:-}" ]; then
   exec >>"$FLEET_LOG" 2>&1
 fi
 env=${FLEET_ENV:-$HOME/.config/fleet/env}
-if [ ! -r "$env" ]; then
-  echo "fleetd-run: $env is missing or unreadable (see docs/macos.md step 6)" >&2
-  exit 1
+if [ "$env" != - ]; then
+  if [ ! -r "$env" ]; then
+    echo "fleetd-run: $env is missing or unreadable; set FLEET_ENV=- for none" >&2
+    exit 1
+  fi
+  set -a
+  . "$env"
+  set +a
 fi
-set -a
-. "$env"
-set +a
-PATH="$HOME/fleet-tools/node_modules/.bin:/opt/homebrew/opt/node@24/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
 export PATH
 exec "${FLEETD:-$HOME/.local/bin/fleetd}" "$@"

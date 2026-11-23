@@ -12,6 +12,14 @@ export HOME=$tmp/home FAKE=$tmp/fake PATH="$PWD/e2e/macos:$PATH"
 mkdir -p "$HOME/.config/fleet" "$FAKE"
 export FLEETD=$tmp/fleetd
 echo 'OPENROUTER_API_KEY=sk-or-v1-placeholder' >"$HOME/.config/fleet/env"
+# What service.sh's `pic serve --check` needs: Tailscale, the container
+# system and image (fake), and pi-container's env file.
+pic=$(cd ../pi-container && pwd -P)
+cp "$pic/test/fixtures/tailscale/status.json" "$FAKE/status.json"
+mkdir -p "$HOME/.config/pi-container" "$tmp/world/images"
+printf 'OPENROUTER_API_KEY=sk-or-v1-real\nGITHUB_TOKEN=t\n' >"$HOME/.config/pi-container/env"
+printf '[{"id":"sha256:t"}]' >"$tmp/world/images/pi-agent_local.json"
+export CONTAINER_CLI=$pic/test/fake-container.sh FAKE_CONTAINER_WORLD=$tmp/world
 plist=$HOME/Library/LaunchAgents/dev.fleet.fleetd.plist
 svc=macos/service.sh
 
@@ -19,11 +27,13 @@ svc=macos/service.sh
 # loop fast, and serve is added after the agent is loaded.
 echo '{"TCP":{"8443":{"HTTPS":true}},"Web":{"mac1.ts.net:8443":{"Handlers":{"/":{"Proxy":"http://127.0.0.1:9000"}}}}}' >"$FAKE/serve.json"
 "$svc" install -- -name 'mac&1' -url 'https://mac1.ts.net' -owner '<me>@github' >/dev/null || fail install
-python3 - "$plist" "$PWD/macos/fleetd-run" <<'PY' || fail "plist content"
+python3 - "$plist" "$pic/run.sh" <<'PY' || fail "plist content"
 import plistlib, sys
 p = plistlib.load(open(sys.argv[1], "rb"))
-assert p["ProgramArguments"] == [sys.argv[2], "-listen", "127.0.0.1:7433", "-name", "mac&1",
+assert p["ProgramArguments"] == [sys.argv[2], "serve", "-name", "mac&1",
     "-url", "https://mac1.ts.net", "-owner", "<me>@github"], p["ProgramArguments"]
+env = p["EnvironmentVariables"]
+assert env["FLEET_SERVE"] == "0" and env["FLEET_PORT"] == "7433" and "/opt/homebrew/bin" in env["PATH"], env
 assert p["KeepAlive"] == {"SuccessfulExit": False} and p["ThrottleInterval"] >= 30, p
 assert p["Label"] == "dev.fleet.fleetd" and p["EnvironmentVariables"]["FLEET_LOG"].endswith("fleetd.log"), p
 PY
@@ -76,10 +86,16 @@ for _ in $(seq 50); do curl -s -o /dev/null "http://127.0.0.1:$busy/" && break; 
 FLEET_PORT=$busy "$svc" install -- -name a -owner b 2>/dev/null && fail "install over a busy port"
 [ ! -e "$plist" ] && [ ! -e "$HOME/.config/fleet/service.installed" ] || fail "a refused install left files"
 macos/fleet-up -name a -owner b -listen 127.0.0.1:1 2>/dev/null && fail "fleet-up with -listen"
+jq '.Self.Tags = ["tag:server"]' "$pic/test/fixtures/tailscale/status.json" >"$FAKE/status.json"
+"$svc" install -- -name a -owner b 2>"$tmp/err" && fail "install on a tagged device"
+grep -q 'tagged device' "$tmp/err" || fail "install did not say why pic serve --check failed"
+[ ! -e "$plist" ] && [ ! -e "$HOME/.config/fleet/service.installed" ] || fail "a failed check left files"
+cp "$pic/test/fixtures/tailscale/status.json" "$FAKE/status.json"
 
 # fleetd-run: fails loudly without the key file, rotates its log at start.
 FLEET_ENV=$tmp/none macos/fleetd-run -h 2>"$tmp/err" && fail "fleetd-run ran without a key file"
 grep -q 'missing or unreadable' "$tmp/err" || fail "fleetd-run error message"
+FLEET_ENV=- macos/fleetd-run -h 2>"$tmp/err"; grep -q 'Usage' "$tmp/err" || fail "fleetd-run FLEET_ENV=- should run fleetd with no env file"
 log=$tmp/fleetd.log
 head -c 200 /dev/zero >"$log"
 FLEET_LOG=$log FLEET_LOG_MAX=100 macos/fleetd-run -h || true

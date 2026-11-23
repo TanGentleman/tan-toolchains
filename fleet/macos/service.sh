@@ -1,9 +1,10 @@
 #!/bin/sh
-# Optional: run fleetd as a per-user LaunchAgent, with a persistent
-# `tailscale serve` in front. fleet-up is the default; use this only if
-# fleetd should start at login. launchd does not keep the Mac awake.
+# Optional: run `pic serve` (pi-container/run.sh serve) as a per-user
+# LaunchAgent, with a persistent `tailscale serve` in front. Running
+# `pic serve` in a terminal is the default; use this only if fleetd should
+# start at login. launchd does not keep the Mac awake.
 #
-#   service.sh install [--no-serve] -- -name mac1 -url https://... -owner you@github [fleetd flags]
+#   service.sh install [--no-serve] [-- fleetd flags]   # -name/-url/-owner default as in pic serve
 #   service.sh status
 #   service.sh uninstall    # removes only what install added; ~/.fleet stays
 #
@@ -11,6 +12,7 @@
 #   FLEET_LOG   log file (default ~/Library/Logs/fleetd.log), rotated at start
 set -eu
 here=$(cd "$(dirname "$0")" && pwd -P)
+pic=$(cd "$here/../../pi-container" && pwd -P)/run.sh
 label=dev.fleet.fleetd
 plist=${FLEET_LAUNCH_AGENTS:-$HOME/Library/LaunchAgents}/$label.plist
 record=${FLEET_SERVICE_RECORD:-$HOME/.config/fleet/service.installed}
@@ -31,30 +33,30 @@ install() {
   for a in "$@"; do
     case $a in -listen|-listen=*|--listen|--listen=*) die "set FLEET_PORT instead of -listen" ;; esac
   done
-  [ $# -gt 0 ] || die "give fleetd flags after --, e.g. -- -name mac1 -url https://... -owner you@github"
   [ ! -e "$plist" ] && [ ! -e "$record" ] || die "already installed; run: $0 uninstall"
-  [ -r "${FLEET_ENV:-$HOME/.config/fleet/env}" ] || die "no key file; see docs/macos.md step 6"
   launchctl print "$domain" >/dev/null 2>&1 ||
     die "no $domain launchd domain; install from a login at the Mac's own screen, not over SSH"
   if curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$port/"; then
-    die "something already listens on 127.0.0.1:$port; stop fleet-up first"
+    die "something already listens on 127.0.0.1:$port; stop pic serve first"
   fi
+  FLEET_SERVE=0 FLEET_PORT=$port "$pic" serve --check "$@" || die "pic serve --check failed; fix the FAIL lines above"
   if [ "$serve" = 1 ]; then
     cur=$(tailscale serve status --json) || die "tailscale serve status failed; is the Tailscale app running?"
     if [ "$(printf '%s' "${cur:-null}" | jq '[.TCP["443"]?, (.Foreground // {} | .[].TCP["443"]?)] | map(select(. != null)) | length')" != 0 ]; then
-      die "tailscale already serves port 443, maybe a running fleet-up (tailscale serve status); stop it, or use --no-serve"
+      die "tailscale already serves port 443, maybe a running pic serve (tailscale serve status); stop it, or use --no-serve"
     fi
   fi
   mkdir -p "$(dirname "$plist")" "$(dirname "$record")" "$(dirname "$log")"
   # plistlib escapes every value; a heredoc would break on & or <.
-  python3 - "$plist" "$label" "$log" "$here/fleetd-run" -listen "127.0.0.1:$port" "$@" <<'PY'
+  python3 - "$plist" "$label" "$log" "$port" "$pic" serve "$@" <<'PY'
 import plistlib, sys
-path, label, log, *argv = sys.argv[1:]
+path, label, log, port, *argv = sys.argv[1:]
 with open(path, "wb") as f:
     plistlib.dump({
         "Label": label,
         "ProgramArguments": argv,
-        "EnvironmentVariables": {"FLEET_LOG": log},
+        "EnvironmentVariables": {"FLEET_LOG": log, "FLEET_PORT": port, "FLEET_SERVE": "0",
+                                 "PATH": "/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"},
         "RunAtLoad": True,
         "KeepAlive": {"SuccessfulExit": False},
         "ThrottleInterval": 60,
@@ -105,5 +107,5 @@ case ${1:-} in
   install) shift; install "$@" ;;
   uninstall) uninstall ;;
   status) status ;;
-  *) die "usage: $0 install [--no-serve] -- FLEETD_FLAGS | uninstall | status" ;;
+  *) die "usage: $0 install [--no-serve] [-- FLEETD_FLAGS] | uninstall | status" ;;
 esac

@@ -138,6 +138,7 @@ case $cmd in
     if [ -n "$world" ] && [ -f "$world/run.stdout" ]; then cat "$world/run.stdout"; fi
     ;;
   exec) fail_if exec ;;
+  system) fail_if system ;;
   start|stop|delete|build|builder|logs) fail_if "$cmd" ;;
   *)
     printf 'fake-container: unhandled command: %s\n' "$cmd" >&2
