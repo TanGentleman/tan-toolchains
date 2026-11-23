@@ -18,9 +18,30 @@
 #
 # Afterwards only agent.json and pi/sessions/*.jsonl are kept in
 # $FLEET_STATE, so nothing else the container wrote reaches a checkpoint.
+#
+# With $FLEET_SID the container is named fleet-$FLEET_SID, and run.sh removes
+# a leftover of that name before starting. `pi-ctr --stop` removes it and
+# fails if it is still there; fleetd runs it for a turn a crashed fleetd left
+# running.
 set -uo pipefail
 
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
+name=""
+case ${FLEET_SID:-} in
+  '') ;;
+  *[!a-z0-9-]*) echo "pi-ctr: bad FLEET_SID" >&2; exit 2 ;;
+  *) name=fleet-$FLEET_SID ;;
+esac
+if [ "${1:-}" = --stop ]; then
+  [ -n "$name" ] || { echo "pi-ctr: --stop needs FLEET_SID" >&2; exit 2; }
+  cli=${CONTAINER_CLI:-container}
+  "$cli" delete --force "$name" >/dev/null 2>&1 || true
+  if "$cli" inspect "$name" >/dev/null 2>&1; then
+    echo "pi-ctr: container $name is still there after delete" >&2
+    exit 1
+  fi
+  exit 0
+fi
 : "${FLEET_STATE:?pi-ctr: FLEET_STATE is unset}"
 : "${PI_CTR_HOME:?pi-ctr: PI_CTR_HOME (the real home, where run.sh finds its config) is unset}"
 case ${OPENROUTER_API_KEY:-} in
@@ -112,9 +133,10 @@ event true "$commit"
 exit "$code"
 EOF
 
-clone=()
-[ -z "${FLEET_REPO:-}" ] || clone=(--clone "$FLEET_REPO")
-HOME=$PI_CTR_HOME "$here/run.sh" --fleet-state "$FLEET_STATE" "${clone[@]}" \
+opts=()
+[ -z "$name" ] || opts=(--fleet-name "$name")
+[ -z "${FLEET_REPO:-}" ] || opts+=(--clone "$FLEET_REPO")
+HOME=$PI_CTR_HOME "$here/run.sh" --fleet-state "$FLEET_STATE" "${opts[@]}" \
   bash -c "$turn" turn "${FLEET_PUSH:-}" "${FLEET_BASE:-}" "${FLEET_BRANCH:-}" "$cap" "$handoff" pi "$@"
 code=$?
 

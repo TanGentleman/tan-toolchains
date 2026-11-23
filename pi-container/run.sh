@@ -5,7 +5,7 @@
 #   run.sh [--instance NAME] [--clone O/R] --manual [CMD]
 #                                              shell without Pi or proxy
 #   run.sh [--instance NAME] [--allow-egress] [--clone O/R] [COMMAND [ARG...]]
-#   run.sh --fleet-state DIR [--clone O/R] COMMAND [ARG...]
+#   run.sh --fleet-state DIR [--fleet-name NAME] [--clone O/R] COMMAND [ARG...]
 #                                           one headless fleet turn (pi-ctr)
 #                                              Pi or COMMAND with full egress
 #   run.sh [--instance NAME] check [O/R]    keys, GitHub, and the network lock
@@ -55,12 +55,14 @@ Run Pi inside Apple's container, on a host-only network.
                                              shell without Pi or proxy
   run.sh [--instance NAME] [--allow-egress] [--clone O/R] [COMMAND [ARG...]]
                                              Pi or COMMAND with full network egress
-  run.sh --fleet-state DIR [--clone O/R] COMMAND [ARG...]
+  run.sh --fleet-state DIR [--fleet-name NAME] [--clone O/R] COMMAND [ARG...]
                                              one headless fleet turn: DIR, a session
                                              dir below ~/.fleet/sessions, is mounted
                                              read-write at the same path; the clone
                                              and Pi's agent dir live on the
-                                             container's own disk
+                                             container's own disk. NAME (fleet-...)
+                                             names the container; a leftover
+                                             container of that name is removed first
   run.sh [--instance NAME] check [O/R]    keys, GitHub, the network lock, and enforcer
   run.sh serve [--check] [FLEETD FLAGS]   run fleetd (harness pi-ctr) behind tailscale serve
   run.sh proxy                            follow the proxy container's logs
@@ -77,6 +79,7 @@ manual=0
 egress=0
 clone="${PI_CLONE:-}"
 fleet_state=""
+fleet_name=""
 while [ $# -gt 0 ]; do
   case $1 in
     --fleet-state)
@@ -87,6 +90,11 @@ while [ $# -gt 0 ]; do
     --fleet-state=*)
       fleet_state=${1#*=}
       shift
+      ;;
+    --fleet-name)
+      [ $# -ge 2 ] || { echo "run.sh: --fleet-name needs a name" >&2; exit 2; }
+      fleet_name=$2
+      shift 2
       ;;
     --instance)
       [ $# -ge 2 ] || { echo "run.sh: --instance needs a name" >&2; exit 2; }
@@ -140,6 +148,10 @@ if [ "$egress" = 1 ]; then
       exit 2
       ;;
   esac
+fi
+if [ -n "$fleet_name" ]; then
+  [ -n "$fleet_state" ] || { echo "run.sh: --fleet-name needs --fleet-state" >&2; exit 2; }
+  [[ $fleet_name =~ ^fleet-[a-z0-9-]{1,64}$ ]] || { echo "run.sh: invalid --fleet-name '$fleet_name'; use fleet- then lowercase letters, digits, and hyphens" >&2; exit 2; }
 fi
 if [ -n "$fleet_state" ]; then
   if [ "$manual" = 1 ] || [ "$egress" = 1 ]; then
@@ -780,6 +792,11 @@ else
     -e CURL_CA_BUNDLE=/etc/pi-proxy-ca/ca.pem
     -e REQUESTS_CA_BUNDLE=/etc/pi-proxy-ca/ca.pem
     -v "$ca_file:/etc/pi-proxy-ca/ca.pem:ro")
+fi
+if [ -n "$fleet_name" ]; then
+  # A leftover from a turn whose fleetd died must not run beside this one.
+  "$cli" delete --force "$fleet_name" >/dev/null 2>&1 || true
+  args+=(--name "$fleet_name")
 fi
 # A fleet turn's agent dir is the container's own disk, so nothing Pi
 # installs there outlives the turn.

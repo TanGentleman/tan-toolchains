@@ -639,3 +639,93 @@ func lastExit(t *testing.T, n *Node, sid string) core.ExitedData {
 	}
 	return x
 }
+
+type stopFunc struct {
+	Func
+	stop func(sid, state string) error
+}
+
+func (h stopFunc) Stop(sid, state string) error { return h.stop(sid, state) }
+
+// TestRestartStopsLeftoverTurn: a fleetd that died mid-turn may have left the
+// turn running. The next start asks the harness to stop it before recording
+// the exit, and refuses to start if that fails.
+func TestRestartStopsLeftoverTurn(t *testing.T) {
+	a := startNode(t, "a", t.TempDir())
+	sid, err := a.Spawn("tan", "k1", "sleep", core.CreatedData{Harness: "fake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		if st, _ := a.State(sid); st.Running {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("turn never started")
+		}
+	}
+	// A copy of the data as kill -9 would leave it: the turn still running.
+	crashed := t.TempDir()
+	if err := os.CopyFS(crashed, os.DirFS(a.data)); err != nil {
+		t.Fatal(err)
+	}
+	var stopped []string
+	cfg := a.cfg
+	cfg.Data = crashed
+	cfg.Harnesses = map[string]Harness{"fake": stopFunc{stop: func(sid, state string) error {
+		stopped = append(stopped, sid+" "+state)
+		return errors.New("still there")
+	}}}
+	if _, err := New(cfg); err == nil || !strings.Contains(err.Error(), "still there") {
+		t.Fatalf("start with a turn it cannot stop: %v", err)
+	}
+	cfg.Harnesses["fake"] = stopFunc{stop: func(sid, state string) error {
+		stopped = append(stopped, sid+" "+state)
+		return nil
+	}}
+	b, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer b.Close()
+	want := sid + " " + filepath.Join(crashed, "sessions", sid, "state")
+	if len(stopped) != 2 || stopped[0] != want || stopped[1] != want {
+		t.Fatalf("stopped %q, want twice %q", stopped, want)
+	}
+	if st, _ := b.State(sid); st.Running {
+		t.Fatal("the dead turn is still running")
+	}
+	lines, _, _ := b.Events(sid, 0)
+	if !strings.Contains(string(lines[len(lines)-1]), "node restarted") {
+		t.Fatalf("last event %s", lines[len(lines)-1])
+	}
+	// A clean restart has nothing to stop.
+	b.Close()
+	stopped = nil
+	c, err := New(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c.Close()
+	if len(stopped) != 0 {
+		t.Fatalf("stopped %q after a clean exit", stopped)
+	}
+}
+
+// TestExecStop: Exec.Stop runs StopArgv with the session's names set.
+func TestExecStop(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "out")
+	h := Exec{StopArgv: []string{"sh", "-c", `echo "$FLEET_SID $FLEET_STATE" > ` + out}}
+	if err := h.Stop("s1", "/st"); err != nil {
+		t.Fatal(err)
+	}
+	if b, _ := os.ReadFile(out); string(b) != "s1 /st\n" {
+		t.Fatalf("stop saw %q", b)
+	}
+	if err := (Exec{StopArgv: []string{"sh", "-c", "echo nope; exit 1"}}).Stop("s1", "/st"); err == nil || !strings.Contains(err.Error(), "nope") {
+		t.Fatalf("failing stop: %v", err)
+	}
+	if err := (Exec{}).Stop("s1", "/st"); err != nil {
+		t.Fatal(err)
+	}
+}

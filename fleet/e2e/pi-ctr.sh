@@ -166,14 +166,19 @@ done
 
 # fleetd dies mid-turn (kill -9) and restarts: the turn is recorded as
 # exited, its input is not re-run, and the next turn resumes the transcript
-# and the branch. A killed fleetd leaves its turn's processes behind; stop
-# them, as a person would after a crash.
+# and the branch. The orphaned turn stops itself and removes its container,
+# and the restart removes the container again before recording the exit.
 before=$(tip "fleet/$sid")
 api POST "/v1/sessions/$sid/inputs" '{"key":"i7","text":"sleep"}' >/dev/null
 for _ in $(seq 100); do events "$sid" | grep -q sleeping && break; sleep 0.05; done
+grep -q -- "--name fleet-$sid " "$tmp/container.log" || fail "the turn's container is not named after the session"
 kill -9 "$pid"; wait "$pid" 2>/dev/null || true
-pkill -9 -f "$tmp/" 2>/dev/null || true
+for _ in $(seq 50); do pgrep -f "$tmp/" >/dev/null || break; sleep 0.1; done
+! pgrep -f "$tmp/" >/dev/null || fail "the orphaned turn kept running: $(pgrep -af "$tmp/")"
+[ "$(grep -c "CALL delete --force fleet-$sid\$" "$tmp/container.log")" -ge 2 ] || fail "the orphaned turn did not remove its container"
+n=$(grep -c "CALL delete --force fleet-$sid\$" "$tmp/container.log")
 start_fleetd
+[ "$(grep -c "CALL delete --force fleet-$sid\$" "$tmp/container.log")" -gt "$n" ] || fail "the restart did not remove the container"
 has "$sid" 'node restarted' || fail "the dead turn was not recorded"
 say "$sid" i8 "write four"
 [ "$(git -C "$tmp/gh/o/r.git" rev-parse "$(tip "fleet/$sid")^")" = "$before" ] || fail "turn after restart did not continue the branch"

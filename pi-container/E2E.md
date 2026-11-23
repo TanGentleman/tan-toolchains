@@ -263,10 +263,11 @@ st() { curl -s "$URL/v1/sessions/$1" | jq '{commit, base, repo, branch, sandbox,
 - [ ] Owners only, if you have a second tailnet login: from a device logged
       in as it, `$URL` answers 403 on every page.
 - [ ] Crash: start a turn with `Run sleep 120 in bash`, then `kill -9` the
-      `fleetd` process (`pgrep -x fleetd`). `pic serve` stops; `container ls`
-      shows the turn's container: `container stop` it. Start `pic serve`
-      again: the session ends with `exited` reason `node restarted`, and the
-      next prompt continues the transcript and `fleet/$sid`.
+      `fleetd` process (`pgrep -x fleetd`). `pic serve` stops. Within a few
+      seconds `container ls` no longer shows `fleet-$sid` and
+      `pgrep -f pi-ctr` finds nothing. Start `pic serve` again: the session
+      ends with `exited` reason `node restarted`, and the next prompt
+      continues the transcript and `fleet/$sid`.
 - [ ] Two sessions spawned within a second of each other both finish (the
       proxy and network setup does not race).
 - [ ] Network, from a turn's own container. With a session dir from above

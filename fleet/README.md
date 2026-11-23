@@ -121,6 +121,9 @@ state); each rule has a test:
   queue.
 - **No silent re-run.** A turn that dies with `fleetd` is recorded as
   `exited` ("node restarted") when it starts again; its input is not re-sent.
+  The orphaned turn kills itself and its container (`fleet-<sid>`) once
+  `fleetd` is gone, and the restart removes that container again before
+  recording the exit.
 - **Fork, never merge.** A fork is a new session; the parent is untouched.
 
 ## Tests
@@ -155,10 +158,6 @@ network and phone):
   each node keeps its own sessions.
 - **One repo per session.** A turn clones exactly one.
 - **Scratch sessions keep no files.** Use a repo to keep work.
-- **A crashed `fleetd` leaves its running turn behind.** After `kill -9` or
-  a power loss, the turn's processes may still be running; the restart
-  records the turn as exited but doesn't stop them. `container ls` shows a
-  leftover VM; `container stop` it.
 - **No long-lived Pi, steering mid-turn, or input queue.** A turn is a
   process; that is what makes every turn a checkpoint.
 - **No compaction of the event log;** loading is linear in its size.

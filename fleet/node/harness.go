@@ -1,8 +1,10 @@
 package node
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -18,6 +20,13 @@ import (
 // checkpoint before each turn and checkpoints it after.
 type Harness interface {
 	Run(ctx context.Context, t Turn, stdout io.Writer) (code int, err error)
+}
+
+// A Stopper stops whatever a turn left running when the fleetd that ran it
+// died mid-turn. fleetd calls it at start, before recording that turn as
+// exited, and refuses to start if it fails.
+type Stopper interface {
+	Stop(sid, state string) error
 }
 
 type Turn struct {
@@ -37,12 +46,40 @@ type Turn struct {
 // Argv are expanded, and the same names are set in the environment, plus
 // $FLEET_SESSION_MODEL when the session has a model, and $FLEET_REPO,
 // $FLEET_BRANCH, $FLEET_BASE, $FLEET_PUSH and $FLEET_RESULT when it has a repo. Cancelling ctx sends
-// the whole process group SIGTERM, then SIGKILL after Grace.
+// the whole process group SIGTERM, then SIGKILL after Grace. StopArgv, if
+// set, is what Stop runs, with $FLEET_SID and $FLEET_STATE set.
 type Exec struct {
-	Argv  []string
-	Env   []string
-	Drop  []string      // names removed from fleetd's environment before Env is added
-	Grace time.Duration // default 3s
+	Argv     []string
+	StopArgv []string
+	Env      []string
+	Drop     []string      // names removed from fleetd's environment before Env is added
+	Grace    time.Duration // default 3s
+}
+
+func (h Exec) env(vars map[string]string) []string {
+	var env []string
+	for _, kv := range os.Environ() {
+		if k, _, _ := strings.Cut(kv, "="); !slices.Contains(h.Drop, k) {
+			env = append(env, kv)
+		}
+	}
+	env = append(env, h.Env...)
+	for k, v := range vars {
+		env = append(env, k+"="+v)
+	}
+	return env
+}
+
+func (h Exec) Stop(sid, state string) error {
+	if len(h.StopArgv) == 0 {
+		return nil
+	}
+	cmd := exec.Command(h.StopArgv[0], h.StopArgv[1:]...)
+	cmd.Env = h.env(map[string]string{"FLEET_SID": sid, "FLEET_STATE": state})
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("%s: %w: %s", strings.Join(h.StopArgv, " "), err, bytes.TrimSpace(out))
+	}
+	return nil
 }
 
 func (h Exec) Run(ctx context.Context, t Turn, stdout io.Writer) (int, error) {
@@ -63,15 +100,7 @@ func (h Exec) Run(ctx context.Context, t Turn, stdout io.Writer) (int, error) {
 	}
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	cmd.Dir = t.State
-	for _, kv := range os.Environ() {
-		if k, _, _ := strings.Cut(kv, "="); !slices.Contains(h.Drop, k) {
-			cmd.Env = append(cmd.Env, kv)
-		}
-	}
-	cmd.Env = append(cmd.Env, h.Env...)
-	for k, v := range vars {
-		cmd.Env = append(cmd.Env, k+"="+v)
-	}
+	cmd.Env = h.env(vars)
 	if t.Model != "" {
 		cmd.Env = append(cmd.Env, "FLEET_SESSION_MODEL="+t.Model)
 	}

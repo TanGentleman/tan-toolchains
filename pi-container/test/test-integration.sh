@@ -710,6 +710,20 @@ case_fleet_state() {
   not_contains " -t " "$(grep '^CALL run ' "$logfile")" "no terminal for a headless turn"
   log_lacks "sk-or-v1-real" "real key never appears in argv"
   log_lacks "-v $t/project:" "current folder is not mounted"
+  log_lacks "--name" "an unnamed fleet turn gets no container name"
+
+  : > "$logfile"
+  (
+    cd "$t/project" || exit 1
+    pi "$run_sh" --fleet-state "$st" --fleet-name fleet-s1 pi --mode json
+  )
+  expect_status 0 "named fleet turn starts"
+  log_has "CALL delete --force fleet-s1" "a leftover container of the name is removed first"
+  log_has "--name fleet-s1 " "the turn's container is named"
+  local del_line run_line
+  del_line=$(grep -n 'CALL delete --force fleet-s1' "$logfile" | head -n 1 | cut -d: -f1)
+  run_line=$(grep -n '^CALL run ' "$logfile" | head -n 1 | cut -d: -f1)
+  [ "${del_line:-0}" -gt 0 ] && [ "$del_line" -lt "${run_line:-0}" ] && pass || fail "delete comes before run"
 
   : > "$logfile"
   mkdir -p "$t/outside" "$home/.fleet/sessions/s2"
@@ -724,7 +738,8 @@ case_fleet_state() {
     )
     expect_status 1 "refuses --fleet-state $bad"
   done
-  for bad in "--allow-egress --fleet-state $st pi" "--manual --fleet-state $st bash" "--fleet-state $st check" "--fleet-state $st"; do
+  for bad in "--allow-egress --fleet-state $st pi" "--manual --fleet-state $st bash" "--fleet-state $st check" "--fleet-state $st" \
+             "--fleet-name fleet-s1 pi" "--fleet-state $st --fleet-name Bad pi" "--fleet-state $st --fleet-name s1 pi"; do
     (
       cd "$t/project" || exit 1
       # shellcheck disable=SC2086

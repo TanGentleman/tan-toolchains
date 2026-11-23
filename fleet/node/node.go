@@ -87,10 +87,18 @@ func New(cfg Config) (*Node, error) {
 			return nil, fmt.Errorf("session %s: %w (written by another fleetd version? move %s out of %s)", e.Name(), err, e.Name(), filepath.Join(cfg.Data, "sessions"))
 		}
 		s.mu.Lock()
-		// A turn this node was running died with the old process. Record
-		// that; its input is never re-sent, and the next turn starts from
-		// the last checkpoint, not from whatever the dead turn left behind.
+		// A turn this node was running died with the old process. Stop
+		// whatever it left running, then record that; its input is never
+		// re-sent, and the next turn starts from the last checkpoint, not
+		// from whatever the dead turn left behind.
 		if s.st.Running {
+			if h, ok := n.cfg.Harnesses[s.st.Harness].(Stopper); ok {
+				if err = h.Stop(s.st.Sid, filepath.Join(s.dir, "state")); err != nil {
+					err = fmt.Errorf("session %s: stopping the turn the last fleetd left running: %w", e.Name(), err)
+				}
+			}
+		}
+		if s.st.Running && err == nil {
 			_, err = n.commit(s, n.cmd("", core.Exited, "", core.ExitedData{Code: -1, Reason: "node restarted"}))
 		}
 		s.mu.Unlock()

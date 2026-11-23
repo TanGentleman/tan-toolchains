@@ -86,11 +86,6 @@ binaries run on macOS and do not use its network.
 
 ## Fleet
 
-- A crashed `fleetd` (`kill -9`, power loss) leaves its running turn's
-  processes and VM behind. The restart records the turn as exited but does
-  not stop them, and the leftover `pi-ctr` could still write to the state
-  folder. Record the turn's container name or process group when it starts,
-  and stop it on the next start.
 - Collect transcripts of interactive `pic` sessions into a node (`pic sync`
   posting Pi's session files, deduplicated by entry id). Check on a real
   session first that compaction and `/tree` only append entries.
