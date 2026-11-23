@@ -1,0 +1,5 @@
+#!/bin/sh
+# Stand-in for plutil -lint: parses the file with plistlib.
+echo "plutil $*" >>"$FAKE/calls"
+[ "$1" = -lint ] || exit 1
+python3 -c 'import plistlib, sys; plistlib.load(open(sys.argv[1], "rb"))' "$2" && echo "$2: OK"

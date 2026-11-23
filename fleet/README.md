@@ -176,6 +176,7 @@ steps: [docs/sandbox.md](docs/sandbox.md).
 ```sh
 gofmt -l . && go vet ./... && go test -race ./...
 bash e2e/smoke.sh   # two real fleetd processes, kill -9 mid-turn, restart
+bash e2e/macos.sh   # fleet-up and service.sh against fake launchctl/plutil/tailscale
 FLEET_SANDBOX_DIR=~/fleet-tools bash e2e/sandbox.sh   # optional, see docs/sandbox.md
 ```
 

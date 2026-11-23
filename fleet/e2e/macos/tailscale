@@ -1,0 +1,20 @@
+#!/bin/sh
+# Stand-in for `tailscale serve`: logs argv to $FAKE/calls and keeps the
+# persistent config in $FAKE/serve.json. Anything else, `reset` included, fails.
+echo "tailscale $*" >>"$FAKE/calls"
+cfg=$FAKE/serve.json
+[ -f "$cfg" ] || echo '{}' >"$cfg"
+[ "$1" = serve ] || exit 1
+shift
+case "$*" in
+  "status --json") cat "$cfg" ;;
+  status) jq -c . "$cfg" ;;
+  "--bg --https=443 "*)
+    jq --arg to "$3" '.TCP["443"] = {HTTPS: true} | .Web["mac1.ts.net:443"] = {Handlers: {"/": {Proxy: $to}}}' "$cfg" >"$cfg.new" && mv "$cfg.new" "$cfg" ;;
+  "--https=443 off")
+    jq 'del(.TCP["443"]) | del(.Web["mac1.ts.net:443"])' "$cfg" >"$cfg.new" && mv "$cfg.new" "$cfg" ;;
+  "--https=443 "*)
+    trap 'echo "tailscale foreground stopped" >>"$FAKE/calls"; exit 0' TERM INT
+    while :; do sleep 0.1; done ;;
+  *) exit 1 ;;
+esac

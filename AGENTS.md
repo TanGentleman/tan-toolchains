@@ -28,13 +28,14 @@ cd enforcer && zig build check
 cd enforcer && zig build --release=small
 cd enforcer && bash test/pi-integration.sh ./zig-out/bin/enforcer  # pi required
 
-for f in pi-container/*.sh pi-container/lib/*.sh pi-container/test/*.sh enforcer/test/*.sh fleet/e2e/*.sh; do
+for f in pi-container/*.sh pi-container/lib/*.sh pi-container/test/*.sh enforcer/test/*.sh fleet/e2e/*.sh fleet/macos/*; do
   bash -n "$f"
 done
 python3 -m py_compile pi-container/proxy.py
 
 cd fleet && test -z "$(gofmt -l .)" && go vet ./... && go test -race ./...
 cd fleet && bash e2e/smoke.sh   # curl
+cd fleet && bash e2e/macos.sh   # fleet/macos scripts, fake launchctl/plutil/tailscale
 ```
 
 The image build context is the repo root because the image compiles

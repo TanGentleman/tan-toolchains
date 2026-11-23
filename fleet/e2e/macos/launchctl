@@ -1,0 +1,9 @@
+#!/bin/sh
+# Stand-in for launchctl: logs argv to $FAKE/calls, keeps "loaded" in $FAKE.
+echo "launchctl $*" >>"$FAKE/calls"
+case $1 in
+  bootstrap) [ -f "$3" ] || exit 5; cp "$3" "$FAKE/loaded.plist" ;;
+  bootout) [ -f "$FAKE/loaded.plist" ] || exit 3; rm "$FAKE/loaded.plist" ;;
+  print) [ -f "$FAKE/loaded.plist" ] || exit 113; printf '\tstate = running\n\tpid = 42\n' ;;
+  *) exit 1 ;;
+esac

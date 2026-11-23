@@ -1,0 +1,26 @@
+#!/bin/sh
+# Starts fleetd with the key file loaded and PATH set so the agent CLIs and
+# node are found (launchd starts with an almost empty environment).
+#
+#   FLEET_ENV  key/model file (default ~/.config/fleet/env)
+#   FLEETD     fleetd binary (default ~/.local/bin/fleetd)
+#   FLEET_LOG  if set, append stdout and stderr here, moving it to .1 first
+#              once it passes FLEET_LOG_MAX bytes (default 10 MB)
+set -eu
+if [ -n "${FLEET_LOG:-}" ]; then
+  if [ -f "$FLEET_LOG" ] && [ "$(wc -c <"$FLEET_LOG")" -gt "${FLEET_LOG_MAX:-10485760}" ]; then
+    mv -f "$FLEET_LOG" "$FLEET_LOG.1"
+  fi
+  exec >>"$FLEET_LOG" 2>&1
+fi
+env=${FLEET_ENV:-$HOME/.config/fleet/env}
+if [ ! -r "$env" ]; then
+  echo "fleetd-run: $env is missing or unreadable (see docs/macos.md step 6)" >&2
+  exit 1
+fi
+set -a
+. "$env"
+set +a
+PATH="$HOME/fleet-tools/node_modules/.bin:/opt/homebrew/opt/node@24/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+export PATH
+exec "${FLEETD:-$HOME/.local/bin/fleetd}" "$@"

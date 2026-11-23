@@ -1,7 +1,8 @@
 # fleet on macOS, every step
 
 From a clean Mac to `fleetd` running Pi, Claude Code and Codex through
-OpenRouter, reachable from your phone over Tailscale, kept alive by launchd.
+OpenRouter, reachable from your phone over Tailscale. It runs in a terminal
+by default; starting it at login with launchd is optional.
 Then a second Mac as a peer, handoff, and the test suites.
 
 Run each block in Terminal (zsh), in order. Lines starting with `#` are
@@ -18,14 +19,16 @@ with `/usr/local`.
 - Optional: a second Mac for step 10.
 
 What has been run on a Mac: steps 1-5 and 7 on a clean Apple silicon Mac
-(macOS 26.6.2) with a placeholder key. Not yet run end to end on a Mac: the
-live check in step 6, steps 8-10 (real tailnet), and step 12.
+(macOS 26.6.2) with a placeholder key, before `fleet/macos/` existed. Not yet
+run on a Mac: the `fleet/macos/` scripts (`e2e/macos.sh` tests them against
+fake `launchctl`, `plutil` and `tailscale`), the live check in step 6, steps
+8-10 (real tailnet), and step 12.
 
 | Step | Needs | Gets you |
 |---|---|---|
 | 1-5 | nothing | `fleetd` built and its tests passing |
 | 6-7 | OpenRouter key | real sessions on this Mac |
-| 8-9 | Tailscale | `fleetd` always on, reachable from your phone |
+| 8-9 | Tailscale | `fleetd` reachable from your phone, in the foreground or as a login service |
 | 10 | a second Mac | handoff and fork between Macs |
 | 11 | - | the real key kept out of `fleetd` and the agents |
 | 12 | - | Pi's tool calls in a Linux sandbox (experimental) |
@@ -39,8 +42,9 @@ live check in step 6, steps 8-10 (real tailnet), and step 12.
 | Agent CLIs (pinned) | `~/fleet-tools/node_modules/.bin/{pi,claude,codex}` |
 | OpenRouter key | `~/.config/fleet/env`, mode 600, read only by the launcher |
 | Session data | `~/.fleet` |
-| Service | `~/Library/LaunchAgents/dev.fleet.fleetd.plist` |
-| Logs | `~/Library/Logs/fleetd.log` |
+| Launch scripts | `~/src/tan-toolchains/fleet/macos/` (`fleetd-run`, `fleet-up`, `service.sh`) |
+| Optional service | `~/Library/LaunchAgents/dev.fleet.fleetd.plist` (step 9, only with `service.sh`) |
+| Logs | the terminal running `fleet-up`; with the service, `~/Library/Logs/fleetd.log` |
 
 ## 1. Command-line tools and Homebrew
 
@@ -114,6 +118,7 @@ test -z "$(gofmt -l .)" && echo fmt ok
 go vet ./...
 go test -race -count=1 ./...
 bash e2e/smoke.sh                     # prints: smoke: ok (s...)
+bash e2e/macos.sh                     # prints: macos: ok (fake launchctl/tailscale)
 go test -count=1 -v -run 'TestResumeOnAnotherNode|TestFleetHandoff|TestBehindV5Proxy' ./agent
 ```
 
@@ -157,19 +162,11 @@ unset OPENROUTER_API_KEY
 
 ## 7. Run it by hand first
 
-The launcher script loads the key file and sets `PATH` so the CLIs and
-`node` are found (launchd starts with an almost empty environment).
+`fleet/macos/fleetd-run` loads `~/.config/fleet/env` and sets `PATH` so the
+CLIs and `node` are found, then runs `~/.local/bin/fleetd`.
 
 ```sh
-cat > ~/.local/bin/fleetd-run <<'X'
-#!/bin/zsh
-set -a; source "$HOME/.config/fleet/env"; set +a
-export PATH="$HOME/fleet-tools/node_modules/.bin:/opt/homebrew/opt/node@24/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-exec "$HOME/.local/bin/fleetd" "$@"
-X
-chmod 755 ~/.local/bin/fleetd-run
-
-fleetd-run -name mac1 -url http://127.0.0.1:7433 -owner me@local
+~/src/tan-toolchains/fleet/macos/fleetd-run -name mac1 -url http://127.0.0.1:7433 -owner me@local
 ```
 
 In a second tab, talk to it the way `tailscale serve` will, by setting the
@@ -210,56 +207,62 @@ tailscale status --json | jq -r '.Self.DNSName'                              # m
 tailscale status --json | jq -r '.User[(.Self.UserID|tostring)].LoginName'   # you@github
 ```
 
-## 9. fleetd as a service behind `tailscale serve`
+## 9. Serve it on the tailnet
 
 Replace `you@github` and the host name with the values from step 8.
 
 ```sh
 ME=you@github
 URL=https://mac1.your-tailnet.ts.net
-cat > ~/Library/LaunchAgents/dev.fleet.fleetd.plist <<X
-<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-  <key>Label</key><string>dev.fleet.fleetd</string>
-  <key>ProgramArguments</key><array>
-    <string>$HOME/.local/bin/fleetd-run</string>
-    <string>-name</string><string>mac1</string>
-    <string>-url</string><string>$URL</string>
-    <string>-owner</string><string>$ME</string>
-  </array>
-  <key>RunAtLoad</key><true/>
-  <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>$HOME/Library/Logs/fleetd.log</string>
-  <key>StandardErrorPath</key><string>$HOME/Library/Logs/fleetd.log</string>
-</dict></plist>
-X
-plutil -lint ~/Library/LaunchAgents/dev.fleet.fleetd.plist
-launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.fleet.fleetd.plist
-launchctl print gui/$(id -u)/dev.fleet.fleetd | grep -E 'state|pid'
-tail -n 5 ~/Library/Logs/fleetd.log          # fleetd mac1 on http://127.0.0.1:7433
-
-tailscale serve --bg 7433                     # https://mac1.<tailnet>.ts.net -> 127.0.0.1:7433
-tailscale serve status
-curl -s "$URL/v1/node" | jq                   # from any tailnet device: "you" is your login
+F=~/src/tan-toolchains/fleet/macos
+caffeinate -i $F/fleet-up -name mac1 -url "$URL" -owner "$ME"
 ```
 
-macOS shows an "App Background Activity" notice for `fleetd-run`; it is
-listed under System Settings → General → Login Items & Extensions.
-Turning it off there stops launchd from starting `fleetd`.
+`fleet-up` runs `fleetd` and `tailscale serve --https=443` (without `--bg`)
+in the foreground, in a terminal tab or tmux. Ctrl-C stops both. The serve
+config belongs to that `tailscale` process, so when it exits nothing keeps
+forwarding to port 7433. `caffeinate -i` stops the Mac idle-sleeping while it
+runs; closing a laptop's lid still sleeps it, and a sleeping Mac can't be
+reached. After rebuilding `fleetd` or editing the env file, Ctrl-C and run it
+again; a running turn is stopped with SIGTERM and its session keeps the last
+checkpoint.
 
-Open `https://mac1.your-tailnet.ts.net` on your phone (Tailscale app on).
+Check, from any tailnet device: `curl -s "$URL/v1/node" | jq` shows your
+login as `"you"`. Open `https://mac1.your-tailnet.ts.net` on your phone
+(Tailscale app on).
 
-Service commands:
+### Optional: start at login with launchd
+
+Only if `fleetd` should come up without a terminal. `service.sh` writes a
+per-user LaunchAgent (no root) and a persistent `tailscale serve --bg`:
 
 ```sh
-launchctl kickstart -k gui/$(id -u)/dev.fleet.fleetd     # restart (after rebuilding fleetd or editing env)
-launchctl bootout gui/$(id -u)/dev.fleet.fleetd          # stop and unload
-tailscale serve reset                                    # stop serving
+$F/service.sh install -- -name mac1 -url "$URL" -owner "$ME"
+$F/service.sh status                                    # state = running, the serve config, the log tail
+launchctl kickstart -k gui/$(id -u)/dev.fleet.fleetd    # restart after rebuilding fleetd or editing env
+$F/service.sh uninstall                                 # removes the plist and fleet's 443 serve entry only
 ```
 
-Let a friend use it: add `<string>-spawner</string><string>friend@github</string>`
-to `ProgramArguments`, bootout, bootstrap. Share one session instead:
+What to know about it:
+
+- The serve entry persists in Tailscale's config across reboots and keeps
+  forwarding `https://mac1...` to port 7433, identity header included, even
+  while `fleetd` is stopped. `uninstall` removes it with
+  `tailscale serve --https=443 off`. It never runs `tailscale serve reset`,
+  and `install` refuses if something else already serves port 443.
+- launchd restarts `fleetd` only when it exits non-zero, at most once a
+  minute. A bad flag or a broken env file shows in the log once a minute
+  until you fix it; change flags with `uninstall` then `install`.
+- The log is `~/Library/Logs/fleetd.log`; `fleetd-run` moves it to
+  `fleetd.log.1` at start once it passes 10 MB.
+- launchd does not keep the Mac awake. To serve while asleep on the charger,
+  `sudo pmset -c sleep 0`.
+- macOS shows an "App Background Activity" notice for `fleetd-run`; it is
+  listed under System Settings → General → Login Items & Extensions.
+  Turning it off there stops launchd from starting `fleetd`.
+
+Let a friend use it: add `-spawner friend@github` to the `fleet-up` (or
+`service.sh install`) flags. Share one session instead:
 
 ```sh
 curl -s -H 'Content-Type: application/json' -X POST "$URL/v1/sessions/$sid/share" -d '{"user":"friend@github","level":"view"}'
@@ -267,8 +270,8 @@ curl -s -H 'Content-Type: application/json' -X POST "$URL/v1/sessions/$sid/share
 
 ## 10. A second Mac: copies, handoff, fork
 
-Repeat steps 1-9 on the second Mac with `-name mac2`, its own `-url`, and one
-more pair in `ProgramArguments`: `<string>-peer</string><string>https://mac1.your-tailnet.ts.net</string>`.
+Repeat steps 1-9 on the second Mac with `-name mac2`, its own `-url`, and
+`-peer https://mac1.your-tailnet.ts.net` added to its flags.
 Add `-peer https://mac2...` on mac1 too if you want copies both ways.
 
 ```sh
@@ -313,7 +316,7 @@ SSL_CERT_FILE=/Users/YOU/.config/fleet/proxy/ca.pem
 NODE_EXTRA_CA_CERTS=/Users/YOU/.config/fleet/proxy/ca.pem
 ```
 
-`launchctl kickstart -k gui/$(id -u)/dev.fleet.fleetd`, then spawn a session
+Restart `fleet-up` (or `launchctl kickstart -k gui/$(id -u)/dev.fleet.fleetd`), then spawn a session
 and watch the proxy print `openrouter POST /api/v1/...` with no `deny` or
 `allow` lines.
 
@@ -346,11 +349,11 @@ FLEET_SANDBOX_PI_EXT=$HOME/fleet-tools/node_modules/external-sandbox-pi/src/inde
 X
 ```
 
-Add to `ProgramArguments` in the plist (step 9):
-`<string>-harness</string><string>pi-sbx=/Users/YOU/src/tan-toolchains/fleet/sandbox/pi-v86.sh</string>`
-and `<string>-harness-key</string><string>pi-sbx</string>`, since the script's Pi
-needs the key (the sandbox server it starts doesn't get it),
-then `launchctl bootout` and `bootstrap` again. Spawn with `"harness":"pi-sbx"`.
+Add `-harness pi-sbx=$HOME/src/tan-toolchains/fleet/sandbox/pi-v86.sh -harness-key pi-sbx`
+to the `fleet-up` flags (step 9) and restart it; with the service, `uninstall`
+and `install` again with the new flags. `-harness-key` is needed because the
+script's Pi needs the key; the sandbox server it starts doesn't get it.
+Spawn with `"harness":"pi-sbx"`.
 A peer that should resume these sessions needs the same install.
 
 Check: `curl -s "$URL/v1/node" | jq .harnesses` lists `pi-sbx`.
@@ -359,12 +362,15 @@ Check: `curl -s "$URL/v1/node" | jq .harnesses` lists `pi-sbx`.
 
 ```sh
 cd ~/src/tan-toolchains && git pull && cd fleet && go build -o ~/.local/bin/fleetd ./cmd/fleetd
-launchctl kickstart -k gui/$(id -u)/dev.fleet.fleetd
+# Restart fleet-up, or with the service: launchctl kickstart -k gui/$(id -u)/dev.fleet.fleetd
 # New CLI versions: change the pins in step 3, rerun step 5 before restarting.
 
-launchctl bootout gui/$(id -u)/dev.fleet.fleetd
-rm ~/Library/LaunchAgents/dev.fleet.fleetd.plist ~/.local/bin/fleetd ~/.local/bin/fleetd-run
-tailscale serve reset
+# Set up with an older version of this guide (hand-written plist, `serve --bg 7433`)?
+launchctl bootout gui/$(id -u)/dev.fleet.fleetd; rm -f ~/Library/LaunchAgents/dev.fleet.fleetd.plist
+tailscale serve --https=443 off        # then use fleet-up, or service.sh install
+
+~/src/tan-toolchains/fleet/macos/service.sh uninstall   # only if you installed the service
+rm ~/.local/bin/fleetd ~/.local/bin/fleetd-run 2>/dev/null   # fleetd-run only exists from older versions of this guide
 rm -rf ~/fleet-tools ~/.config/fleet     # ~/.fleet holds every session; delete it only if you mean it
 ```
 
@@ -372,6 +378,8 @@ rm -rf ~/fleet-tools ~/.config/fleet     # ~/.fleet holds every session; delete 
 
 | Symptom | Check |
 |---|---|
+| `421 unexpected Host` | `-url` is not the name you used to reach it; it must match `tailscale status`'s DNS name. |
+| `415` on POST | Send `Content-Type: application/json`. |
 | `401` everywhere | No `Tailscale-User-Login`: go through `tailscale serve`, or set the header with curl on the Mac itself. |
 | `403` | Your login is not `-owner`/`-spawner` and the session is not shared with you. |
 | `409` on input | A turn is still running; wait for `exited`, or `POST .../abort`. |
@@ -382,4 +390,5 @@ rm -rf ~/fleet-tools ~/.config/fleet     # ~/.fleet holds every session; delete 
 | `tailscale serve` refuses | HTTPS Certificates are off in the admin console (step 8.3). |
 | `pi-v86: sandbox exited` or `not ready` in `stderr-N.log` | Run `external-sandbox-v86 --mount-rw w=/tmp` by hand and read its output; Node must be 22.19 or newer. |
 | `pi-v86: no extension at ...` | `FLEET_SANDBOX_PI_EXT` in `~/.config/fleet/env` is wrong; see step 12. |
-| Service not running | `launchctl print gui/$(id -u)/dev.fleet.fleetd`, then `~/Library/Logs/fleetd.log`. |
+| Service not running | `service.sh status`, then `~/Library/Logs/fleetd.log`. |
+| Unreachable from the phone | The Mac is asleep, `fleet-up` was stopped, or the service isn't installed. |
