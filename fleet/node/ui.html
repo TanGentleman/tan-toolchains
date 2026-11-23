@@ -37,7 +37,7 @@ function fail(e) { main.prepend($(`<p class="err">${esc(e.message || e)}</p>`));
 async function home() {
   const list = await api("GET", "/v1/sessions");
   main.replaceChildren();
-  if (node.can_spawn) {
+  {
     const f = $(`<form><select name="harness">${node.harnesses.map((h) => `<option>${esc(h)}</option>`).join("")}</select>
       <input name="repo" placeholder="owner/repo (optional)" autocapitalize="off">
       <input name="branch" placeholder="branch (default: the repo's default)" autocapitalize="off">

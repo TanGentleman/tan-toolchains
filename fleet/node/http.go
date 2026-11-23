@@ -35,7 +35,7 @@ func login(r *http.Request) string {
 	return v
 }
 
-// Handler serves the API and the phone UI. Every route needs a login.
+// Handler serves the API and the phone UI. Every route needs an owner's login.
 func (n *Node) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
@@ -43,11 +43,10 @@ func (n *Node) Handler() http.Handler {
 		w.Write(uiHTML)
 	})
 	mux.HandleFunc("GET /v1/node", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]any{"name": n.cfg.Name, "url": n.cfg.URL, "you": login(r),
-			"can_spawn": n.cfg.Policy.CanSpawn(login(r)), "harnesses": n.harnessNames()})
+		writeJSON(w, map[string]any{"name": n.cfg.Name, "url": n.cfg.URL, "you": login(r), "harnesses": n.harnessNames()})
 	})
 	mux.HandleFunc("GET /v1/sessions", func(w http.ResponseWriter, r *http.Request) {
-		list := n.List(login(r))
+		list := n.List()
 		if list == nil {
 			list = []Summary{}
 		}
@@ -62,7 +61,7 @@ func (n *Node) Handler() http.Handler {
 		reply(w, map[string]string{"sid": sid}, err)
 	})
 	mux.HandleFunc("GET /v1/sessions/{sid}", func(w http.ResponseWriter, r *http.Request) {
-		st, err := n.State(login(r), r.PathValue("sid"))
+		st, err := n.State(r.PathValue("sid"))
 		reply(w, st, err)
 	})
 	mux.HandleFunc("GET /v1/sessions/{sid}/events", n.events)
@@ -75,7 +74,7 @@ func (n *Node) Handler() http.Handler {
 		reply(w, map[string]uint64{"seq": seq}, err)
 	})
 	mux.HandleFunc("POST /v1/sessions/{sid}/abort", func(w http.ResponseWriter, r *http.Request) {
-		reply(w, map[string]bool{"ok": true}, n.Abort(login(r), r.PathValue("sid")))
+		reply(w, map[string]bool{"ok": true}, n.Abort(r.PathValue("sid")))
 	})
 	mux.HandleFunc("POST /v1/sessions/{sid}/fork", func(w http.ResponseWriter, r *http.Request) {
 		var b struct{ Key string }
@@ -84,16 +83,6 @@ func (n *Node) Handler() http.Handler {
 		}
 		sid, err := n.Fork(login(r), r.PathValue("sid"), b.Key)
 		reply(w, map[string]string{"sid": sid}, err)
-	})
-	mux.HandleFunc("POST /v1/sessions/{sid}/share", func(w http.ResponseWriter, r *http.Request) {
-		var b struct {
-			User  string
-			Level core.Level
-		}
-		if !readJSON(w, r, &b) {
-			return
-		}
-		reply(w, map[string]bool{"ok": true}, n.Share(login(r), r.PathValue("sid"), b.User, b.Level))
 	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// A DNS-rebinding page reaches loopback with its own name in Host,
@@ -108,6 +97,10 @@ func (n *Node) Handler() http.Handler {
 		}
 		if login(r) == "" {
 			http.Error(w, "no tailnet identity (Tailscale-User-Login); reach fleetd through `tailscale serve`", http.StatusUnauthorized)
+			return
+		}
+		if !slices.Contains(n.cfg.Owners, login(r)) {
+			http.Error(w, login(r)+" is not an owner of this node (fleetd -owner)", http.StatusForbidden)
 			return
 		}
 		mux.ServeHTTP(w, r)
@@ -155,7 +148,7 @@ func (n *Node) events(w http.ResponseWriter, r *http.Request) {
 	}
 	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 	sse := r.Header.Get("Accept") == "text/event-stream"
-	lines, changed, err := n.Events(login(r), sid, after)
+	lines, changed, err := n.Events(sid, after)
 	if err != nil {
 		reply(w, nil, err)
 		return
@@ -191,7 +184,7 @@ func (n *Node) events(w http.ResponseWriter, r *http.Request) {
 			fmt.Fprint(w, ": ping\n\n")
 		case <-changed:
 		}
-		lines, changed, err = n.Events(login(r), sid, after)
+		lines, changed, err = n.Events(sid, after)
 		if err != nil {
 			return
 		}

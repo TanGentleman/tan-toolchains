@@ -86,30 +86,6 @@ func TestRules(t *testing.T) {
 	}
 }
 
-func TestPolicy(t *testing.T) {
-	p := Policy{Owners: []string{"tan"}, Spawners: []string{"amy"}}
-	s := &State{Owner: "amy", Shares: map[string]Level{"bob": View}}
-	for _, c := range []struct {
-		who  string
-		want Level
-	}{{"tan", Admin}, {"amy", Admin}, {"bob", View}, {"eve", None}, {"", None}} {
-		if got := p.Level(c.who, s); got != c.want {
-			t.Errorf("Level(%q) = %v, want %v", c.who, got, c.want)
-		}
-	}
-	if !p.CanSpawn("amy") || p.CanSpawn("bob") || p.CanSpawn("") {
-		t.Error("CanSpawn")
-	}
-	// An unknown level is an error, not a silent revoke.
-	var l Level
-	if err := l.UnmarshalText([]byte("Admin")); err == nil {
-		t.Error("accepted level Admin")
-	}
-	if err := l.UnmarshalText([]byte("steer")); err != nil || l != Steer {
-		t.Errorf("steer: %v %v", l, err)
-	}
-}
-
 // TestRandomCommands runs random commands, legal or not, against one
 // session for many seeds. Decide must refuse the illegal ones and never
 // return an event Apply rejects (do fails the test if it does); the live
@@ -138,7 +114,7 @@ func randomRun(t *testing.T, seed uint64, steps int) (string, int) {
 	}
 	for step := 0; step < steps; step++ {
 		var c Cmd
-		switch rng.IntN(5) {
+		switch rng.IntN(4) {
 		case 0:
 			c = Cmd{Kind: Checkpoint, Data: CheckpointData{Files: []File{{Name: "f", Sha: fmt.Sprint(rng.IntN(3))}}}}
 		case 1:
@@ -147,8 +123,6 @@ func randomRun(t *testing.T, seed uint64, steps int) (string, int) {
 			c = Cmd{Kind: Out, Line: []byte("x")}
 		case 3:
 			c = Cmd{Kind: Exited, Data: ExitedData{}}
-		case 4:
-			c = Cmd{Kind: Shared, Data: SharedData{User: "bob", Level: View}}
 		}
 		c.Node, c.By = "a", "tan"
 		do(t, r, c)

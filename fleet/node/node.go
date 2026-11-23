@@ -31,7 +31,7 @@ type Config struct {
 	URL       string   // this node's tailnet URL; its host is an accepted Host header
 	Hosts     []string // Host header values accepted besides URL's (the loopback listen address)
 	Data      string
-	Policy    core.Policy
+	Owners    []string // tailnet logins allowed to use this node; nobody else gets in
 	Harnesses map[string]Harness
 	Sandboxes map[string]string // harness name -> what isolates it, recorded on created
 	Now       func() time.Time
@@ -232,34 +232,18 @@ func (n *Node) commit(s *session, cmds ...core.Cmd) ([]uint64, error) {
 	return seqs, nil
 }
 
-func (n *Node) level(login string, s *session) core.Level {
-	return n.cfg.Policy.Level(login, &s.st)
-}
-
-// session returns sid if login has at least lvl on it.
-func (n *Node) session(login, sid string, lvl core.Level) (*session, error) {
-	s := n.get(sid)
-	if s == nil {
-		return nil, ErrNotFound
+// session returns sid, or ErrNotFound. Access is checked once, by the HTTP
+// handler: every route is for owners only.
+func (n *Node) session(sid string) (*session, error) {
+	if s := n.get(sid); s != nil {
+		return s, nil
 	}
-	s.mu.Lock()
-	l := n.level(login, s)
-	s.mu.Unlock()
-	if l == core.None {
-		return nil, ErrNotFound
-	}
-	if l < lvl {
-		return nil, ErrForbidden
-	}
-	return s, nil
+	return nil, ErrNotFound
 }
 
 // Spawn creates a session owned by login and starts it. The same login and
 // key always name the same session, so a retried spawn changes nothing.
 func (n *Node) Spawn(login, key, prompt string, d core.CreatedData) (string, error) {
-	if !n.cfg.Policy.CanSpawn(login) {
-		return "", ErrForbidden
-	}
 	if key == "" {
 		return "", errors.New("key required")
 	}
@@ -461,8 +445,8 @@ func (n *Node) abort(s *session) {
 }
 
 // Abort stops the running turn of sid. It is a no-op when none is running.
-func (n *Node) Abort(login, sid string) error {
-	s, err := n.session(login, sid, core.Steer)
+func (n *Node) Abort(sid string) error {
+	s, err := n.session(sid)
 	if err != nil {
 		return err
 	}
@@ -527,7 +511,7 @@ func (n *Node) Input(login, sid, key, text string) (uint64, error) {
 	if key == "" {
 		return 0, errors.New("key required")
 	}
-	s, err := n.session(login, sid, core.Steer)
+	s, err := n.session(sid)
 	if err != nil {
 		return 0, err
 	}
@@ -566,10 +550,7 @@ func (n *Node) Fork(login, sid, key string) (string, error) {
 	if key == "" {
 		return "", errors.New("key required")
 	}
-	if !n.cfg.Policy.CanSpawn(login) {
-		return "", ErrForbidden
-	}
-	s, err := n.session(login, sid, core.View)
+	s, err := n.session(sid)
 	if err != nil {
 		return "", err
 	}
@@ -582,20 +563,9 @@ func (n *Node) Fork(login, sid, key string) (string, error) {
 	return fid, n.create(fid, login, key, d, "")
 }
 
-func (n *Node) Share(login, sid, user string, lvl core.Level) error {
-	s, err := n.session(login, sid, core.Admin)
-	if err != nil {
-		return err
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	_, err = n.commit(s, n.cmd(login, core.Shared, "", core.SharedData{User: user, Level: lvl}))
-	return err
-}
-
 // State returns a copy of sid's folded state.
-func (n *Node) State(login, sid string) (core.State, error) {
-	s, err := n.session(login, sid, core.View)
+func (n *Node) State(sid string) (core.State, error) {
+	s, err := n.session(sid)
 	if err != nil {
 		return core.State{}, err
 	}
@@ -606,8 +576,8 @@ func (n *Node) State(login, sid string) (core.State, error) {
 
 // Events returns durable event lines after `after` and a channel closed on
 // the next append.
-func (n *Node) Events(login, sid string, after uint64) ([][]byte, <-chan struct{}, error) {
-	s, err := n.session(login, sid, core.View)
+func (n *Node) Events(sid string, after uint64) ([][]byte, <-chan struct{}, error) {
+	s, err := n.session(sid)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -617,8 +587,7 @@ func (n *Node) Events(login, sid string, after uint64) ([][]byte, <-chan struct{
 
 type Summary struct {
 	core.State
-	Level core.Level `json:"level"`
-	Usage Usage      `json:"usage"`
+	Usage Usage `json:"usage"`
 }
 
 // Usage totals the model tokens a session's harness reported in
@@ -652,12 +621,12 @@ func (s *session) apply(e core.Event) error {
 	return nil
 }
 
-func (n *Node) List(login string) []Summary {
+func (n *Node) List() []Summary {
 	var out []Summary
 	for _, s := range n.list() {
 		s.mu.Lock()
-		if l := n.level(login, s); l > core.None && s.st.Head > 0 {
-			out = append(out, Summary{State: s.st, Level: l, Usage: s.usage})
+		if s.st.Head > 0 {
+			out = append(out, Summary{State: s.st, Usage: s.usage})
 		}
 		s.mu.Unlock()
 	}

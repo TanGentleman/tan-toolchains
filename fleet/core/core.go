@@ -31,7 +31,6 @@ const (
 	OutB64     = "out.b64"    // a stdout line that is not valid UTF-8, base64
 	Exited     = "exited"     // ExitedData; the turn's process ended
 	Checkpoint = "checkpoint" // CheckpointData; harness state files after a turn, by hash
-	Shared     = "shared"     // SharedData
 )
 
 type Event struct {
@@ -81,31 +80,25 @@ type CheckpointData struct {
 	Files []File `json:"files"`
 }
 
-type SharedData struct {
-	User  string `json:"user"`
-	Level Level  `json:"level"`
-}
-
 // State is everything a node needs to decide the next event.
 type State struct {
-	Sid     string           `json:"sid"`
-	Head    uint64           `json:"head"`
-	Owner   string           `json:"owner"`
-	Harness string           `json:"harness"`
-	Model   string           `json:"model,omitempty"`
-	Title   string           `json:"title,omitempty"`
-	ForkOf  string           `json:"fork_of,omitempty"`
-	ForkAt  uint64           `json:"fork_at,omitempty"`
-	Running bool             `json:"running"`         // a turn is in progress
-	Run     int              `json:"run"`             // number of the latest turn
-	Files   []File           `json:"files,omitempty"` // harness state after the latest turn
-	Shares  map[string]Level `json:"shares,omitempty"`
-	Updated string           `json:"updated,omitempty"`
-	Repo    string           `json:"repo,omitempty"`
-	Branch  string           `json:"branch,omitempty"`
-	Base    string           `json:"base,omitempty"`
-	Sandbox string           `json:"sandbox,omitempty"`
-	Commit  string           `json:"commit,omitempty"` // latest pushed commit
+	Sid     string `json:"sid"`
+	Head    uint64 `json:"head"`
+	Owner   string `json:"owner"`
+	Harness string `json:"harness"`
+	Model   string `json:"model,omitempty"`
+	Title   string `json:"title,omitempty"`
+	ForkOf  string `json:"fork_of,omitempty"`
+	ForkAt  uint64 `json:"fork_at,omitempty"`
+	Running bool   `json:"running"`         // a turn is in progress
+	Run     int    `json:"run"`             // number of the latest turn
+	Files   []File `json:"files,omitempty"` // harness state after the latest turn
+	Updated string `json:"updated,omitempty"`
+	Repo    string `json:"repo,omitempty"`
+	Branch  string `json:"branch,omitempty"`
+	Base    string `json:"base,omitempty"`
+	Sandbox string `json:"sandbox,omitempty"`
+	Commit  string `json:"commit,omitempty"` // latest pushed commit
 
 	keys map[string]uint64
 }
@@ -187,19 +180,6 @@ func Apply(s *State, e Event) error {
 			return err
 		}
 		s.Files = d.Files
-	case Shared:
-		var d SharedData
-		if err := json.Unmarshal(e.Data, &d); err != nil {
-			return err
-		}
-		if s.Shares == nil {
-			s.Shares = map[string]Level{}
-		}
-		if d.Level == None {
-			delete(s.Shares, d.User)
-		} else {
-			s.Shares[d.User] = d.Level
-		}
 	default:
 		return fmt.Errorf("%w: unknown kind %q", ErrBadEvent, e.Kind)
 	}
@@ -346,7 +326,7 @@ func Decide(s *State, c Cmd) (e Event, dup uint64, err error) {
 	// Check the event against the rules on a throwaway copy, so Decide never
 	// returns an event that Apply would refuse.
 	probe := *s
-	probe.keys, probe.Shares = nil, nil
+	probe.keys = nil
 	if err := Apply(&probe, e); err != nil {
 		return Event{}, 0, err
 	}

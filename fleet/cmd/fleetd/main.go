@@ -18,7 +18,6 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/TanGentleman/tan-toolchains/fleet/core"
 	"github.com/TanGentleman/tan-toolchains/fleet/fake"
 	"github.com/TanGentleman/tan-toolchains/fleet/node"
 )
@@ -44,13 +43,12 @@ func main() {
 		os.Exit(code)
 	}
 	home, _ := os.UserHomeDir()
-	var owners, spawners, harnesses, keyed list
+	var owners, harnesses, keyed list
 	name := flag.String("name", "", "node name (required)")
 	url := flag.String("url", "", "this node's tailnet URL, e.g. https://laptop.tailnet.ts.net; its host is accepted in Host")
 	data := flag.String("data", filepath.Join(home, ".fleet"), "data directory")
 	listen := flag.String("listen", "127.0.0.1:7433", "loopback address; put `tailscale serve` in front")
-	flag.Var(&owners, "owner", "tailnet login with full access (repeatable)")
-	flag.Var(&spawners, "spawner", "tailnet login that may spawn sessions (repeatable)")
+	flag.Var(&owners, "owner", "tailnet login allowed to use this node; nobody else is (repeatable)")
 	flag.Var(&harnesses, "harness", `NAME=COMMAND ARGS, run once per turn with the prompt on stdin; keep state in $FLEET_STATE (repeatable)`)
 	flag.Var(&keyed, "harness-key", "custom harness NAME that gets OPENROUTER_API_KEY; others don't (repeatable)")
 	flag.Parse()
@@ -94,7 +92,7 @@ func main() {
 		Name: *name, URL: *url, Data: *data, Harnesses: hs,
 		Sandboxes: map[string]string{"pi-ctr": "pi-container"},
 		Hosts:     []string{*listen, net.JoinHostPort("localhost", port)},
-		Policy:    core.Policy{Owners: owners, Spawners: spawners},
+		Owners:    owners,
 	})
 	if err != nil {
 		log.Fatal(err)

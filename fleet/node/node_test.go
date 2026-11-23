@@ -36,7 +36,7 @@ func startNode(t *testing.T, name, data string) *testNode {
 	tn.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { h.ServeHTTP(w, r) }))
 	tn.cfg = Config{
 		Name: name, URL: tn.srv.URL, Data: data,
-		Policy: core.Policy{Owners: []string{"tan"}},
+		Owners: []string{"tan"},
 		Harnesses: map[string]Harness{"fake": Func(func(ctx context.Context, t Turn, w io.Writer) (int, error) {
 			return fake.Run(ctx, t.State, t.Prompt, w)
 		})},
@@ -53,7 +53,7 @@ func startNode(t *testing.T, name, data string) *testNode {
 // replies returns the fake harness's turn numbers seen in sid's output.
 func replies(t *testing.T, n *Node, sid string) []int {
 	t.Helper()
-	lines, _, err := n.Events("tan", sid, 0)
+	lines, _, err := n.Events(sid, 0)
 	if errors.Is(err, ErrNotFound) {
 		return nil
 	}
@@ -85,7 +85,7 @@ func waitTurns(t *testing.T, n *Node, sid string, want ...int) {
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		got := replies(t, n, sid)
-		st, _ := n.State("tan", sid)
+		st, _ := n.State(sid)
 		if len(got) >= len(want) && !st.Running {
 			for i := range want {
 				if got[i] != want[i] {
@@ -135,7 +135,7 @@ func post(t *testing.T, url, login, body string) (int, string) {
 func waitIdle(t *testing.T, n *Node, sid string) core.State {
 	t.Helper()
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-		if st, _ := n.State("tan", sid); !st.Running {
+		if st, _ := n.State(sid); !st.Running {
 			return st
 		}
 	}
@@ -143,7 +143,7 @@ func waitIdle(t *testing.T, n *Node, sid string) core.State {
 	return core.State{}
 }
 
-// TestLifecycle: spawn, retry safely, default deny and a read-only share,
+// TestLifecycle: spawn, retry safely, owners only,
 // fork from the last finished turn, and continue after a restart.
 func TestLifecycle(t *testing.T) {
 	a := startNode(t, "a", t.TempDir())
@@ -165,25 +165,20 @@ func TestLifecycle(t *testing.T) {
 	}
 	waitTurns(t, a.Node, sid, 1, 2)
 
-	// Default deny, then read-only share. An unknown level is refused, not
-	// read as a revoke.
+	// Only owners get in: no identity is 401, anyone else 403 on every route.
 	if code, _ := get(t, a.srv.URL+"/v1/sessions/"+sid, ""); code != http.StatusUnauthorized {
 		t.Fatalf("no identity: %d", code)
 	}
-	if code, _ := get(t, a.srv.URL+"/v1/sessions/"+sid, "bob"); code != http.StatusNotFound {
-		t.Fatalf("stranger: %d", code)
-	}
-	if err := a.Share("tan", sid, "bob", core.View); err != nil {
-		t.Fatal(err)
-	}
-	if code, _ := post(t, a.srv.URL+"/v1/sessions/"+sid+"/share", "tan", `{"user":"bob","level":"Admin"}`); code != http.StatusBadRequest {
-		t.Fatalf("unknown level: %d", code)
-	}
-	if code, _ := get(t, a.srv.URL+"/v1/sessions/"+sid+"/events", "bob"); code != http.StatusOK {
-		t.Fatalf("viewer read: %d", code)
+	for _, path := range []string{"/v1/node", "/v1/sessions", "/v1/sessions/" + sid, "/v1/sessions/" + sid + "/events"} {
+		if code, _ := get(t, a.srv.URL+path, "bob"); code != http.StatusForbidden {
+			t.Fatalf("stranger GET %s: %d", path, code)
+		}
 	}
 	if code, _ := post(t, a.srv.URL+"/v1/sessions/"+sid+"/inputs", "bob", `{"key":"x","text":"hi"}`); code != http.StatusForbidden {
-		t.Fatalf("viewer write: %d", code)
+		t.Fatalf("stranger input: %d", code)
+	}
+	if code, _ := post(t, a.srv.URL+"/v1/sessions/"+sid+"/share", "tan", `{"user":"bob","level":"view"}`); code != http.StatusNotFound {
+		t.Fatalf("share route still answers: %d", code)
 	}
 
 	// A fork continues from the parent's last finished turn (3, not 1).
@@ -229,7 +224,7 @@ func TestBusyAndAbort(t *testing.T) {
 		t.Fatalf("abort: %d %s", code, body)
 	}
 	st := waitIdle(t, a.Node, sid)
-	lines, _, _ := a.Events("tan", sid, st.Head-1)
+	lines, _, _ := a.Events(sid, st.Head-1)
 	if !strings.Contains(string(lines[0]), `"reason":"aborted"`) {
 		t.Fatalf("last event %s", lines[0])
 	}
@@ -241,7 +236,7 @@ func TestBusyAndAbort(t *testing.T) {
 		t.Fatal(err)
 	}
 	st = waitIdle(t, a.Node, sid)
-	lines, _, _ = a.Events("tan", sid, st.Head-1)
+	lines, _, _ = a.Events(sid, st.Head-1)
 	if !strings.Contains(string(lines[0]), `"code":7`) {
 		t.Fatalf("exit code not recorded: %s", lines[0])
 	}
@@ -251,7 +246,7 @@ func TestBusyAndAbort(t *testing.T) {
 // anything it started (an adapter's CLI), not just the direct child.
 func TestExecAbortKillsGroup(t *testing.T) {
 	data := t.TempDir()
-	n, err := New(Config{Name: "a", Data: data, Policy: core.Policy{Owners: []string{"tan"}},
+	n, err := New(Config{Name: "a", Data: data, Owners: []string{"tan"},
 		Harnesses: map[string]Harness{"sh": Exec{Argv: []string{"sh", "-c", `sleep 30 & echo $! > child; echo started; wait`}}}})
 	if err != nil {
 		t.Fatal(err)
@@ -271,7 +266,7 @@ func TestExecAbortKillsGroup(t *testing.T) {
 		pid, _ = strconv.Atoi(strings.TrimSpace(string(b)))
 	}
 	start := time.Now()
-	if err := n.Abort("tan", sid); err != nil {
+	if err := n.Abort(sid); err != nil {
 		t.Fatal(err)
 	}
 	if d := time.Since(start); d > 3*time.Second {
@@ -310,7 +305,7 @@ func TestModelFollowsSessionAndForks(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, id := range []string{sid, fid} {
-		if st, _ := a.State("tan", id); st.Model != "openai/gpt-6-luna" {
+		if st, _ := a.State(id); st.Model != "openai/gpt-6-luna" {
 			t.Fatalf("%s model = %q", id, st.Model)
 		}
 	}
@@ -358,7 +353,7 @@ func TestRebindingAndFormPosts(t *testing.T) {
 			t.Errorf("%s Host=%s Content-Type=%q: %d, want %d", c.method, c.host, c.ctype, got, c.want)
 		}
 	}
-	if list := a.List("tan"); len(list) != 1 {
+	if list := a.List(); len(list) != 1 {
 		t.Fatalf("sessions after refused requests: %d, want 1", len(list))
 	}
 }
@@ -398,7 +393,7 @@ func TestExecDropAndModes(t *testing.T) {
 	}
 	t.Setenv("OPENROUTER_API_KEY", "sk-or-v1-real")
 	t.Setenv("FLEET_TEST_KEEP", "kept")
-	n, err := New(Config{Name: "a", Data: data, Policy: core.Policy{Owners: []string{"tan"}},
+	n, err := New(Config{Name: "a", Data: data, Owners: []string{"tan"},
 		Harnesses: map[string]Harness{"sh": Exec{Argv: []string{"sh", "-c", `env > "$FLEET_STATE/env"; echo hi >&2`},
 			Env: []string{"FLEET_TEST_ADDED=added"}, Drop: []string{"OPENROUTER_API_KEY"}}}})
 	if err != nil {
@@ -457,7 +452,7 @@ partial) echo half > "$FLEET_STATE/f"; trap 'echo term > "$FLEET_WORK/term"; exi
 stubborn) trap '' TERM; touch "$FLEET_WORK/started"; sleep 30 & wait; sleep 30 ;;
 *) echo "state=$(cat "$FLEET_STATE/f")" ;;
 esac`
-	n, err := New(Config{Name: "a", Data: data, Policy: core.Policy{Owners: []string{"tan"}},
+	n, err := New(Config{Name: "a", Data: data, Owners: []string{"tan"},
 		Harnesses: map[string]Harness{"sh": Exec{Argv: []string{"sh", "-c", script}, Grace: 300 * time.Millisecond}}})
 	if err != nil {
 		t.Fatal(err)
@@ -483,7 +478,7 @@ esac`
 			}
 		}
 		start := time.Now()
-		if err := n.Abort("tan", sid); err != nil {
+		if err := n.Abort(sid); err != nil {
 			t.Fatal(err)
 		}
 		return time.Since(start)
@@ -503,7 +498,7 @@ esac`
 		t.Fatal(err)
 	}
 	st = waitIdle(t, n, sid)
-	lines, _, _ := n.Events("tan", sid, 0)
+	lines, _, _ := n.Events(sid, 0)
 	if all := string(bytes.Join(lines, nil)); !strings.Contains(all, "state=one") || strings.Contains(all, "state=half") {
 		t.Fatalf("next turn did not start from the last checkpoint:\n%s", all)
 	}
@@ -513,7 +508,7 @@ esac`
 // turns that ignore SIGTERM cost one grace period in total, not one each.
 func TestCloseAbortsInParallel(t *testing.T) {
 	data := t.TempDir()
-	n, err := New(Config{Name: "a", Data: data, Policy: core.Policy{Owners: []string{"tan"}},
+	n, err := New(Config{Name: "a", Data: data, Owners: []string{"tan"},
 		Harnesses: map[string]Harness{"sh": Exec{Argv: []string{"sh", "-c", `trap '' TERM; touch "$FLEET_WORK/started"; sleep 30`}, Grace: time.Second}}})
 	if err != nil {
 		t.Fatal(err)
@@ -548,7 +543,7 @@ func TestRepoTurnResult(t *testing.T) {
 	data := t.TempDir()
 	// The prompt is the result file's content; "-" writes nothing.
 	sh := `env | grep '^FLEET_' > "$FLEET_WORK/env-$FLEET_SID"; p=$(cat); [ "$p" = - ] || printf '%s' "$p" > "$FLEET_RESULT"; [ "$p" != fail ] || exit 3`
-	n, err := New(Config{Name: "a", Data: data, Policy: core.Policy{Owners: []string{"tan"}},
+	n, err := New(Config{Name: "a", Data: data, Owners: []string{"tan"},
 		Harnesses: map[string]Harness{"sh": Exec{Argv: []string{"sh", "-c", sh}}},
 		Sandboxes: map[string]string{"sh": "test-box"}})
 	if err != nil {
@@ -614,7 +609,7 @@ func TestRepoTurnResult(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	fs, _ := n.State("tan", fid)
+	fs, _ := n.State(fid)
 	if fs.Repo != "o/r" || fs.Branch != "dev" || fs.Base != sha2 || fs.Commit != "" || fs.Sandbox != "test-box" {
 		t.Fatalf("fork must start from the parent's last pushed commit: %+v", fs)
 	}

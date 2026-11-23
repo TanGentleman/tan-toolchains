@@ -139,8 +139,8 @@ caffeinate -i pic serve
 `pic serve` runs `fleetd` and `tailscale serve --https=443` in the
 foreground (Ctrl-C stops both). `-name`, `-url` and `-owner` default to this
 Mac's Tailscale host name, `https://<name>.<tailnet>.ts.net` and your login;
-pass them to override, and add other `fleetd` flags (e.g. `-spawner`)
-after `serve`. `caffeinate -i` stops idle sleep; closing a laptop's lid still
+pass them to override; another `-owner` adds a login, and owners can do
+everything (README, "What access means"). `caffeinate -i` stops idle sleep; closing a laptop's lid still
 sleeps it.
 
 Check, in a second terminal:
@@ -192,14 +192,7 @@ Only Pi's session file and the adapter's `agent.json` are kept between
 turns. Anything else Pi writes to its state folder, extensions included, is
 deleted after the turn, so nothing a turn installs carries over.
 
-## 8. Sharing
-
-`-spawner friend@github` lets them start turns: each turn can
-do anything inside its VM, spend your OpenRouter key and push to the token's
-repos. A `steer` share of a session is the same for that session; `view` is
-read only. See "What access means" in the README.
-
-## 9. Upgrading and removing
+## 8. Upgrading and removing
 
 ```sh
 cd ~/src/tan-toolchains && git pull && cd pi-container && ./build.sh && ./build.sh fleet
@@ -218,7 +211,7 @@ To remove: stop `pic serve` and delete `~/.fleet` (every session) and
 | `jq: parse error` | The reply is an error message, not JSON. Run the `curl` without `jq`. |
 | `421 unexpected Host` | You passed a `-url` that doesn't match the name you curl. Drop it; `pic serve` reads it from Tailscale. |
 | `no tailnet identity` at `127.0.0.1:7433` | Expected. Use `$URL`, which goes through `tailscale serve`. |
-| `401` / `403` | No identity header (not through `tailscale serve`), or your login is not the owner or a spawner. |
+| `401` / `403` | No identity header (not through `tailscale serve`), or your login is not an `-owner`. |
 | `409` on input | A turn is still running; wait for `exited`, or abort it. |
 | Turn fails, `push refused: ...` | The reason is in the session's last `exited`. Workflows: the token can't change `.github/workflows`, by design. |
 | Turn fails, `cannot check out fleet/<sid>` or `cannot fetch base` | The token can't read the repo, or the base commit was force-pushed away. |

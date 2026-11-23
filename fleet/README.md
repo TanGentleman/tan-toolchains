@@ -51,29 +51,22 @@ Rules the code enforces, each with a test:
   fleetd shutting down: it gets SIGTERM, 3 s later SIGKILL, and no checkpoint.
 - **Fork, never merge.** A fork is a new session from the parent's last
   checkpoint and pushed commit; the parent is untouched.
-- **Default deny.** Owners and spawners are flags; everyone else needs a
-  per-session share (`view`, `steer`, `admin`).
+- **Owners only.** `-owner` logins can do everything; every other caller
+  gets 403. There are no per-session shares.
 
 ## What access means
 
-Harnesses run as the user running `fleetd`, with no sandbox unless the
-harness adds one. `pi-ctr` runs Pi in pi-container's VM; a custom
-`-harness` runs on the Mac. So:
+An owner can run anything a turn can: a `pi-ctr` turn can do anything
+inside its VM, spend your OpenRouter key and push to the token's repos; a
+custom `-harness` runs on the Mac as you. Add only logins you would give a
+shell. A friend who wants their own agents runs their own node.
 
-- **A `-spawner` can run any command as you** and spend your OpenRouter key:
-  a `pi-ctr` turn can do anything inside its container and push to
-  `fleet/<sid>`; a host harness such as `fleetd agent pi` can do anything.
-- **A `steer` or `admin` share of a session is the same,** for that session:
-  its next turn runs whatever they ask. `view` is read only, but shows every
-  file and command output the agent saw.
-- **Loopback is the credential.** `fleetd` believes `Tailscale-User-Login`
-  on any request to its loopback port that passes the `Host` check. Any
-  process on the machine can send one, including an agent in a host
-  harness's turn, so such a turn can act as the owner: spawn, read or share
-  any session. A `pi-ctr` turn's network is pi-locked, which is meant to
-  stop it reaching the Mac's port 7433 (checked on a Mac in
-  pi-container/E2E.md). Give spawners and `steer` only to people you would
-  give a shell.
+**Loopback is the credential.** `fleetd` believes `Tailscale-User-Login` on
+any request to its loopback port that passes the `Host` check, so any
+process on the machine can act as an owner, including a custom harness's
+turn. A `pi-ctr` turn's network is `pi-locked`, which is meant to stop it
+reaching the Mac's port 7433 (checked on a Mac in
+[pi-container/E2E.md](../pi-container/E2E.md)).
 
 ## API
 
@@ -92,7 +85,6 @@ cross-site form can't either.
 | `POST /v1/sessions/{sid}/inputs` | `{key,text}` run one turn; 409 while a turn runs |
 | `POST /v1/sessions/{sid}/abort` | kill the running turn |
 | `POST /v1/sessions/{sid}/fork` | `{key}` new session from the newest checkpoint |
-| `POST /v1/sessions/{sid}/share` | `{user,level}` |
 
 A harness is any command (`-harness 'name=cmd args'`). Each turn it gets
 the prompt on stdin and `$FLEET_SID`, `$FLEET_STATE`, `$FLEET_WORK`
@@ -225,7 +217,7 @@ bash e2e/pi-ctr.sh  # pi-ctr turns through real run.sh, a fake container and a l
 - `store`: the log cut at every byte offset reopens to exactly its complete
   lines; a rejected complete line makes open fail and changes nothing.
 - `node`: a node over `httptest` with the in-process fake harness: spawn,
-  retry, share, fork from the last finished turn, restart; busy input, abort,
+  retry, owners only, fork from the last finished turn, restart; busy input, abort,
   exit codes; abort stops an `Exec` harness's whole process group, lets it
   handle SIGTERM, and keeps the last checkpoint.
 - `e2e/smoke.sh`: a real `fleetd` process, including `kill -9` in the
