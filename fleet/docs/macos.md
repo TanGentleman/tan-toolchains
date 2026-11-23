@@ -262,7 +262,12 @@ What to know about it:
   Turning it off there stops launchd from starting `fleetd`.
 
 Let a friend use it: add `-spawner friend@github` to the `fleet-up` (or
-`service.sh install`) flags. Share one session instead:
+`service.sh install`) flags. That gives them a shell on this Mac as you,
+and your OpenRouter key: a turn runs whatever the agent is asked. A `steer`
+share of a session is the same for that session; `view` is read only.
+Any process on this Mac can also call `127.0.0.1:7433` with your login,
+agents included (see "What access means" in the README). Share one session
+instead:
 
 ```sh
 curl -s -H 'Content-Type: application/json' -X POST "$URL/v1/sessions/$sid/share" -d '{"user":"friend@github","level":"view"}'

@@ -76,6 +76,16 @@ turn fails.
   sandbox stops the model's tool calls from reading it, which is the main
   path, but not a malicious extension. `--no-approve` (already in
   `agent/agent.go`) stops repo `.pi/extensions` from loading.
+- **The sandbox and the proxy are separate layers.** The sandbox limits
+  what tool calls can see and reach. `pi-container/proxy.py` (step 11 of
+  [macos.md](macos.md)) keeps the real key out of every process `fleetd`
+  starts, Pi included. Neither one stops a `-spawner` or a `steer` share from
+  running a plain `pi` session instead, and neither stops a process on the
+  Mac from calling `fleetd` on loopback as the owner (README, "What access
+  means").
+- **The harness script is not sandboxed either.** `pi-v86.sh` gets
+  `OPENROUTER_API_KEY` through `-harness-key pi-sbx` so Pi can use it, and
+  starts the sandbox server with the key removed.
 - **v86 is slow and 32-bit.** Fine for `git`, `rg` and scripts; poor for
   builds. Apple Containers run arm64 at native speed but are untested here.
 - **Only Pi.** Claude Code's native Read/Edit are not redirected by its

@@ -62,6 +62,23 @@ Rules the code enforces, each with a test:
 - **Default deny.** Owners and spawners are flags; everyone else needs a
   per-session share (`view`, `steer`, `admin`).
 
+## What access means
+
+Harnesses run as the user running `fleetd`, with no sandbox unless the
+harness adds one (`pi-sbx` covers only Pi's tool calls). So:
+
+- **A `-spawner` can run any command as you** and spend your OpenRouter key:
+  spawning `pi`, `claude` or `codex` lets them ask the agent to do anything.
+- **A `steer` or `admin` share of a session is the same,** for that session:
+  its next turn runs whatever they ask. `view` is read only, but shows every
+  file and command output the agent saw.
+- **Loopback is the credential.** `fleetd` believes `Tailscale-User-Login`
+  on any request to its loopback port that passes the `Host` check. Any
+  process on the machine can send one, including an agent in a turn, so a
+  plain `pi`, `claude` or `codex` turn can act as the owner: spawn, read or
+  share any session. Give spawners and `steer` only to people you would give
+  a shell, and use `pi-sbx` for prompts you don't trust.
+
 ## API
 
 All routes need `Tailscale-User-Login` and a `Host` of the `-url` host or the
