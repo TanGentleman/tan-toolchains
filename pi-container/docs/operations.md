@@ -80,6 +80,52 @@ the active pack:
 ./build.sh full          # or the pack matching PI_IMAGE
 ```
 
+## Rebuilding from scratch
+
+After a Pi or base-image bump, to start from nothing but the config directory.
+Run from `pi-container/`, with every `pic` and `pic serve` stopped.
+
+1. Find unpushed work. Clone volumes are deleted in step 3, and only pushed
+   commits survive. For each clone `list` shows:
+
+   ```bash
+   ./clear.sh list
+   ./run.sh --manual --clone you/your-repo     # shell in /work/<repo>
+   git status --short; git log --branches --not --remotes --oneline; exit
+   ```
+
+   Commit and push anything you want to keep.
+2. Save transcripts while the agent image still exists; without it, step 3
+   deletes volumes without a backup. Repeat `save` for every instance `list`
+   shows, then check the files are there:
+
+   ```bash
+   ./clear.sh save                              # default instance
+   ./clear.sh save --instance work
+   find ~/pi-backups -name '*.jsonl' | wc -l
+   cp -a ~/.fleet ~/pi-backups/fleet-$(date +%Y%m%d)   # fleet sessions, if you run pic serve
+   ```
+3. Delete the profile (every instance's agent volume, saved again first, its
+   clone volumes, proxy, network and proxy image), then the shared agent
+   image and the builder cache:
+
+   ```bash
+   ./clear.sh nuke profile --yes
+   ./clear.sh nuke all --yes
+   container image list                         # other pack tags, e.g. pi-agent-lite:local, stay; delete them by hand
+   ```
+4. Drop the seeded settings so the next start writes them for the new Pi
+   version and default model, then rebuild and check:
+
+   ```bash
+   rm ~/.config/pi-container/settings.json      # only if you have not edited it; otherwise update lastChangelogVersion
+   ./build.sh                                   # or the pack you use
+   ./build.sh fleet                             # if you run pic serve
+   ./run.sh check you/your-repo                 # "settings lastChangelogVersion is current"
+   ```
+
+`~/.config/pi-container/env`, `~/pi-backups` and `~/.fleet` are never touched.
+
 ## Retiring a profile
 
 `nuke profile` deletes everything a `PI_CONFIG_DIR` owns: the agent volume of
