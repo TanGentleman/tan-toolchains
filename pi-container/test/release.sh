@@ -72,7 +72,7 @@ fi
 secrets=()
 # The tester stage stages its env file at ~/.pi-release/env in the test account.
 staged=$HOME/.pi-release
-for f in "${PI_ENV_FILE:-}" "$(pi_default_config_dir)/env" "$HOME/.cache/pi-e2e/cfg/env" "$staged/env" \
+for f in "${PI_ENV_FILE:-}" "${PI_CONFIG_DIR:+$PI_CONFIG_DIR/env}" "$(pi_default_config_dir)/env" "$HOME/.cache/pi-e2e/cfg/env" "$staged/env" \
   ${tester_env:+"$tester_env"}; do
   [ -n "$f" ] && [ -r "$f" ] || continue
   for k in OPENROUTER_API_KEY GITHUB_TOKEN GIT_AUTHOR_EMAIL GIT_COMMITTER_EMAIL; do
@@ -278,7 +278,7 @@ stage_manual() {
 }
 
 stage_fleet() {
-  local repo="" pid log exe fleetd_commit="" proxy n0 why
+  local repo="" pid log exe fleetd_commit="" proxy n0 why cfg served
   while [ $# -gt 0 ]; do
     case $1 in
       --repo) repo=${2:-}; shift 2 || shift ;;
@@ -291,6 +291,10 @@ stage_fleet() {
   check "tailscale is installed" sh -c 'command -v tailscale'
   check "Tailscale is running" sh -c 'tailscale status --json | jq -e ".BackendState == \"Running\""'
   check "tailscale serve is serving fleetd" sh -c 'tailscale serve status --json | jq -e "[.. | objects | .Proxy? // empty | strings] | any(startswith(\"http://127.0.0.1:\"))"'
+  # The profile pic serve runs with: its env file has the token the turns
+  # push with, and its proxy carries them. The checks below must use it too.
+  cfg=${PI_CONFIG_DIR:-$(pi_default_config_dir)}
+  export PI_CONFIG_DIR=$cfg
   pid=$(pgrep -f 'fleetd -listen' | head -n 1)
   exe=""
   if [ -z "$pid" ]; then
@@ -306,12 +310,19 @@ stage_fleet() {
       rec fail "the running fleetd was built from $sha" \
         "it says ${fleetd_commit:-nothing}; run ./build.sh fleet on a clean tree and restart pic serve"
     fi
+    served=$(ps eww -p "$pid" 2>/dev/null | rel_ps_env PI_CONFIG_DIR)
+    if [ "${served:-$(pi_default_config_dir)}" = "$cfg" ]; then
+      rec pass "pic serve and these checks use one profile ($cfg)"
+    else
+      rec fail "pic serve and these checks use one profile ($cfg)" \
+        "pic serve uses ${served:-$(pi_default_config_dir)}; rerun with PI_CONFIG_DIR=${served:-$(pi_default_config_dir)}"
+    fi
     check "the key is not in fleetd's environment" sh -c \
       '[ "$(ps eww -p "$1" | grep -c OPENROUTER_API_KEY)" = 0 ]' sh "$pid"
     check "fleetd listens on loopback only" sh -c \
       '! lsof -nP -a -p "$1" -iTCP -sTCP:LISTEN | awk "NR > 1 {print \$9}" | grep -v "^127\.0\.0\.1:"' sh "$pid"
   fi
-  proxy=$(pi_proxy_name "$(pi_default_config_dir)")
+  proxy=$(pi_proxy_name "$cfg")
   n0=$(container logs "$proxy" 2>/dev/null | wc -l)
   log=$dir/fleet-e2e.log
   new_file "$log"

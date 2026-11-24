@@ -196,6 +196,8 @@ if ! FLEET_URL=$U FLEET_LOGIN=tan FLEET_ISOLATION="$tmp/bin/isolation" CONTAINER
   cat "$tmp/fleet-e2e.log"; fail "test/fleet-e2e.sh"
 fi
 grep -q "fleet-e2e: ok" "$tmp/fleet-e2e.log" || { cat "$tmp/fleet-e2e.log"; fail "test/fleet-e2e.sh did not say ok"; }
+out=$(FLEET_URL=$U FLEET_LOGIN=tan PI_CONFIG_DIR="$cfg" GIT_CONFIG_GLOBAL="$disk/gitconfig" "$pic/test/fleet-e2e.sh" o/missing 2>&1) && fail "fleet-e2e.sh passed on a repo it can't read"
+grep -q "can't read o/missing" <<<"$out" || fail "fleet-e2e.sh did not explain an unreadable repo: $out"
 
 events "$sid" > "$tmp/events"
 ms=$(grep -o 'first_output_ms[^,]*' "$tmp/events" | tr -d '\\"' | sed 's/first_output_ms://' | sort -n | tr '\n' ' ')

@@ -169,6 +169,9 @@ REPO=you/fleet-e2e
 ./test/fleet-e2e.sh $REPO     # a release runs it as: test/release.sh fleet --repo $REPO
 ```
 
+Set `PI_CONFIG_DIR` (or `PI_ENV_FILE`) as for `pic serve`: the token comes
+from that profile's env file.
+
 It runs real turns through `$URL` and checks the results on GitHub with the
 env file's token. Each line is a blocker:
 

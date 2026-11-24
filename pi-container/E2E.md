@@ -245,7 +245,9 @@ what is next.
 
 Push the candidate, wait for CI, run `./build.sh fleet` and restart
 `pic serve`. R is the throwaway repo (Setup above); FILE is a mode-600 env
-file with its token.
+file with its token. Run `fleet` with the `PI_CONFIG_DIR` (or `PI_ENV_FILE`)
+`pic serve` uses: it takes that profile's token and proxy, and fails if
+fleetd runs with another.
 
 | Where | Command | By hand |
 |---|---|---|

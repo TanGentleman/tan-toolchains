@@ -11,7 +11,8 @@
 # "fleet-e2e: FAIL"; exits non-zero on FAIL. Runs fleet-isolation.sh on the
 # first session. TURN_TIMEOUT (seconds, 300) bounds each turn. For
 # fleet/e2e/pi-ctr.sh: FLEET_URL, FLEET_LOGIN (sent as the identity header),
-# FLEET_ISOLATION, CONTAINER_CLI and PI_ENV_FILE.
+# FLEET_ISOLATION and CONTAINER_CLI. The token comes from PI_ENV_FILE, else
+# $PI_CONFIG_DIR/env, as in run.sh.
 set -euo pipefail
 
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
@@ -21,7 +22,7 @@ case $repo in
   */* ) ;;
   *) die "usage: test/fleet-e2e.sh OWNER/REPO" ;;
 esac
-env_file=${PI_ENV_FILE:-$HOME/.config/pi-container/env}
+env_file=${PI_ENV_FILE:-${PI_CONFIG_DIR:-$HOME/.config/pi-container}/env}
 ctr=${CONTAINER_CLI:-container}
 timeout=${TURN_TIMEOUT:-300}
 URL=${FLEET_URL:-https://$(tailscale status --json | jq -r '.Self.DNSName | rtrimstr(".")')}
@@ -78,8 +79,8 @@ tip() { git ls-remote "https://github.com/$repo" "refs/heads/$1" | cut -f1; }
 fetch() { git -C "$tmp/gh" fetch -q "https://github.com/$repo" "$1" && git -C "$tmp/gh" rev-parse FETCH_HEAD; }
 
 echo "== fleet-e2e $repo via $URL"
-main=$(tip main)
-[ -n "$main" ] || die "$repo has no main branch, or the token can't read it"
+main=$(tip main 2>/dev/null) || main=""
+[ -n "$main" ] || die "the GITHUB_TOKEN in $env_file can't read $repo, or it has no main branch; set PI_CONFIG_DIR or PI_ENV_FILE to the profile pic serve uses"
 
 echo "-- 1. isolation"
 sid=$(spawn "$repo" "Say hi.")

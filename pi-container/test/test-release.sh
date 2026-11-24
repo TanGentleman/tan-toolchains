@@ -84,6 +84,8 @@ contains "has processes running" "$(old busy)" "tester keeps an account with pro
 plog='12:00:00 allow github.com
 12:00:01 openrouter POST /api/v1/chat/completions
 12:00:02 allow api.github.com'
+eq /p/e2e "$(printf 'fleetd -listen 127.0.0.1:1 HOME=/h PI_CONFIG_DIR=/p/e2e TERM=x\n' | rel_ps_env PI_CONFIG_DIR)" "ps env: finds PI_CONFIG_DIR"
+eq "" "$(printf 'fleetd -listen 127.0.0.1:1 HOME=/h\n' | rel_ps_env PI_CONFIG_DIR)" "ps env: unset is empty"
 rc 0 "proxy log: OpenRouter and GitHub pass" rel_proxy_log <<<"$plog"
 out=$(printf '%s\n' "$plog" '12:00:03 deny registry.npmjs.org:443' '12:00:04 allow evil.example' | rel_proxy_log)
 contains "the proxy refused registry.npmjs.org:443" "$out" "proxy log: a refused request fails"
