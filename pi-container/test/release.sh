@@ -6,7 +6,7 @@
 #
 #   test/release.sh                        what passed for HEAD, and the
 #                                          next command to run
-#   test/release.sh fleet SID              main account, `pic serve` up:
+#   test/release.sh fleet --repo R         main account, `pic serve` up:
 #                                          fleet/docs/macos.md step 8
 #   test/release.sh tester NAME --env FILE --repo O/R
 #                                          main account (admin), after
@@ -262,8 +262,14 @@ stage_manual() {
 }
 
 stage_fleet() {
-  local sid=${1:-} pid log exe fleetd_commit=""
-  case $sid in '' | *[!a-z0-9-]*) die "usage: test/release.sh fleet SID" ;; esac
+  local repo="" pid log exe fleetd_commit="" proxy n0 hosts
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --repo) repo=${2:-}; shift 2 || shift ;;
+      *) die "fleet: unknown argument $1" ;;
+    esac
+  done
+  case $repo in */*) ;; *) die "usage: test/release.sh fleet --repo OWNER/REPO" ;; esac
   echo "== fleet/docs/macos.md step 8 ($sha)"
   tree_checks
   check "tailscale is installed" sh -c 'command -v tailscale'
@@ -289,23 +295,33 @@ stage_fleet() {
     check "fleetd listens on loopback only" sh -c \
       '! lsof -nP -a -p "$1" -iTCP -sTCP:LISTEN | awk "NR > 1 {print \$9}" | grep -v "^127\.0\.0\.1:"' sh "$pid"
   fi
-  log=$dir/fleet-isolation.log
-  "$here/fleet-isolation.sh" "$sid" 2>&1 | redact | tee "$log"
-  check "fleet-isolation.sh: isolation: ok, no FAIL" sh -c \
-    'grep -q "isolation: ok" "$1" && ! grep -q FAIL "$1"' sh "$log"
+  proxy=$(pi_proxy_name "$(pi_default_config_dir)")
+  n0=$(container logs "$proxy" 2>/dev/null | wc -l)
+  log=$dir/fleet-e2e.log
+  echo "== test/fleet-e2e.sh $repo (a few minutes of real turns)"
+  "$here/fleet-e2e.sh" "$repo" 2>&1 | redact | tee "$log" || true
+  # Each check line becomes a record; a missing summary means it died early.
+  while IFS= read -r line; do
+    case $line in
+      "  ok    "*) rec pass "e2e: ${line#  ok    }" ;;
+      "  FAIL  "*) rec fail "e2e: ${line#  FAIL  }" ;;
+    esac
+  done <"$log"
+  check "fleet-e2e.sh finished with fleet-e2e: ok" grep -q '^fleet-e2e: ok$' "$log"
+  hosts=$(container logs "$proxy" 2>/dev/null | tail -n +"$((n0 + 1))" | sed -n 's/.*allow \([^ ]*\).*/\1/p' | sort -u)
+  check "the turns went through $proxy to openrouter" sh -c \
+    'container logs "$1" 2>/dev/null | tail -n +"$2" | grep -q openrouter' sh "$proxy" "$((n0 + 1))"
+  if [ -z "$(grep -vxE 'openrouter\.ai|(api\.|codeload\.|uploads\.)?github\.com|(objects|raw)\.githubusercontent\.com' <<<"$hosts")" ]; then
+    rec pass "the proxy allowed only openrouter.ai and GitHub hosts"
+  else
+    rec fail "the proxy allowed only openrouter.ai and GitHub hosts" "$(tr '\n' ' ' <<<"$hosts")"
+  fi
   [ -r /dev/tty ] || die "the step 8 checks need a terminal"
-  echo "== step 8, by hand on the phone and Mac (see fleet/docs/macos.md)"
-  ask "pic proxy shows only openrouter.ai and GitHub hosts during the turns"
-  ask "2. turn: base is main's tip, commit is fleet/SID's tip, hello.txt is hi"
-  ask "2. follow-up: Pi remembers; the new commit's parent is the first"
-  ask "2. fork: the fork's base is the parent's commit"
-  ask "2. scratch: Pi remembers the first turn; note.txt is gone"
-  ask "3. abort: aborted, branch unchanged, no fleet-SID container, conversation continues"
-  ask "3. workflow: push refused naming .github/workflows; branch unchanged"
-  ask "3. token: push refused; branch unchanged"
-  ask "4. kill -9 fleetd: pic serve exits, no fleet-SID container, no pi-ctr"
-  ask "4. restart: last event says node restarted; next prompt continues"
-  ask "4. Ctrl-C pic serve: tailscale serve status empty, no fleet- container"
+  echo "== step 8, by hand (fleet/docs/macos.md)"
+  ask "scratch: Pi remembers the first turn; note.txt is gone"
+  ask "kill -9 fleetd: pic serve exits, no fleet- container, no pi-ctr"
+  ask "restart: last event says node restarted; next prompt continues"
+  ask "Ctrl-C pic serve: tailscale serve status empty, no fleet- container"
   save "$(jq -n --argjson facts "$(facts)" --arg commit "$fleetd_commit" \
     --arg fleetd "$( [ -n "$exe" ] && shasum -a 256 "$exe" 2>/dev/null | cut -c1-64)" \
     '{facts: $facts, fleetd_sha256: $fleetd, fleetd_commit: $commit}')"
@@ -434,7 +450,7 @@ stage_status() {
   if [ -f "$staged/sha" ] && ! { stage_ok fresh && stage_ok verify && stage_ok manual; }; then
     echo "test/release.sh account"
   elif ! stage_ok fleet; then
-    echo "main account, pic serve up and a session that finished a turn: test/release.sh fleet SID"
+    echo "main account, pic serve up: test/release.sh fleet --repo OWNER/REPO"
   elif ! { stage_ok fresh && stage_ok verify && stage_ok manual; }; then
     echo "main account, pic serve stopped: test/release.sh tester NAME --env FILE --repo OWNER/REPO"
   else

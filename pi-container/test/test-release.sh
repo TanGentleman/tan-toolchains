@@ -109,6 +109,8 @@ contains "has no GITHUB_TOKEN" "$out" "tester needs a token"
 not_contains "abcdefgh12345678" "$out" "tester redacts its env file"
 out=$(rel account 2>&1)
 contains "run this in an account made by test/release.sh tester" "$out" "account needs tester"
+out=$(rel fleet 2>&1)
+contains "usage: test/release.sh fleet --repo OWNER/REPO" "$out" "fleet needs a repo"
 rc 2 "unknown stage" env HOME="$home" PI_RELEASE_DIR="$rdir" "$root/test/release.sh" bogus
 
 finish

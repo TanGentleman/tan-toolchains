@@ -163,46 +163,31 @@ blocker if it fails.
 REPO=you/fleet-e2e
 ```
 
-**1. Isolation** (the security model depends on it).
+**Scripted.** With `pic serve` up:
 
-- [ ] The key isn't in `fleetd`:
-      `ps eww -p "$(pgrep -f 'fleetd -listen')" | grep -c OPENROUTER_API_KEY`
-      prints `0`.
-- [ ] Spawn on `$REPO` with prompt `Say hi.`; when the turn ends, set `sid`
-      and run `./test/fleet-isolation.sh $sid`. It ends with
-      `isolation: ok`, with no `FAIL` line: the egress lock lets a turn
-      reach only `pi-proxy`, so every Mac, tailnet, DNS and internet probe
-      must say `blocked` or `no answer`.
-- [ ] During the turns below, `pic proxy` (third terminal) shows only
-      `openrouter.ai` and GitHub hosts.
+```sh
+./test/fleet-e2e.sh $REPO     # a release runs it as: test/release.sh fleet --repo $REPO
+```
 
-**2. Turns.** New session on `$REPO`, branch empty.
+It spawns sessions through `$URL` with real Pi and checks GitHub with git
+and the env file's token: `fleet-isolation.sh` says `isolation: ok` (every
+Mac, tailnet, DNS and internet probe from a turn's VM is blocked); a turn's
+`base` is main's tip, its `commit` is `fleet/$sid`'s tip and has
+`hello.txt`; a follow-up remembers the first turn and its commit's parent
+is the first; a fork's `base` is the parent's `commit`; Abort records
+`aborted`, leaves the branch and no `fleet-$sid` container, and the next
+prompt runs; a workflow change and a token in a file are `push refused`
+with the branch unchanged. It ends with `fleet-e2e: ok`. `release.sh fleet`
+also checks that fleetd was built from the commit, that the key isn't in
+its environment, that it listens on loopback only, and that the proxy log
+shows only `openrouter.ai` and GitHub hosts.
 
-- [ ] `main=$(tip $REPO main)`, then spawn with `Create hello.txt containing hi.`
-      When it ends: `st $sid` shows `base` equal to `$main` and `commit`
-      equal to `tip $REPO fleet/$sid`, and `ghcat $REPO fleet/$sid hello.txt`
-      prints `hi`.
-- [ ] Send `What did you just create?`: Pi remembers, and the new commit's
-      parent is the first:
-      `ghapi $REPO/commits/$(tip $REPO fleet/$sid) | jq -r '.parents[0].sha'`.
-- [ ] Fork it from the UI: the fork's `base` is the parent's `commit`.
+If a refusal check fails because Pi declined to run the command, rerun it.
+
+**By hand.**
+
 - [ ] Scratch: spawn with repo empty and `Create note.txt containing hi`, then
       send `Run ls.`: Pi remembers the first turn, and `note.txt` is gone.
-
-**3. Refusals.** In the `$REPO` session from 2.
-
-- [ ] Abort: send `Run sleep 120 in bash, then create late.txt`; press
-      Abort. The session shows `aborted`, `tip $REPO fleet/$sid` is
-      unchanged, `container ls` has no `fleet-$sid`, and the next prompt
-      continues the conversation.
-- [ ] Workflow: send `Create .github/workflows/x.yml containing "on: push"`.
-      The turn fails with `push refused` naming `.github/workflows`; the
-      branch is unchanged.
-- [ ] Token: send `Run this in bash: printenv GITHUB_TOKEN > token.txt`. The
-      turn fails with `push refused`; the branch is unchanged. (If Pi
-      declines to run it, the check didn't happen: ask again.)
-
-**4. Crash and restart.**
 
 - [ ] Send `Run sleep 120 in bash`, then `kill -9 "$(pgrep -f 'fleetd -listen')"`.
       `pic serve` exits; within a few seconds `container ls` has no
@@ -225,7 +210,7 @@ removed, `OPENROUTER_API_KEY=x pic serve --check`.
 | Step 3 | pic's script tests; fleet's Go tests in the Go image | `container`, `jq` |
 | Step 4 | the real VM, proxy and egress lock | key, token |
 | Step 6 | Tailscale, certificates, image, keys, port | Tailscale |
-| Step 8 | isolation, GitHub refusals, crash cleanup, the phone | `$REPO`, the phone |
+| Step 8 | `fleet-e2e.sh`: isolation, turns, fork, abort, GitHub refusals; by hand: scratch, crash cleanup | `$REPO` |
 
 ## 9. Upgrade or remove
 

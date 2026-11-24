@@ -187,6 +187,16 @@ say "$sid" i8 "write four"
 [ "$(git -C "$tmp/gh/o/r.git" rev-parse "$(tip "fleet/$sid")^")" = "$before" ] || fail "turn after restart did not continue the branch"
 [ "$(ls "$home/.fleet/sessions/$sid/state/pi/sessions" | wc -l)" -eq 1 ] || fail "restart started a second session file"
 
+# pi-container/test/fleet-e2e.sh, the release's step 8, against this fleetd.
+printf '#!/bin/sh\necho "isolation: ok"\n' > "$tmp/bin/isolation"
+chmod +x "$tmp/bin/isolation"
+if ! FLEET_URL=$U FLEET_LOGIN=tan FLEET_ISOLATION="$tmp/bin/isolation" CONTAINER_CLI="$tmp/container" \
+  PI_ENV_FILE="$cfg/env" GIT_CONFIG_GLOBAL="$disk/gitconfig" TURN_TIMEOUT=30 \
+  "$pic/test/fleet-e2e.sh" o/r > "$tmp/fleet-e2e.log" 2>&1; then
+  cat "$tmp/fleet-e2e.log"; fail "test/fleet-e2e.sh"
+fi
+grep -q "fleet-e2e: ok" "$tmp/fleet-e2e.log" || { cat "$tmp/fleet-e2e.log"; fail "test/fleet-e2e.sh did not say ok"; }
+
 events "$sid" > "$tmp/events"
 ms=$(grep -o 'first_output_ms[^,]*' "$tmp/events" | tr -d '\\"' | sed 's/first_output_ms://' | sort -n | tr '\n' ' ')
 echo "pi-ctr: ok ($sid; $ms)"

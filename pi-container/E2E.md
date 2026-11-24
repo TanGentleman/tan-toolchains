@@ -231,30 +231,32 @@ Not here: fleet (`pic serve`, `pi-ctr`) has its own checklist,
 
 A release is an annotated tag `vX.Y.Z` on a commit that passed this checklist
 and fleet step 8, with `release.json` (versions, pins, image digest, every
-check) attached to its GitHub release. `test/release.sh` records each stage in
-`/Users/Shared/pi-release/<sha>/` and redacts keys, tokens, emails and tailnet
-names from its output and files. The gate is closed by a FAIL or skip in any
-stage, a missing stage, red CI, a different SHA, fresh/verify/manual from more
-than one account or out of order, fleet from the test account, or a fleetd not
-built from the SHA. `test/release.sh` with no stage prints the record and the
+check) attached to its GitHub release. `test/release.sh` records each stage
+in `/Users/Shared/pi-release/<sha>/` and redacts keys, tokens, emails and
+tailnet names. Run it with no stage at any point to see what passed and the
 next command.
 
-1. Main account: push the candidate commit and wait for CI. Run
-   `./build.sh fleet`, start `pic serve`, spawn a session on the throwaway
-   repo (Setup above), then `test/release.sh fleet SID`.
-2. Main account: stop `pic serve`, then
-   `test/release.sh tester NAME --env FILE --repo OWNER/REPO`. FILE is an env
-   file with the throwaway repo's token. It stops this account's
-   `container`, deletes the old NAME (only an account it made), creates a
-   standard account NAME and puts FILE, the repo name, the brew line in
-   `~/.zprofile` and a clone at the SHA in it.
-3. Log in as NAME, open Terminal, run
-   `~/tan-toolchains/pi-container/test/release.sh account`. It runs `fresh`,
-   writes `~/.config/pi-container/env` at mode 600, starts `container`, then
-   runs `verify` and `manual`, and stops `container`. After a failure, fix it
-   and rerun; it skips the stages that passed. If `fresh` fails after setup,
-   make a new account with step 2.
-4. Main account: `test/release.sh report`, then
-   `test/release.sh publish vX.Y.Z --push`. It uses your own git and `gh`
-   credentials; the env file's token cannot push here. It prints the command
-   to delete the test account.
+| Where | Command | Hand checks |
+|---|---|---|
+| Main account, `pic serve` up | `test/release.sh fleet --repo R` | 4 (scratch, kill -9, restart, Ctrl-C) |
+| Main account, `pic serve` stopped | `test/release.sh tester NAME --env FILE --repo R` | none |
+| Logged in as NAME | `~/tan-toolchains/pi-container/test/release.sh account` | the TUI ones |
+| Main account | `test/release.sh report`, then `publish vX.Y.Z --push` | none |
+
+R is the throwaway repo (Setup above) and FILE an env file with its token.
+Push the candidate and wait for CI first; build fleetd from it with
+`./build.sh fleet` and restart `pic serve`.
+
+- `tester` stops this account's `container`, deletes the old NAME (only an
+  account it made), and creates NAME with FILE, R, the brew line and a clone
+  at the SHA.
+- `account` runs `fresh`, writes `~/.config/pi-container/env` at mode 600,
+  starts `container`, runs `verify` and `manual`, then stops `container`.
+  After a failure, fix it and rerun: passed stages are skipped. If `fresh`
+  fails after setup, recreate the account with `tester`.
+- `publish` uses your own git and `gh` credentials, and prints the command
+  that deletes NAME.
+
+The gate stays closed on any FAIL or skip, a missing stage, red CI, another
+SHA, fresh/verify/manual from more than one account or out of order, fleet
+from the test account, or a fleetd not built from the SHA.

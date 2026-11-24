@@ -57,7 +57,11 @@ VM it probes `fleetd`, the Mac, the tailnet and the internet by IP, using
 `test/fleet-probe.sh`, which `test-fleet-probe.sh` tests here. Where each fleet
 check runs: [fleet/docs/macos.md, step 8](../../fleet/docs/macos.md#8-verify-before-relying-on-it).
 
+`test/fleet-e2e.sh REPO` is step 8's scripted part: real turns on REPO
+through the tailnet URL, checked with git. `fleet/e2e/pi-ctr.sh` runs it in
+CI against a fake Pi and a local bare repo.
+
 `test/release.sh` runs the release gate in [E2E.md](../E2E.md#release) and
 writes `release.json`. `PI_RELEASE_DIR` (default `/Users/Shared/pi-release`)
 moves its records; `test-release.sh` covers the redaction, the gate, the
-report, the status line and the tester and account argument checks.
+report, the status line and the fleet, tester and account argument checks.

@@ -37,5 +37,12 @@ case $prompt in
     ;;
   sleep) echo started > aborted.txt; jq -cn '{type: "sleeping"}'; sleep 30 ;;
   key) printf '%s\n' "$OPENROUTER_API_KEY" > key.txt ;;
+  # test/fleet-e2e.sh's prompts.
+  "Say hi.") ;;
+  "Create hello.txt containing hi.") echo hi > hello.txt ;;
+  "Write the name of the file you just created"*) grep -q 'Create hello.txt' "$file" && echo hello.txt > created.txt ;;
+  "Run sleep 120 in bash"*) jq -cn '{type: "tool", cmd: "sleep 120"}'; sleep 30; echo late > late.txt ;;
+  "Create .github/workflows/x.yml"*) mkdir -p .github/workflows && echo 'on: push' > .github/workflows/x.yml ;;
+  "Run this in bash: printenv GITHUB_TOKEN"*) printenv GITHUB_TOKEN > token.txt ;;
 esac
 jq -cn --arg s "$stop" '{type: "message_end", message: {role: "assistant", stopReason: $s, usage: {input: 3, output: 2}}}'
