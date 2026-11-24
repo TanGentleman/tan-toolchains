@@ -5,7 +5,7 @@
 #
 # Phases, in the order to run them:
 #   ci       the CI checks from AGENTS.md; no container
-#   build    build.sh full, agent and editor; a ZLS/Zig mismatch must fail
+#   build    build.sh full, agent, zig and editor; a ZLS/Zig mismatch must fail
 #   auto     E2E.md checks that need no TUI, in an isolated "e2e" profile
 #   cleanup  E2E.md's Cleanup section. Needs --destroy: it deletes the
 #            shared pi-agent:local image and the builder cache, then rebuilds
@@ -161,7 +161,7 @@ phase_ci() {
 phase_build() {
   section "Build"
   local p
-  for p in full agent editor; do
+  for p in full agent zig editor; do
     step "build-$p" in_dir "$pc" ./build.sh "$p"
     check "./build.sh $p" is "$code" 0
   done
@@ -187,8 +187,7 @@ phase_auto() {
   check "run.sh check prints no FAIL" lacks "FAIL"
   check "Pi has the placeholder key" has "Pi has the placeholder"
   check "lastChangelogVersion is current" has "settings lastChangelogVersion is current"
-  check "reports the Zig toolchain" has "zig $(pin ZIG_VERSION)"
-  check "zigpeek reads local docs" has "zigpeek reads the local langref and stdlib"
+  check "the default image has no Zig toolchain" has "not in this pack (build.sh zig adds it)"
   check "example.com blocked" has "example.com blocked"
   check "direct IPv4, IPv6 and TLS blocked" \
     sh -c 'printf "%s\n" "$1" | grep -q "^direct connection failed" &&
@@ -210,10 +209,22 @@ phase_auto() {
     check "lite check with key only exits 0" is "$code" 0
     check "lite check skips GitHub" has "GITHUB_TOKEN is not set; skipping GitHub checks"
     rm -f "$cfg/env-keyonly"
-    step lite-tools in_dir "$proj" env PI_IMAGE=pi-agent-lite:local "$run" bash -c 'command -v enforcer && pi --version && ! command -v gh'
-    check "lite has enforcer and pi, no gh" is "$code" 0
+    step lite-tools in_dir "$proj" env PI_IMAGE=pi-agent-lite:local "$run" bash -c 'command -v enforcer && pi --version && ! command -v gh && ! command -v zig'
+    check "lite has enforcer and pi, no gh or zig" is "$code" 0
   else
     skip "lite checks: pi-agent-lite:local missing (run the build phase)"
+  fi
+  step full-tools in_dir "$proj" "$run" bash -c 'command -v enforcer && command -v gh && ! command -v zig && ! command -v zigpeek && ! command -v nvim && ! command -v zls'
+  check "the default image has enforcer and gh; no zig, zigpeek, nvim or zls" is "$code" 0
+
+  section "Zig image"
+  if image_exists pi-agent-zig:local; then
+    step zig-check in_dir "$proj" env PI_IMAGE=pi-agent-zig:local "$run" check "$repo"
+    check "zig image check exits 0" is "$code" 0
+    check "zig image reports the Zig toolchain" has "zig $(pin ZIG_VERSION)"
+    check "zigpeek reads local docs" has "zigpeek reads the local langref and stdlib"
+  else
+    skip "zig checks: pi-agent-zig:local missing (run the build phase)"
   fi
 
   section "Editor image and manual mode"
@@ -223,7 +234,7 @@ phase_auto() {
   else
     skip "editor checks: pi-editor:local missing (run the build phase)"
   fi
-  step manual-versions in_dir "$proj" "$run" --manual sh -c 'nvim --version | head -n 1; zls --version'
+  step manual-versions in_dir "$proj" env PI_IMAGE=pi-agent-zig:local "$run" --manual sh -c 'nvim --version | head -n 1; zls --version'
   check "Neovim $(pin NVIM_VERSION)" has "NVIM v$(pin NVIM_VERSION)"
   check "ZLS $(pin ZLS_VERSION)" has "$(pin ZLS_VERSION)"
   check "manual mode seeds init.lua" test -f "$cfg/nvim/init.lua"

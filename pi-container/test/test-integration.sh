@@ -207,7 +207,7 @@ case_check_enforcer() {
 # ------------------------------------------------------- tokenless agent pack
 case_tokenless_run() {
   new_case tokenless
-  image_json 1.4.0 "zig,zigpeek,enforcer,pi,netlock" > "$world/images/pi-agent-lite_local.json"
+  image_json 1.4.0 "enforcer,netlock,pi" > "$world/images/pi-agent-lite_local.json"
   image_json 1.4.0 > "$world/images/pi-proxy_local.json"
   network_json "172.30.240.0/24" > "$world/networks/pi-locked.json"
   printf 'pi-locked\n' > "$world/networks.list"
@@ -225,14 +225,14 @@ case_tokenless_run() {
   )
   expect_status 0 "tokenless agent pack runs"
   contains 'instance=default image=pi-agent-lite:local pack=agent' "$(e)" "normal run names the instance and pack"
-  contains 'capabilities=zig,zigpeek,enforcer,pi' "$(e)" "normal run names the capabilities"
+  contains 'capabilities=enforcer,netlock,pi' "$(e)" "normal run names the capabilities"
   log_lacks "--env-file" "tokenless run does not mount pi.env"
   [ -e "$cfg/pi.env" ] && fail "stale pi.env was not removed" || pass
 }
 
 case_tokenless_check() {
   new_case tokenlesscheck
-  image_json 1.4.0 "zig,zigpeek,enforcer,pi,netlock" > "$world/images/pi-agent-lite_local.json"
+  image_json 1.4.0 "enforcer,netlock,pi" > "$world/images/pi-agent-lite_local.json"
   image_json 1.4.0 > "$world/images/pi-proxy_local.json"
   network_json "172.30.240.0/24" > "$world/networks/pi-locked.json"
   printf 'pi-locked\n' > "$world/networks.list"
@@ -246,7 +246,7 @@ case_tokenless_check() {
       CONTAINER_CLI="$fake" FAKE_CONTAINER_WORLD="$world" FAKE_CONTAINER_LOG="$logfile" \
       bash "$run_sh" check owner/repo
   )
-  expect_status 0 "tokenless check succeeds without gh"
+  expect_status 0 "tokenless check succeeds without gh or zig"
   contains 'image=pi-agent-lite:local pack=agent' "$(e)" "check names the image it verifies"
   log_lacks "--env-file" "tokenless check does not mount pi.env"
   log_has 'enforcer' "tokenless check still probes enforcer"

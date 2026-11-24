@@ -39,13 +39,14 @@ cd fleet && test -z "$(gofmt -l .)" && go vet ./... && go test -race ./...
 cd fleet && bash e2e/pi-ctr.sh  # git, jq, curl; no container
 ```
 
-The image build context is the repo root because the image compiles
-`../zigpeek` and `../enforcer`:
+The image build context is the repo root because the images compile
+`../enforcer` and, for the Zig packs, `../zigpeek`:
 
 ```sh
 cd pi-container
-./build.sh full             # pi-agent:local
+./build.sh full             # pi-agent:local: Pi, gh, enforcer; no Zig
 ./build.sh agent            # pi-agent-lite:local, no gh
+./build.sh zig              # pi-agent-zig:local: full + Zig, zigpeek, Neovim, ZLS
 ./run.sh check owner/repo
 ```
 

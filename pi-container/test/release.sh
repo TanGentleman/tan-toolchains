@@ -248,10 +248,9 @@ stage_verify() {
   rel_e2e_lines <"$log" >>"$results"
   nfail=$((nfail + $(grep -c '^fail' "$results")))
   grep -q '^mac-e2e.sh: [0-9]* passed' "$log" || rec fail "mac-e2e.sh ran to the end" "see $log"
-  local digest
-  digest=$(container image inspect pi-agent:local 2>/dev/null | jq -r '.[0].configuration.descriptor.digest // empty' 2>/dev/null)
-  save "$(jq -n --arg d "$digest" --arg r "${repo%%/*}/<throwaway>" \
-    '{images: {"pi-agent:local": $d}, repo: $r}')"
+  digest() { container image inspect "$1" 2>/dev/null | jq -r '.[0].configuration.descriptor.digest // empty' 2>/dev/null; }
+  save "$(jq -n --arg d "$(digest pi-agent:local)" --arg z "$(digest pi-agent-zig:local)" --arg r "${repo%%/*}/<throwaway>" \
+    '{images: {"pi-agent:local": $d, "pi-agent-zig:local": $z}, repo: $r}')"
 }
 
 ask() {

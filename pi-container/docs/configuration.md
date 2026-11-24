@@ -11,7 +11,7 @@ Commands run from `pi-container/` unless noted.
 
 | Decision | Default | Why |
 | --- | --- | --- |
-| Image | `pi-agent:local` = `full` pack | Existing commands keep working; packs are opt-in. |
+| Image | `pi-agent:local` = `full` pack: Pi, `gh`, enforcer | Zig, zigpeek, Neovim and ZLS are opt-in (`zig` pack); most repos do not need them. |
 | OpenRouter key | Required for normal Pi and `proxy` | The proxy needs the real key for the agent. |
 | GitHub token | Optional | Pi can work on a mounted repo, and `agent`/`editor` packs have no `gh`. |
 | Pi hook | Installed but disabled | `enforcer on` is per instance; no prompt is blocked by surprise. |
@@ -22,7 +22,7 @@ Commands run from `pi-container/` unless noted.
 | Pack capability check | Refuse missing `pi` in normal mode | A clear error beats a container that cannot start its command. |
 | Egress lock | On in normal mode, `check`, and `--fleet-state` | `pi-locked` alone reaches the Mac and Tailscale's resolver. See the [network boundary](../../README.md#network-boundary). |
 | `nuke all` image scope | The active `PI_IMAGE` only | Other pack tags are not deleted implicitly. |
-| Build context | Repo root | The image compiles `../zigpeek` and `../enforcer`. |
+| Build context | Repo root | Every image compiles `../enforcer`; the Zig packs also `../zigpeek`. |
 
 ## Host env file
 
@@ -91,15 +91,19 @@ the repo root context and tags it. `PI_IMAGE` selects the image at runtime.
 
 | Pack | Tag | Contents |
 | --- | --- | --- |
-| `tools` | `pi-tools:local` | Zig, zigpeek, enforcer, git, jq, ripgrep, fd |
+| `agent` | `pi-agent-lite:local` | Pi, enforcer, git, jq, ripgrep, fd; no `gh` |
+| `full` | `pi-agent:local` | agent + `gh`; default |
+| `zig` | `pi-agent-zig:local` | full + Zig, zigpeek and its Pi skill, Neovim, ZLS |
+| `tools` | `pi-tools:local` | Zig, zigpeek, enforcer, git, jq, ripgrep, fd; no Pi |
 | `editor` | `pi-editor:local` | tools + Neovim + ZLS |
-| `agent` | `pi-agent-lite:local` | tools + Pi; no `gh` |
-| `agent-gh` | `pi-agent-gh:local` | agent + `gh` |
-| `full` | `pi-agent:local` | agent-gh + Neovim + ZLS; default |
+
+Only `zig`, `tools` and `editor` contain Zig, Neovim or ZLS. Every pack has
+enforcer; the build compiles it with Zig in a builder stage.
 
 ```bash
 ./build.sh full              # pi-agent:local
 ./build.sh agent             # pi-agent-lite:local, no gh
+./build.sh zig               # pi-agent-zig:local, with Zig and the editor tools
 ./build.sh editor            # pi-editor:local, no Pi
 ./build.sh all               # every pack
 ```
@@ -124,13 +128,14 @@ treats such an image as a legacy full image.
 
 Images record `PI_CONTAINER_CAPABILITIES` in their environment. Normal mode and
 `check` both refuse an image without `pi`; `check` additionally requires
-`enforcer`, `zig`, and `zigpeek`. Normal mode, `check`, and `--fleet-state`
+`enforcer`, and checks Zig and zigpeek only in an image that lists `zig`.
+Normal mode, `check`, and `--fleet-state`
 also refuse an image without `netlock` (iptables for the egress lock); every
 pack built from the current Dockerfile has it. An image with no capability
 metadata is treated as a legacy full image; it has no iptables, so the lock
 fails in the VM, says to rebuild, and the command does not run. `pic serve
 --check` refuses both kinds of image before `fleetd` starts. If `GITHUB_TOKEN` is set, `check` also requires
-`gh`, so use `agent-gh` or `full`; `agent` is for tokenless runs.
+`gh`, so use `full` or `zig`; `agent` is for tokenless runs.
 
 ## Flags
 

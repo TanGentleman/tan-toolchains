@@ -51,23 +51,27 @@ the remaining checks by hand; the script lists them at the end.
 ### Build and keys
 - [ ] `./build.sh full`
 - [ ] `./build.sh agent`
+- [ ] `./build.sh zig`
 - [ ] `./build.sh editor`
 - [ ] `PI_IMAGE=pi-editor:local ./run.sh --manual sh -c 'nvim --version | head -n 1; zls --version; command -v enforcer; ! command -v pi; ! command -v gh'`
       reports the editor tools and confirms Pi/gh are absent.
 - [ ] `$PI_ENV_FILE` is mode 600/400; `private/proxy.env` and `pi.env` are
       filtered; no secret in logs.
-- [ ] `./run.sh --manual sh -c 'nvim --version | head -n 1; zls --version'`
+- [ ] `PI_IMAGE=pi-agent-zig:local ./run.sh --manual sh -c 'nvim --version | head -n 1; zls --version'`
       reports Neovim 0.12.6 and ZLS 0.17.0.
+- [ ] `./run.sh bash -c '! command -v zig && ! command -v nvim && ! command -v zls'`
+      succeeds: the default image has none of them.
 - [ ] With an env file containing only `OPENROUTER_API_KEY`,
       `PI_IMAGE=pi-agent-lite:local ./run.sh check "$owner/tan-toolchains-e2e"`
       reports GitHub as skipped rather than failed.
-- [ ] `PI_IMAGE=pi-agent-lite:local ./run.sh bash -c 'command -v enforcer; pi --version; ! command -v gh'`
+- [ ] `PI_IMAGE=pi-agent-lite:local ./run.sh bash -c 'command -v enforcer; pi --version; ! command -v gh; ! command -v zig'`
       succeeds; `enforcer on` still writes into the instance's agent volume.
 
 ### First check
 - [ ] `./run.sh check "$owner/tan-toolchains-e2e"` builds the E2E profile's
       proxy and reports no failure.
-- [ ] It reports the Zig toolchain and zigpeek's docs source.
+- [ ] It reports the Zig toolchain as not in this pack. With
+      `PI_IMAGE=pi-agent-zig:local` it reports Zig and zigpeek's docs source.
 - [ ] It reports `lastChangelogVersion` as current.
 - [ ] Direct internet is blocked (IPv4 and IPv6); GitHub and OpenRouter
       reachable; `example.com` refused.
@@ -134,6 +138,10 @@ the remaining checks by hand; the script lists them at the end.
 - [ ] `git push` works through `gh`.
 
 ### Neovim and ZLS
+
+Set `PI_IMAGE=pi-agent-zig:local` for this section and the two Zig sections
+below.
+
 - [ ] `./run.sh --manual` seeds `$PI_CONFIG_DIR/nvim/init.lua` and starts a shell.
 - [ ] From a Zig project on the host mount, `nvim src/main.zig`;
       `:checkhealth vim.lsp` and `:lua =vim.lsp.get_clients()` show `zls`.

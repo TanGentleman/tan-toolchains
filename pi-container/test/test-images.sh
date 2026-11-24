@@ -9,17 +9,19 @@ here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 eq tools "$(pi_pack_target tools)" "tools target"
 eq editor "$(pi_pack_target editor)" "editor target"
 eq agent "$(pi_pack_target agent)" "agent target"
-eq agent-gh "$(pi_pack_target agent-gh)" "agent-gh target"
+eq full-zig "$(pi_pack_target zig)" "zig target"
 eq full "$(pi_pack_target full)" "full target"
 eq pi-tools:local "$(pi_pack_tag tools)" "tools tag"
 eq pi-editor:local "$(pi_pack_tag editor)" "editor tag"
 eq pi-agent-lite:local "$(pi_pack_tag agent)" "agent tag"
-eq pi-agent-gh:local "$(pi_pack_tag agent-gh)" "agent-gh tag"
+eq pi-agent-zig:local "$(pi_pack_tag zig)" "zig tag"
 eq pi-agent:local "$(pi_pack_tag full)" "full tag"
-eq "tools editor agent agent-gh full" "$pi_pack_names" "all pack names"
+eq "tools editor agent full zig" "$pi_pack_names" "all pack names"
 eq tools "$(pi_pack_for_tag pi-tools:local)" "tools tag maps back to pack"
 eq agent "$(pi_pack_for_tag pi-agent-lite:local)" "agent tag maps back to pack"
 eq full "$(pi_pack_for_tag pi-agent:local)" "full tag maps back to pack"
+eq zig "$(pi_pack_for_tag pi-agent-zig:local)" "zig tag maps back to pack"
+rc 1 "the removed agent-gh pack is unknown" pi_pack_target agent-gh
 rc 1 "unknown target rejected" pi_pack_target nope
 rc 1 "unknown tag rejected" pi_pack_tag nope
 rc 1 "unknown tag has no pack" pi_pack_for_tag nope:local
@@ -36,6 +38,21 @@ for p in $pi_pack_names; do
 done
 last_from=$(awk '/^FROM /{line=$0} END{print line}' "$root/Dockerfile")
 contains ' AS full' "$last_from" "full is the final Dockerfile stage"
+# Only the zig-bearing packs carry Zig, zigpeek, Neovim or ZLS.
+stage_body() { awk -v t="$1" '/^FROM /{on = ($NF == t)} on' "$root/Dockerfile"; }
+for t in core agent agent-gh full; do
+  body=$(stage_body "$t")
+  not_contains "/opt/zig" "$body" "$t stage has no Zig"
+  not_contains "nvim" "$body" "$t stage has no Neovim"
+  not_contains "zls" "$body" "$t stage has no ZLS"
+done
+contains "enforcer" "$(stage_body core)" "core stage has enforcer"
+contains "FROM agent-gh AS full" "$last_from" "full is agent-gh: Pi, gh and enforcer"
+for t in tools full-zig; do
+  contains "COPY --from=zig /opt/zig" "$(stage_body "$t")" "$t stage has Zig"
+  contains "skills/zigpeek" "$(stage_body "$t")" "$t stage has the zigpeek skill"
+done
+contains 'PI_CONTAINER_CAPABILITIES="enforcer,netlock,pi,gh"' "$(stage_body agent-gh)" "full capabilities have no zig"
 eq 5 "$(for p in $pi_pack_names; do pi_pack_tag "$p"; done | sort -u | wc -l | tr -d ' ')" "pack tags are unique"
 stages=" $(awk '/^FROM /{for(i=1;i<=NF;i++) if($i=="AS") print $(i+1)}' "$root/Dockerfile" | tr '\n' ' ') "
 for ref in $(sed -n 's/.*COPY --from=\([^ ]*\).*/\1/p' "$root/Dockerfile" | sort -u); do

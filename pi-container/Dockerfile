@@ -1,5 +1,6 @@
-# Build targets are capability packs. The last stage is the default full image;
-# `build.sh` maps pack names to targets and tags. Keep the common pins here.
+# Build targets are capability packs. The last stage is the default full image
+# (Pi, gh, enforcer); `full-zig` adds Zig, zigpeek, Neovim and ZLS. `build.sh`
+# maps pack names to targets and tags. Keep the common pins here.
 ARG PI_VERSION=1.6.0
 ARG ZIG_VERSION=0.17.0
 ARG ZIG_PUBKEY=RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U
@@ -10,14 +11,8 @@ ARG ZLS_SHA256=0d314f3cab30da770328e1b8c84ab89bb308e56dbc26a85ac82429ff02b44873
 
 FROM node:24-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54 AS base
 ARG PI_VERSION
-ARG ZIG_VERSION
-ARG NVIM_VERSION
-ARG ZLS_VERSION
 
-LABEL pi-container.pi-version="${PI_VERSION}" \
-      pi-container.zig-version="${ZIG_VERSION}" \
-      pi-container.zls-version="${ZLS_VERSION}" \
-      pi-container.nvim-version="${NVIM_VERSION}"
+LABEL pi-container.pi-version="${PI_VERSION}"
 
 RUN [ "$(uname -m)" = aarch64 ] || (echo "this image currently pins aarch64 only" >&2; exit 1)
 
@@ -121,20 +116,26 @@ RUN name="zls-$(uname -m)-linux" && cd /tmp \
 RUN [ "$(zls --version)" = "$ZLS_VERSION" ] \
     || (echo "zls version mismatch: expected ${ZLS_VERSION}, got $(zls --version)" >&2; exit 1)
 
-FROM base AS tools
+# enforcer is built with Zig but runs without it, so every pack has it.
+FROM base AS core
+COPY --from=zig /usr/local/bin/enforcer /usr/local/bin/enforcer
+ENV PI_CONTAINER_CAPABILITIES="enforcer,netlock"
+
+FROM core AS tools
+ARG ZIG_VERSION
+LABEL pi-container.zig-version="${ZIG_VERSION}"
 COPY --from=zig /opt/zig /opt/zig
 COPY --from=zig /usr/local/bin/zigpeek /usr/local/bin/zigpeek
-COPY --from=zig /usr/local/bin/enforcer /usr/local/bin/enforcer
 COPY --from=zig /root/.agents/skills/zigpeek /root/.agents/skills/zigpeek
 RUN ln -s /opt/zig/zig /usr/local/bin/zig
 ENV PI_CONTAINER_CAPABILITIES="zig,zigpeek,enforcer,netlock"
 CMD ["bash"]
 
-FROM tools AS agent
+FROM core AS agent
 ARG PI_VERSION
 RUN npm install -g --ignore-scripts "@earendil-works/pi-coding-agent@${PI_VERSION}"
 ENV PI_CONTAINER_PI_VERSION="${PI_VERSION}" \
-    PI_CONTAINER_CAPABILITIES="zig,zigpeek,enforcer,netlock,pi"
+    PI_CONTAINER_CAPABILITIES="enforcer,netlock,pi"
 CMD ["pi"]
 
 FROM agent AS agent-gh
@@ -149,19 +150,38 @@ RUN git config --system credential.https://github.com.helper '!gh auth git-crede
     && git config --system url.https://github.com/.insteadOf git@github.com: \
     && git config --system --add url.https://github.com/.insteadOf ssh://git@github.com/ \
     && git config --system safe.directory '*'
-ENV PI_CONTAINER_CAPABILITIES="zig,zigpeek,enforcer,netlock,pi,gh"
+ENV PI_CONTAINER_CAPABILITIES="enforcer,netlock,pi,gh"
 
 FROM tools AS editor
+ARG NVIM_VERSION
+ARG ZLS_VERSION
+LABEL pi-container.nvim-version="${NVIM_VERSION}" \
+      pi-container.zls-version="${ZLS_VERSION}"
 COPY --from=nvim /opt/nvim-linux-arm64 /opt/nvim-linux-arm64
 COPY --from=zls /opt/zls /opt/zls
 RUN ln -s /opt/nvim-linux-arm64/bin/nvim /usr/local/bin/nvim \
     && ln -s /opt/zls/zls /usr/local/bin/zls
 ENV PI_CONTAINER_CAPABILITIES="zig,zigpeek,enforcer,netlock,nvim,zls"
 
-FROM agent-gh AS full
+# Opt-in: full plus the Zig toolchain, zigpeek and its Pi skill, Neovim and ZLS.
+FROM agent-gh AS full-zig
+ARG ZIG_VERSION
+ARG NVIM_VERSION
+ARG ZLS_VERSION
+LABEL pi-container.zig-version="${ZIG_VERSION}" \
+      pi-container.nvim-version="${NVIM_VERSION}" \
+      pi-container.zls-version="${ZLS_VERSION}"
+COPY --from=zig /opt/zig /opt/zig
+COPY --from=zig /usr/local/bin/zigpeek /usr/local/bin/zigpeek
+COPY --from=zig /root/.agents/skills/zigpeek /root/.agents/skills/zigpeek
 COPY --from=nvim /opt/nvim-linux-arm64 /opt/nvim-linux-arm64
 COPY --from=zls /opt/zls /opt/zls
-RUN ln -s /opt/nvim-linux-arm64/bin/nvim /usr/local/bin/nvim \
+RUN ln -s /opt/zig/zig /usr/local/bin/zig \
+    && ln -s /opt/nvim-linux-arm64/bin/nvim /usr/local/bin/nvim \
     && ln -s /opt/zls/zls /usr/local/bin/zls
 ENV PI_CONTAINER_CAPABILITIES="zig,zigpeek,enforcer,netlock,pi,gh,nvim,zls"
+CMD ["pi"]
+
+# The default image, last so a plain `container build` produces it.
+FROM agent-gh AS full
 CMD ["pi"]

@@ -19,8 +19,9 @@ images build everything.
 - [fleet/docs/macos.md](fleet/docs/macos.md): fleet setup on a Mac, with a check per step.
 - [fleet/README.md](fleet/README.md): model, API, tests, and what is left out.
 
-Layout: `pi-container/` and `fleet/` are the above. `zigpeek/` (Zig docs for
-Pi) and `enforcer/` (a Pi prompt hook) are built into the `full` image.
+Layout: `pi-container/` and `fleet/` are the above. `enforcer/` (a Pi prompt
+hook) is built into every image; `zigpeek/` (Zig docs for Pi) into the
+opt-in `zig` image.
 Working on the repo: [AGENTS.md](AGENTS.md).
 
 ## Network boundary

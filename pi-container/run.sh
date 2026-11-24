@@ -209,7 +209,7 @@ require_agent_image() {
   # system is not running. Mention both instead of claiming the image is absent.
   echo "run.sh: cannot inspect image $image" >&2
   echo "run.sh: if 'container system start' has not run yet, start it first" >&2
-  echo "run.sh: otherwise build it from the repo root context, because the image compiles ../zigpeek:" >&2
+  echo "run.sh: otherwise build it from the repo root context, because the image compiles ../enforcer:" >&2
   echo "  $(pi_build_hint "$cli" "$image" "$here")" >&2
   exit 1
 }
@@ -750,8 +750,6 @@ if [ "${1:-}" != proxy ]; then
   [ "$egress" = 1 ] || require_image_capability "$image_caps" netlock
   if [ "${1:-}" = check ]; then
     require_image_capability "$image_caps" enforcer
-    require_image_capability "$image_caps" zig
-    require_image_capability "$image_caps" zigpeek
   fi
 fi
 acquire_host_lock
@@ -871,15 +869,22 @@ if ! git var GIT_AUTHOR_IDENT >/dev/null 2>&1; then
   echo "WARN: git author identity is unset; add GIT_AUTHOR_NAME and GIT_AUTHOR_EMAIL to the env file"
 fi
 echo "== Zig toolchain"
-echo "zig $(zig version); $(zigpeek --version 2>/dev/null || echo 'zigpeek missing')"
-info=$(zigpeek info 2>&1 || true)
-case $info in
-  *'(missing)'*) echo "FAIL: zigpeek cannot find the Zig docs it needs"; s=1 ;;
-  *) if zigpeek builtins get @intCast >/dev/null 2>&1; then
-       echo "zigpeek reads the local langref and stdlib"
-     else
-       echo "FAIL: zigpeek could not read the langref"; s=1
-     fi ;;
+# Only packs that list zig carry it; an image without capabilities is legacy
+# and had it.
+case ",${PI_CONTAINER_CAPABILITIES-zig,zigpeek}," in
+  *,zig,*)
+    command -v zig >/dev/null 2>&1 || { echo "FAIL: zig is missing from the image"; s=1; }
+    echo "zig $(zig version 2>/dev/null || echo missing); $(zigpeek --version 2>/dev/null || echo 'zigpeek missing')"
+    info=$(zigpeek info 2>&1 || true)
+    case $info in
+      *'(missing)'*) echo "FAIL: zigpeek cannot find the Zig docs it needs"; s=1 ;;
+      *) if zigpeek builtins get @intCast >/dev/null 2>&1; then
+           echo "zigpeek reads the local langref and stdlib"
+         else
+           echo "FAIL: zigpeek could not read the langref"; s=1
+         fi ;;
+    esac ;;
+  *) echo "not in this pack (build.sh zig adds it)" ;;
 esac
 echo "== enforcer"
 if ! command -v enforcer >/dev/null 2>&1; then

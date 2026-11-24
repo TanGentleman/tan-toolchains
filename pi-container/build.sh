@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build an image pack from the repo root context.
 #   build.sh [PACK] [container build options...]
-# PACK is one of: tools editor agent agent-gh full all (default: full).
+# PACK is one of: tools editor agent full zig all (default: full).
 #   build.sh fleet
 # runs fleet's go vet and tests, then cross-compiles fleetd for macOS
 # (arm64), all in a pinned Go image, so the Mac needs no Go. A failing check
@@ -22,17 +22,17 @@ Build a pi-container image pack from the repo root context.
   build.sh [PACK] [container build options...]
 
 Packs:
-  tools      Zig, zigpeek, enforcer, jq, git, ripgrep, fd
+  agent      Pi, enforcer, jq, git, ripgrep, fd; no gh
+  full       agent + gh (default); no Zig, Neovim or ZLS
+  zig        full + Zig, zigpeek, Neovim, ZLS
+  tools      Zig, zigpeek, enforcer, jq, git, ripgrep, fd; no Pi
   editor     tools + Neovim + ZLS
-  agent      tools + Pi
-  agent-gh   agent + gh
-  full       agent-gh + Neovim + ZLS (default)
   all        build every pack
   fleet      not an image: cross-compile fleetd for macOS arm64 into
              fleet/bin/fleetd, inside a pinned Go image
 
-Tags: pi-tools:local, pi-editor:local, pi-agent-lite:local,
-      pi-agent-gh:local, pi-agent:local.
+Tags: pi-agent-lite:local, pi-agent:local, pi-agent-zig:local,
+      pi-tools:local, pi-editor:local.
 EOF
 }
 

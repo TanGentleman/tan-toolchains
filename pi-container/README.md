@@ -4,7 +4,7 @@ Run [Pi](https://pi.dev) on OpenRouter in an Apple [`container`](https://github.
 
 `pi-proxy` tunnels GitHub, adds your OpenRouter key, and refuses everything else. Pi shares only a host-only `pi-locked` network with it, and the egress lock inside Pi's VM lets it send only to the proxy ([network boundary](../README.md#network-boundary)). The default profile uses one proxy for every instance; a non-default `PI_CONFIG_DIR` is a separate profile with its own proxy, network, and subnet.
 
-The default `full` image has Pi, git, gh, ripgrep, fd, Zig 0.17.0, Neovim 0.12.6, ZLS 0.17.0, zigpeek, and enforcer. Other packs omit Pi, gh, or the editor tools; see [Image packs](docs/configuration.md#image-packs). Zig's cache is prewarmed. Images are aarch64-only and fail early on other architectures.
+The default `full` image has Pi, git, gh, ripgrep, fd, jq, and enforcer. The `zig` pack adds Zig 0.17.0, zigpeek, Neovim 0.12.6, and ZLS 0.17.0, with Zig's cache prewarmed; see [Image packs](docs/configuration.md#image-packs). Images are aarch64-only and fail early on other architectures.
 
 ## Setup
 
@@ -40,23 +40,24 @@ open -e ~/.config/pi-container/env
 ```
 
 `build.sh` builds from the repo root (`..`), not `pi-container/`, because the
-image compiles `../zigpeek` and `../enforcer` from source. `run.sh` does not
+image compiles `../enforcer` (and, for the Zig packs, `../zigpeek`) from source. `run.sh` does not
 build the agent image for you; it only rebuilds the profile's proxy image
 (`pi-proxy:local` in the default profile), and it cannot tell that the image
 predates an edit to the `Dockerfile`, `zigpeek/`, or `enforcer/`, so re-run
 `build.sh` after changing any of them.
 
-The default pack is `full` (`pi-agent:local`). Build a smaller pack and select it
+The default pack is `full` (`pi-agent:local`). Build another pack and select it
 with `PI_IMAGE`:
 
 ```bash
 ./build.sh agent
 PI_IMAGE=pi-agent-lite:local ./run.sh check you/your-repo
-PI_IMAGE=pi-agent-lite:local ./run.sh
+./build.sh zig
+PI_IMAGE=pi-agent-zig:local ./run.sh
 ```
 
-`agent` includes Pi, enforcer, Zig, and zigpeek, but not `gh`. It works without
-`GITHUB_TOKEN`; `check` skips the GitHub checks when the token is absent.
+`agent` is `full` without `gh`. It works without `GITHUB_TOKEN`; `check` skips
+the GitHub checks when the token is absent.
 
 The first `check` in a profile builds that profile's proxy image and spends no OpenRouter credits.
 
@@ -109,12 +110,13 @@ for contents and tags.
 
 | Want | Command |
 | --- | --- |
-| Everything, with `gh` | `pic --clone you/your-repo` |
+| Pi with `gh` | `pic --clone you/your-repo` |
+| Pi with Zig, zigpeek, Neovim and ZLS | `PI_IMAGE=pi-agent-zig:local pic --clone you/your-repo` |
 | No `gh`, tokenless | `PI_IMAGE=pi-agent-lite:local pic --clone you/your-repo` |
 | Neovim and ZLS only | `PI_IMAGE=pi-editor:local pic --manual` |
 | Separate state for a project | `PI_INSTANCE=work PI_IMAGE=pi-agent-lite:local pic --clone you/your-repo` |
 
-Pi uses [zigpeek](../zigpeek/README.md) for Zig API questions. The
+In the Zig packs, Pi uses [zigpeek](../zigpeek/README.md) for Zig API questions. The
 [enforcer](../enforcer/README.md) prompt hook ships off; its README shows how to
 turn it on for an instance.
 

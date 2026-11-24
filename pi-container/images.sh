@@ -2,15 +2,15 @@
 # docs/configuration.md. The default tag is the full image so existing commands
 # keep working; other packs are opt-in through PI_IMAGE.
 
-pi_pack_names="tools editor agent agent-gh full"
+pi_pack_names="tools editor agent full zig"
 
 pi_pack_target() { # pack
   case ${1:-} in
     tools) printf 'tools\n' ;;
     editor) printf 'editor\n' ;;
     agent) printf 'agent\n' ;;
-    agent-gh) printf 'agent-gh\n' ;;
     full) printf 'full\n' ;;
+    zig) printf 'full-zig\n' ;;
     *) return 1 ;;
   esac
 }
@@ -20,8 +20,8 @@ pi_pack_tag() { # pack
     tools) printf 'pi-tools:local\n' ;;
     editor) printf 'pi-editor:local\n' ;;
     agent) printf 'pi-agent-lite:local\n' ;;
-    agent-gh) printf 'pi-agent-gh:local\n' ;;
     full) printf 'pi-agent:local\n' ;;
+    zig) printf 'pi-agent-zig:local\n' ;;
     *) return 1 ;;
   esac
 }
@@ -31,8 +31,8 @@ pi_pack_for_tag() { # tag
     pi-tools:local) printf 'tools\n' ;;
     pi-editor:local) printf 'editor\n' ;;
     pi-agent-lite:local) printf 'agent\n' ;;
-    pi-agent-gh:local) printf 'agent-gh\n' ;;
     pi-agent:local) printf 'full\n' ;;
+    pi-agent-zig:local) printf 'zig\n' ;;
     *) return 1 ;;
   esac
 }
