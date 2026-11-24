@@ -16,6 +16,7 @@
   #log { font: 13px/1.35 ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; }
   .ev { padding: 0.2rem 0; border-bottom: 1px solid #8882; }
   .input { color: #2a7; } .meta { opacity: 0.6; } .err { color: #c33; }
+  .turn > summary { cursor: pointer; padding: 0.35rem 0; border-bottom: 1px solid #8884; font: 15px/1.4 system-ui, sans-serif; }
   .bar { display: flex; gap: 0.4rem; flex-wrap: wrap; }
   .hint { margin: -0.3rem 0 0.6rem; font-size: 0.9rem; opacity: 0.75; }
   .hint b { font-weight: 600; }
@@ -71,11 +72,19 @@ async function home() {
   main.append(ul);
 }
 
+// Pi's message_end and tool_execution_end carry the full result, so the
+// message_start and *_update lines before them are not shown.
 function render(e) {
   let body;
   if (e.kind === "out") {
     let text = e.data;
-    try { const m = JSON.parse(e.data); text = m.text ?? m.message?.content ?? e.data; if (typeof text !== "string") text = JSON.stringify(text); } catch {}
+    try {
+      const m = JSON.parse(e.data);
+      if (m.type === "message_start" || /_update$/.test(m.type)) return null;
+      text = m.text ?? m.message?.content ?? e.data;
+      if (Array.isArray(text)) text = text.map((c) => c.type === "text" ? c.text : c.type === "toolCall" ? `${c.name} ${JSON.stringify(c.arguments)}` : JSON.stringify(c)).join("\n");
+      if (typeof text !== "string") text = JSON.stringify(text);
+    } catch {}
     body = esc(text);
   } else if (e.kind === "input") body = `<span class="input">${esc(e.by)}: ${esc(e.data.text || "")}</span>`;
   else body = `<span class="meta">${esc(e.kind)} ${esc(e.node)} ${e.data ? esc(JSON.stringify(e.data)) : ""}</span>`;
@@ -100,7 +109,23 @@ async function view(sid) {
   f.onsubmit = async (e) => { e.preventDefault(); const d = new FormData(f); try { await api("POST", `/v1/sessions/${sid}/inputs`, { key: key(), text: d.get("text") }); f.reset(); } catch (e) { fail(e); } };
   main.append(f);
   es = new EventSource(`/v1/sessions/${sid}/events`);
-  es.onmessage = (m) => { log.append(render(JSON.parse(m.data))); };
+  // One <details> per turn; a new turn closes the one before it.
+  let turn, info, lines = 0;
+  es.onmessage = (m) => {
+    const e = JSON.parse(m.data);
+    if (e.kind === "input") {
+      if (turn) turn.open = false;
+      turn = $(`<details class="turn" open><summary><small class="dim">${e.run}</small> <span class="input">${esc(e.by)}: ${esc(e.data.text || "")}</span> <small class="dim"></small></summary></details>`);
+      info = turn.querySelector("summary small:last-child");
+      lines = 0;
+      log.append(turn);
+      return;
+    }
+    if (turn && e.kind.startsWith("out")) info.textContent = `${++lines} lines`;
+    if (turn && e.kind === "exited") info.textContent = `${lines} lines · exit ${e.data?.code ?? 0}`;
+    const row = render(e);
+    if (row) (e.run && turn ? turn : log).append(row);
+  };
 }
 
 async function route() {
