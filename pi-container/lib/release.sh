@@ -27,6 +27,12 @@ rel_redact() {
     s/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/<email>/g'
 }
 
+# rel_ps_env NAME: NAME's value in `ps eww` output on stdin (a process's
+# argv then its environment, space separated); empty if unset.
+rel_ps_env() {
+  tr ' ' '\n' | sed -n "s/^$1=//p" | tail -n 1
+}
+
 # rel_env_value FILE NAME: the last NAME= value in an env file.
 rel_env_value() {
   sed -n "s/^$2=//p" "$1" 2>/dev/null | tail -n 1 | tr -d '\r'
@@ -85,17 +91,20 @@ rel_old_tester() {
 # (so the log was not the turns' proxy, or its format changed), a refused
 # request, or an allowed host outside GitHub. Status 0 only when none.
 rel_proxy_log() {
-  awk '
-    $2 == "openrouter" && $3 != "failed" { or = 1 }
+  local out
+  out=$(awk '
+    $2 == "openrouter" && $3 != "failed" { chat = 1 }
     $2 == "allow" { gh = 1; if ($3 !~ /^((api|codeload|uploads)\.)?github\.com$|^(objects|raw)\.githubusercontent\.com$/) bad[$3] = 1 }
     $2 == "deny" { den[$3] = 1 }
     END {
-      if (!or) print "no OpenRouter request in the proxy log"
+      if (!chat) print "no OpenRouter request in the proxy log"
       if (!gh) print "no GitHub tunnel in the proxy log"
       for (h in bad) print "the proxy allowed " h
       for (h in den) print "the proxy refused " h
-    }' | sort | grep . && return 1
-  return 0
+    }') || { echo "could not read the proxy log"; return 1; }
+  [ -n "$out" ] || return 0
+  sort <<<"$out"
+  return 1
 }
 
 # rel_ci_conclusion: read GitHub's check-runs JSON for one commit and print
