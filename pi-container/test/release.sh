@@ -4,15 +4,23 @@
 # the test account and your main account share it). Output is redacted:
 # keys, tokens, emails, tailnet names and tailnet IPs never print.
 #
-#   test/release.sh fresh                  test account, after brew install
-#                                          and git clone, before
-#                                          `container system start`
-#   test/release.sh verify --repo O/R      test account, after README setup:
-#                                          script tests, then mac-e2e.sh
-#                                          build auto
-#   test/release.sh manual                 test account: the TUI checks
+#   test/release.sh                        what passed for HEAD, and the
+#                                          next command to run
 #   test/release.sh fleet SID              main account, `pic serve` up:
 #                                          fleet/docs/macos.md step 8
+#   test/release.sh tester NAME --env FILE --repo O/R
+#                                          main account (admin), after
+#                                          stopping `pic serve`: recreate
+#                                          the test account NAME with FILE,
+#                                          O/R and a clone at HEAD in it
+#   test/release.sh account                test account: fresh, then the
+#                                          README setup, verify and manual;
+#                                          reruns only what has not passed
+#   test/release.sh fresh                  the account stages one at a
+#   test/release.sh verify --repo O/R      time: fresh before any setup,
+#   test/release.sh manual                 verify (script tests and
+#                                          mac-e2e.sh build auto) after it,
+#                                          manual (the TUI checks) last
 #   test/release.sh report                 merge the stages into
 #                                          release.json and print the gate
 #   test/release.sh publish TAG [--push]   main account: refuse unless the
@@ -20,7 +28,9 @@
 #                                          --push pushes the tag and makes
 #                                          a GitHub release with release.json
 #
-# Every stage checks out the same SHA: HEAD of a clean tree.
+# Every stage checks out the same SHA: HEAD of a clean tree. The gate also
+# needs fresh, verify and manual from one account, in that order, fleet from
+# another, and a fleetd built from the SHA.
 set -uo pipefail
 
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
@@ -43,9 +53,10 @@ command -v brew >/dev/null 2>&1 && brew_on_path=1
 [ -z "$brew_bin" ] || [ "$brew_on_path" = 1 ] || eval "$("$brew_bin" shellenv)"
 command -v jq >/dev/null 2>&1 || die "jq not found; run the README's 'brew install container jq' first"
 
-stage=${1:-}
-[ -n "$stage" ] || { sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; exit 2; }
-shift
+usage() { awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' "$0"; }
+stage=${1:-status}
+case $stage in -h | --help | help) usage; exit 0 ;; esac
+shift || true
 
 sha=$(git -C "$top" rev-parse HEAD 2>/dev/null) || die "$top is not a git checkout"
 dir=${PI_RELEASE_DIR:-/Users/Shared/pi-release}/$sha
@@ -53,8 +64,16 @@ mkdir -p "$dir" 2>/dev/null || die "cannot create $dir"
 chmod 1777 "${dir%/*}" "$dir" 2>/dev/null || true
 
 # Values to redact: every key-like value in the env files this user has.
+tester_env=""
+if [ "$stage" = tester ]; then
+  prev=""
+  for a in "$@"; do [ "$prev" = --env ] && tester_env=$a; prev=$a; done
+fi
 secrets=()
-for f in "${PI_ENV_FILE:-}" "$(pi_default_config_dir)/env" "$HOME/.cache/pi-e2e/cfg/env"; do
+# The tester stage stages its env file at ~/.pi-release/env in the test account.
+staged=$HOME/.pi-release
+for f in "${PI_ENV_FILE:-}" "$(pi_default_config_dir)/env" "$HOME/.cache/pi-e2e/cfg/env" "$staged/env" \
+  ${tester_env:+"$tester_env"}; do
   [ -n "$f" ] && [ -r "$f" ] || continue
   for k in OPENROUTER_API_KEY GITHUB_TOKEN GIT_AUTHOR_EMAIL GIT_COMMITTER_EMAIL; do
     v=$(rel_env_value "$f" "$k")
@@ -168,8 +187,10 @@ stage_fresh() {
     rec fail "container ${cv:-?} is the observed JSON contract $pi_release_container_version" \
       "record fixtures with test/record-fixtures.sh and update AGENTS.md first"
   fi
+  # Also state a new account lacks that would hide a dependency on it.
   for f in "$(pi_default_config_dir)" "$HOME/.fleet" "$HOME/pi-backups" "$HOME/.cache/pi-e2e" \
-    "$HOME/Library/Application Support/com.apple.container"; do
+    "$HOME/Library/Application Support/com.apple.container" \
+    "$HOME/.gitconfig" "$HOME/.config/git" "$HOME/.config/gh" "$HOME/.ssh"; do
     check "no ~/${f#"$HOME"/}" test ! -e "$f"
   done
   # comm is the executable, so these never match their own command line.
@@ -241,7 +262,7 @@ stage_manual() {
 }
 
 stage_fleet() {
-  local sid=${1:-} pid log
+  local sid=${1:-} pid log exe fleetd_commit=""
   case $sid in '' | *[!a-z0-9-]*) die "usage: test/release.sh fleet SID" ;; esac
   echo "== fleet/docs/macos.md step 8 ($sha)"
   tree_checks
@@ -249,10 +270,20 @@ stage_fleet() {
   check "Tailscale is running" sh -c 'tailscale status --json | jq -e ".BackendState == \"Running\""'
   check "tailscale serve is serving fleetd" sh -c 'tailscale serve status --json | jq -e "[.. | objects | .Proxy? // empty | strings] | any(startswith(\"http://127.0.0.1:\"))"'
   pid=$(pgrep -f 'fleetd -listen' | head -n 1)
+  exe=""
   if [ -z "$pid" ]; then
     rec fail "fleetd is running" "start pic serve (fleet/docs/macos.md step 6)"
   else
     rec pass "fleetd is running"
+    # comm is the executable's path as started; serve.sh starts it by full path.
+    exe=$(ps -o comm= -p "$pid" 2>/dev/null)
+    fleetd_commit=$("$exe" -version 2>/dev/null | head -n 1)
+    if [ "$fleetd_commit" = "$sha" ]; then
+      rec pass "the running fleetd was built from $sha"
+    else
+      rec fail "the running fleetd was built from $sha" \
+        "it says ${fleetd_commit:-nothing}; run ./build.sh fleet on a clean tree and restart pic serve"
+    fi
     check "the key is not in fleetd's environment" sh -c \
       '[ "$(ps eww -p "$1" | grep -c OPENROUTER_API_KEY)" = 0 ]' sh "$pid"
     check "fleetd listens on loopback only" sh -c \
@@ -275,8 +306,140 @@ stage_fleet() {
   ask "4. kill -9 fleetd: pic serve exits, no fleet-SID container, no pi-ctr"
   ask "4. restart: last event says node restarted; next prompt continues"
   ask "4. Ctrl-C pic serve: tailscale serve status empty, no fleet- container"
-  save "$(jq -n --argjson facts "$(facts)" --arg fleetd "$(shasum -a 256 "$pc/fleetd" 2>/dev/null | cut -c1-64)" \
-    '{facts: $facts, fleetd_sha256: $fleetd}')"
+  save "$(jq -n --argjson facts "$(facts)" --arg commit "$fleetd_commit" \
+    --arg fleetd "$( [ -n "$exe" ] && shasum -a 256 "$exe" 2>/dev/null | cut -c1-64)" \
+    '{facts: $facts, fleetd_sha256: $fleetd, fleetd_commit: $commit}')"
+}
+
+# run_stage STAGE [ARGS...]: one stage with its own results, in a subshell.
+run_stage() {
+  local s=$1
+  shift
+  (stage=$s && : >"$results" && nfail=0 && "stage_$s" "$@")
+}
+
+# stage_ok STAGE [USER]: STAGE passed for this SHA with no skip, as USER.
+stage_ok() {
+  jq -e --arg u "${2:-}" '.fail == 0 and .skip == 0 and ($u == "" or .user == $u)' \
+    "$dir/$1.json" >/dev/null 2>&1
+}
+
+# A container-apiserver run by a uid other than $1 (or by $1 with "own").
+apiserver_running() {
+  ps -axo uid=,comm= | awk -v u="$1" -v own="${2:-}" \
+    '(own ? $1 == u : $1 != u) && /container-apiserver$/ { f = 1 } END { exit !f }'
+}
+
+stage_tester() {
+  local name="" envf="" repo="" home k
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --env) [ $# -ge 2 ] || die "--env needs a file"; envf=$2; shift 2 ;;
+      --repo) [ $# -ge 2 ] || die "--repo needs OWNER/REPO"; repo=$2; shift 2 ;;
+      -*) die "tester: unknown argument '$1'" ;;
+      *) [ -z "$name" ] || die "tester: one NAME"; name=$1; shift ;;
+    esac
+  done
+  [[ $name =~ ^[a-z][a-z0-9]{1,30}$ ]] || die "usage: test/release.sh tester NAME --env FILE --repo OWNER/REPO (NAME: lowercase letters and digits)"
+  [ "$name" != "$(id -un)" ] || die "NAME must be a new account, not this one"
+  [[ $repo =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]] || die "tester needs --repo OWNER/REPO (the throwaway repo)"
+  [ -r "$envf" ] || die "tester needs --env FILE: an env file with the throwaway repo's GITHUB_TOKEN"
+  for k in OPENROUTER_API_KEY GITHUB_TOKEN; do
+    [ -n "$(rel_env_value "$envf" "$k")" ] || die "$envf has no $k"
+  done
+  [ "$(uname -s)" = Darwin ] || die "tester runs on the Mac"
+  [ -z "$(git -C "$top" status --porcelain)" ] || die "the tree is not clean"
+  git -C "$top" ls-remote "https://github.com/$upstream" | cut -f1 | grep -qx "$sha" ||
+    git -C "$top" fetch -q "https://github.com/$upstream" "$sha" || die "$sha is not on $upstream; push it"
+  ! ps -axo comm= | grep -q "/fleetd$" || die "fleetd is running; stop pic serve (Ctrl-C) first"
+  if apiserver_running "$(id -u)" own; then
+    echo "release.sh: container system stop (this account)"
+    container system stop || die "container system stop failed"
+  fi
+  if id "$name" >/dev/null 2>&1; then
+    home=$(dscl . -read "/Users/$name" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
+    sudo test -f "$home/.pi-release/sha" || die "account $name exists and was not made by this command; delete it yourself or pick another NAME"
+    ! id -Gn "$name" | tr ' ' '\n' | grep -qx admin || die "$name is an admin; not deleting it"
+    ! ps -axo uid= | awk -v u="$(id -u "$name")" '$1 == u { f = 1 } END { exit !f }' ||
+      die "$name has processes running; log it out first"
+    echo "release.sh: deleting the old test account $name"
+    sudo sysadminctl -deleteUser "$name" </dev/tty >/dev/tty 2>&1 || die "sysadminctl -deleteUser $name failed"
+  fi
+  ! apiserver_running "$(id -u)" || die "another account runs container; run container system stop there"
+  echo "release.sh: creating $name (standard account); choose its password"
+  sudo sysadminctl -addUser "$name" -fullName "pi-container release tester" -password - </dev/tty >/dev/tty 2>&1 ||
+    die "sysadminctl -addUser $name failed"
+  home=$(dscl . -read "/Users/$name" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
+  [ -n "$home" ] || die "no home directory recorded for $name"
+  [ -d "$home" ] || sudo createhomedir -c -u "$name" >/dev/null || die "createhomedir failed for $name"
+  # install creates each file at its final owner and mode, so the key is
+  # never readable by anyone else.
+  sudo install -d -o "$name" -g staff -m 700 "$home/.pi-release" &&
+    sudo install -o "$name" -g staff -m 600 "$envf" "$home/.pi-release/env" &&
+    printf '%s\n' "$sha" | sudo -u "$name" tee "$home/.pi-release/sha" >/dev/null &&
+    printf '%s\n' "$repo" | sudo -u "$name" tee "$home/.pi-release/repo" >/dev/null ||
+    die "cannot stage files in $home/.pi-release"
+  # The README's first step for a new account.
+  [ -z "$brew_bin" ] || printf 'eval "$(%s shellenv)"\n' "$brew_bin" |
+    sudo -u "$name" tee -a "$home/.zprofile" >/dev/null || die "cannot write $home/.zprofile"
+  (cd / && sudo -u "$name" -H git clone -q "https://github.com/$upstream" "$home/tan-toolchains" &&
+    sudo -u "$name" -H git -C "$home/tan-toolchains" checkout -q "$sha") || die "clone into $home failed"
+  echo "release.sh: $name is ready at $sha. Log in as $name, open Terminal and run:"
+  echo "  ~/tan-toolchains/pi-container/test/release.sh account"
+}
+
+stage_account() {
+  local repo="" me cfg
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --repo) [ $# -ge 2 ] || die "--repo needs OWNER/REPO"; repo=$2; shift 2 ;;
+      *) die "account: unknown argument '$1'" ;;
+    esac
+  done
+  [ -f "$staged/sha" ] || die "no $staged; run this in an account made by test/release.sh tester"
+  [ "$(cat "$staged/sha")" = "$sha" ] || die "HEAD is $sha, but tester prepared $(cat "$staged/sha")"
+  [ -n "$repo" ] || repo=$(cat "$staged/repo" 2>/dev/null)
+  [ -n "$repo" ] || die "account needs --repo OWNER/REPO"
+  me=$(id -un)
+  cfg=$(pi_default_config_dir)
+  if ! stage_ok fresh "$me"; then
+    [ ! -e "$cfg" ] || die "fresh has not passed and $cfg exists, so it cannot pass here; make a new account with test/release.sh tester"
+    run_stage fresh || { echo "release.sh: fix the FAIL lines above, then rerun test/release.sh account"; return 1; }
+  fi
+  if [ ! -f "$cfg/env" ]; then
+    echo "== README setup: $cfg/env from $staged/env, container system start"
+    (umask 077 && mkdir -p "$cfg" && cp "$staged/env" "$cfg/env") || die "cannot write $cfg/env"
+    chmod 600 "$cfg/env"
+  fi
+  apiserver_running "$(id -u)" own || container system start </dev/tty >/dev/tty 2>&1 || die "container system start failed"
+  stage_ok verify "$me" || run_stage verify --repo "$repo" || {
+    echo "release.sh: fix the failures, then rerun test/release.sh account"; return 1; }
+  stage_ok manual "$me" || run_stage manual || {
+    echo "release.sh: rerun test/release.sh account to answer manual again"; return 1; }
+  container system stop || true
+  echo "release.sh: this account is done. On the main account: test/release.sh"
+}
+
+stage_status() {
+  local s
+  echo "== Release record for $sha ($dir)"
+  for s in fresh verify manual fleet; do
+    if [ -f "$dir/$s.json" ]; then
+      jq -r --arg s "$s" '"  \($s): \(.pass) passed, \(.fail) failed, \(.skip) skipped (\(.user), \(.date))"' "$dir/$s.json"
+    else
+      echo "  $s: not run"
+    fi
+  done
+  printf 'next: '
+  if [ -f "$staged/sha" ] && ! { stage_ok fresh && stage_ok verify && stage_ok manual; }; then
+    echo "test/release.sh account"
+  elif ! stage_ok fleet; then
+    echo "main account, pic serve up and a session that finished a turn: test/release.sh fleet SID"
+  elif ! { stage_ok fresh && stage_ok verify && stage_ok manual; }; then
+    echo "main account, pic serve stopped: test/release.sh tester NAME --env FILE --repo OWNER/REPO"
+  else
+    echo "test/release.sh report, then test/release.sh publish vX.Y.Z --push"
+  fi
 }
 
 merge() {
@@ -287,6 +450,7 @@ merge() {
        ci: {conclusion: $ci}, pins: ($st.fresh.pins // {}),
        test_machine: ($st.fresh.facts // {}), fleet_machine: ($st.fleet.facts // {}),
        images: ($st.verify.images // {}), fleetd_sha256: ($st.fleet.fleetd_sha256 // ""),
+       fleetd_commit: ($st.fleet.fleetd_commit // ""),
        stages: ($st | map_values({user, date, pass, fail, skip, checks}))}
   ' $(for s in fresh verify manual fleet; do [ -f "$dir/$s.json" ] && echo "$dir/$s.json"; done) </dev/null |
     redact >"$dir/release.json.$$"
@@ -315,6 +479,7 @@ $(jq -r '.stages | to_entries[] | "\(.key): \(.value.pass) passed (\(.value.user
 container $(jq -r '.test_machine.container' "$dir/release.json"), macOS $(jq -r '.test_machine.macos' "$dir/release.json")
 MSG
   echo "release.sh: tagged $tag at $sha"
+  echo "release.sh: delete the test account: sudo sysadminctl -deleteUser $(jq -r .stages.fresh.user "$dir/release.json")"
   if [ "$push" = 0 ]; then
     echo "release.sh: to publish: test/release.sh publish $tag --push (needs your own git and gh credentials)"
     return
@@ -327,7 +492,7 @@ MSG
 }
 
 case $stage in
-  fresh | verify | manual | fleet | report | publish) ;;
+  status | fleet | tester | account | fresh | verify | manual | report | publish) ;;
   *) die "unknown stage '$stage' (try: test/release.sh)" ;;
 esac
 "stage_$stage" "$@" 2>&1 | redact

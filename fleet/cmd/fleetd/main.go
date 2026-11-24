@@ -19,6 +19,9 @@ import (
 	"github.com/TanGentleman/tan-toolchains/fleet/node"
 )
 
+// commit is the git commit fleetd was built from; build.sh fleet sets it.
+var commit = "unknown"
+
 type list []string
 
 func (l *list) String() string     { return strings.Join(*l, ",") }
@@ -27,6 +30,10 @@ func (l *list) Set(v string) error { *l = append(*l, v); return nil }
 func main() {
 	if len(os.Args) > 1 && os.Args[1] == "pi-ctr" {
 		os.Exit(runPiCtr(os.Args[2:]))
+	}
+	if len(os.Args) == 2 && os.Args[1] == "-version" {
+		fmt.Println(commit)
+		return
 	}
 	home, _ := os.UserHomeDir()
 	var owners list

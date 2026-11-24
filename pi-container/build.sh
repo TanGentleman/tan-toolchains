@@ -59,12 +59,15 @@ if [ "$pack" = fleet ]; then
     exit 1
   fi
   mkdir -p "$src/bin"
-  printf 'build.sh: fleet: go vet and go test, then %s/bin/fleetd (darwin/arm64, Go %s)\n' "$src" "$have" >&2
+  # fleetd -version prints this; the release gate compares it to HEAD.
+  commit=$(git -C "$src" rev-parse HEAD 2>/dev/null || echo unknown)
+  [ -z "$(git -C "$src/.." status --porcelain 2>/dev/null)" ] || commit="$commit-dirty"
+  printf 'build.sh: fleet: go vet and go test, then %s/bin/fleetd %s (darwin/arm64, Go %s)\n' "$src" "$commit" "$have" >&2
   exec "$cli" run --rm -e GOTOOLCHAIN=local -e GOPROXY=off -e GOFLAGS=-mod=readonly -e CGO_ENABLED=0 \
-    -e GOCACHE=/tmp/go-cache \
+    -e GOCACHE=/tmp/go-cache -e FLEETD_COMMIT="$commit" \
     -v "$src:/src:ro" -v "$src/bin:/out" -w /src \
     "$fleet_go_image" sh -c 'go vet ./... && go test -count=1 ./... &&
-      GOOS=darwin GOARCH=arm64 go build -trimpath -o /out/fleetd ./cmd/fleetd'
+      GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-X main.commit=$FLEETD_COMMIT" -o /out/fleetd ./cmd/fleetd'
 fi
 if [ $# -gt 0 ]; then
   case $1 in

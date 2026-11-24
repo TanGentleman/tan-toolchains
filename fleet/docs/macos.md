@@ -58,6 +58,7 @@ Every later step runs from this folder.
 ./build.sh                # pi-agent:local; the first build takes a while
 ./build.sh fleet          # fleet's tests (ok per package), then fleet/bin/fleetd
 file ../fleet/bin/fleetd  # Mach-O 64-bit executable arm64
+../fleet/bin/fleetd -version  # the commit it was built from; -dirty if the tree was not clean
 ```
 
 `build.sh fleet` runs fleet's vet and tests, then the build, in a Go image

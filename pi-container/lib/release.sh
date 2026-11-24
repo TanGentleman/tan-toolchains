@@ -42,7 +42,15 @@ rel_gate() {
     (.stages | to_entries[] | .key as $k | .value |
       (if (.fail // 0) > 0 then "\($k): \(.fail) failed" else empty end),
       (if (.skip // 0) > 0 then "\($k): \(.skip) skipped" else empty end)),
-    (if .ci.conclusion != "success" then "CI on \($sha) is \(.ci.conclusion // "unknown")" else empty end)
+    (if .ci.conclusion != "success" then "CI on \($sha) is \(.ci.conclusion // "unknown")" else empty end),
+    (.stages.fresh.user // null) as $t
+    | (if $t != null and ([.stages.verify.user, .stages.manual.user] | any(. != null and . != $t))
+       then "fresh, verify and manual ran in different accounts" else empty end),
+      (if $t != null and .stages.fleet.user == $t then "fleet ran in the test account \($t)" else empty end),
+      (if (.stages.fresh.date // "") > (.stages.verify.date // "~") then "verify ran before fresh" else empty end),
+      (if (.stages.verify.date // "") > (.stages.manual.date // "~") then "manual ran before verify" else empty end),
+      (if (.stages.fleet // null) != null and .fleetd_commit != $sha
+       then "fleetd was built from \(.fleetd_commit // "an unknown commit"), not \($sha)" else empty end)
   ' "$1" 2>/dev/null | grep . && return 1
   jq -e . "$1" >/dev/null 2>&1 || { echo "report $1 is not JSON"; return 1; }
   return 0

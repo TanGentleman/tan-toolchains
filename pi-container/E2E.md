@@ -233,21 +233,28 @@ A release is an annotated tag `vX.Y.Z` on a commit that passed this checklist
 and fleet step 8, with `release.json` (versions, pins, image digest, every
 check) attached to its GitHub release. `test/release.sh` records each stage in
 `/Users/Shared/pi-release/<sha>/` and redacts keys, tokens, emails and tailnet
-names from its output and files. A FAIL or skip in any stage, a missing stage,
-red CI, or a different SHA closes the gate.
+names from its output and files. The gate is closed by a FAIL or skip in any
+stage, a missing stage, red CI, a different SHA, fresh/verify/manual from more
+than one account or out of order, fleet from the test account, or a fleetd not
+built from the SHA. `test/release.sh` with no stage prints the record and the
+next command.
 
-1. Main account: push the candidate commit and wait for CI. Stop `pic serve`
-   and run `container system stop`. Create the throwaway repo and its token
-   (Setup above).
-2. New macOS account: follow the root README through `brew install` and
-   `git clone`, then `git checkout <sha>` and, from `pi-container/`, run
-   `test/release.sh fresh`. It checks the versions and that this account has
-   no pi-container or fleet state, before `container system start`.
-3. Same account: finish the README setup with the throwaway token, then
-   `test/release.sh verify --repo OWNER/REPO` and `test/release.sh manual`.
-   Run `container system stop` when done.
-4. Main account, same SHA: `container system start`, `pic serve`, spawn a
-   session, then `test/release.sh fleet SID`.
-5. Main account: `test/release.sh report`, then
+1. Main account: push the candidate commit and wait for CI. Run
+   `./build.sh fleet`, start `pic serve`, spawn a session on the throwaway
+   repo (Setup above), then `test/release.sh fleet SID`.
+2. Main account: stop `pic serve`, then
+   `test/release.sh tester NAME --env FILE --repo OWNER/REPO`. FILE is an env
+   file with the throwaway repo's token. It stops this account's
+   `container`, deletes the old NAME (only an account it made), creates a
+   standard account NAME and puts FILE, the repo name, the brew line in
+   `~/.zprofile` and a clone at the SHA in it.
+3. Log in as NAME, open Terminal, run
+   `~/tan-toolchains/pi-container/test/release.sh account`. It runs `fresh`,
+   writes `~/.config/pi-container/env` at mode 600, starts `container`, then
+   runs `verify` and `manual`, and stops `container`. After a failure, fix it
+   and rerun; it skips the stages that passed. If `fresh` fails after setup,
+   make a new account with step 2.
+4. Main account: `test/release.sh report`, then
    `test/release.sh publish vX.Y.Z --push`. It uses your own git and `gh`
-   credentials; the env file's token cannot push here. Delete the test account.
+   credentials; the env file's token cannot push here. It prints the command
+   to delete the test account.

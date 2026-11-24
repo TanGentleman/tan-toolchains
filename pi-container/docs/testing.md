@@ -59,5 +59,5 @@ check runs: [fleet/docs/macos.md, step 8](../../fleet/docs/macos.md#8-verify-bef
 
 `test/release.sh` runs the release gate in [E2E.md](../E2E.md#release) and
 writes `release.json`. `PI_RELEASE_DIR` (default `/Users/Shared/pi-release`)
-moves its records; `test-release.sh` covers the redaction, the gate and the
-report.
+moves its records; `test-release.sh` covers the redaction, the gate, the
+report, the status line and the tester and account argument checks.

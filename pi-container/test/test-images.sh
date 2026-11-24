@@ -66,7 +66,8 @@ contains "GOOS=darwin GOARCH=arm64 go build" "$built" "fleet build targets macOS
 contains "-v $fleet:/src:ro -v $fleet/bin:/out" "$built" "fleet source is read-only; only bin is written"
 contains "golang:" "$built" "fleet build uses the Go image"
 contains "@sha256:" "$built" "fleet Go image is pinned by digest"
-contains "go build -trimpath -o /out/fleetd ./cmd/fleetd" "$built" "fleet build compiles fleetd"
+contains 'go build -trimpath -ldflags "-X main.commit=$FLEETD_COMMIT" -o /out/fleetd ./cmd/fleetd' "$built" "fleet build compiles fleetd"
+contains "-e FLEETD_COMMIT=$(git -C "$root/.." rev-parse HEAD)" "$built" "fleet build stamps the commit"
 contains "go vet ./... && go test -count=1 ./... &&" "$built" "fleet build runs vet and tests first, and stops if they fail"
 rc 2 "fleet takes no options" env CONTAINER_CLI="$tmp/container" BUILD_LOG="$tmp/log" bash "$root/build.sh" fleet --no-cache
 image_go=$(sed -n 's/^fleet_go_image=golang:\([0-9.]*\)-.*/\1/p' "$root/build.sh")
