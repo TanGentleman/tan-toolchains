@@ -169,27 +169,27 @@ REPO=you/fleet-e2e
 ./test/fleet-e2e.sh $REPO     # a release runs it as: test/release.sh fleet --repo $REPO
 ```
 
-It spawns sessions through `$URL` with real Pi and checks GitHub with git
-and the env file's token: `fleet-isolation.sh` says `isolation: ok` (every
-Mac, tailnet, DNS and internet probe from a turn's VM is blocked); a turn's
-`base` is main's tip, its `commit` is `fleet/$sid`'s tip and has
-`hello.txt`; a follow-up remembers the first turn and its commit's parent
-is the first; a fork's `base` is the parent's `commit`; Abort records
-`aborted`, leaves the branch and no `fleet-$sid` container, and the next
-prompt runs; a workflow change and a token in a file are `push refused`
-with the branch unchanged. It ends with `fleet-e2e: ok`. `release.sh fleet`
-also checks that fleetd was built from the commit, that the key isn't in
-its environment, that it listens on loopback only, and that during the
-turns the proxy log has OpenRouter calls and GitHub tunnels, nothing else,
-and no refusals.
+It runs real turns through `$URL` and checks the results on GitHub with the
+env file's token. Each line is a blocker:
 
-If a refusal check fails because Pi declined to run the command, rerun it.
+- isolation: `fleet-isolation.sh` blocks every Mac, tailnet, DNS and internet
+  probe from a turn's VM;
+- turn: `base` is main's tip, `commit` is `fleet/$sid`'s tip with `hello.txt`;
+- follow-up: Pi remembers the first turn; the new commit's parent is the first;
+- fork: the fork's `base` is the parent's `commit`;
+- abort: `aborted`, branch unchanged, no `fleet-$sid` container, the next
+  prompt runs;
+- refusals: a workflow change and a token in a file are `push refused`, branch
+  unchanged. If Pi declined to run the command, rerun.
+
+`release.sh fleet` adds: fleetd was built from the commit, the key is not in
+its environment, it listens on loopback only, and during the turns the proxy
+saw only OpenRouter and GitHub and refused nothing.
 
 **By hand.**
 
 - [ ] Scratch: spawn with repo empty and `Create note.txt containing hi`, then
       send `Run ls.`: Pi remembers the first turn, and `note.txt` is gone.
-
 - [ ] Send `Run sleep 120 in bash`, then `kill -9 "$(pgrep -f 'fleetd -listen')"`.
       `pic serve` exits; within a few seconds `container ls` has no
       `fleet-$sid` and `pgrep -f pi-ctr` prints nothing.

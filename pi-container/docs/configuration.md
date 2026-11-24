@@ -100,13 +100,7 @@ the repo root context and tags it. `PI_IMAGE` selects the image at runtime.
 Only `zig`, `tools` and `editor` contain Zig, Neovim or ZLS. Every pack has
 enforcer; the build compiles it with Zig in a builder stage.
 
-```bash
-./build.sh full              # pi-agent:local
-./build.sh agent             # pi-agent-lite:local, no gh
-./build.sh zig               # pi-agent-zig:local, with Zig and the editor tools
-./build.sh editor            # pi-editor:local, no Pi
-./build.sh all               # every pack
-```
+`./build.sh` alone builds `full`; `./build.sh all` builds every pack.
 
 `./build.sh fleet` is not a pack: it runs `fleet`'s `go vet` and tests, then
 cross-compiles `fleetd` for macOS arm64 into `fleet/bin/fleetd`, all in a
@@ -114,7 +108,7 @@ cross-compiles `fleetd` for macOS arm64 into `fleet/bin/fleetd`, all in a
 If a check fails, nothing is built. `pic serve` runs that binary.
 
 Pass extra `container build` options after the pack, for example
-`./build.sh agent --build-arg PI_VERSION=1.6.0`. `all` builds every pack.
+`./build.sh agent --build-arg PI_VERSION=1.6.0`.
 
 Rebuilding a pack replaces its tag and reuses the layer cache, so a Dockerfile
 change only rebuilds from the first changed stage. Run `./build.sh PACK
@@ -126,16 +120,19 @@ that run only. `capabilities=-` means the image was built before the pack
 metadata existed, so `./build.sh full` (or the pack's target) again; the gate
 treats such an image as a legacy full image.
 
-Images record `PI_CONTAINER_CAPABILITIES` in their environment. Normal mode and
-`check` both refuse an image without `pi`; `check` additionally requires
-`enforcer`, and checks Zig and zigpeek only in an image that lists `zig`.
-Normal mode, `check`, and `--fleet-state`
-also refuse an image without `netlock` (iptables for the egress lock); every
-pack built from the current Dockerfile has it. An image with no capability
-metadata is treated as a legacy full image; it has no iptables, so the lock
-fails in the VM, says to rebuild, and the command does not run. `pic serve
---check` refuses both kinds of image before `fleetd` starts. If `GITHUB_TOKEN` is set, `check` also requires
-`gh`, so use `full` or `zig`; `agent` is for tokenless runs.
+Images record `PI_CONTAINER_CAPABILITIES` in their environment. Each mode
+refuses an image that lacks what it needs (`check` reports a missing `gh` as
+a FAIL instead):
+
+| Mode | Needs |
+| --- | --- |
+| normal Pi, `--fleet-state` | `pi`, `netlock` (iptables for the egress lock) |
+| `check` | `pi`, `netlock`, `enforcer`; `gh` when `GITHUB_TOKEN` is set |
+| `pic serve --check` | `pi`, `netlock`, and capability metadata |
+
+`check` tests Zig and zigpeek only in an image that lists `zig`. An image with
+no metadata is a legacy full image: it has no iptables, so the lock fails in
+the VM and says to rebuild. `agent` is for tokenless runs.
 
 ## Flags
 

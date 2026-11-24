@@ -238,36 +238,31 @@ Not here: fleet (`pic serve`, `pi-ctr`) has its own checklist,
 ## Release
 
 A release is an annotated tag `vX.Y.Z` on a commit that passed this checklist
-and fleet step 8, with `release.json` (versions, pins, image digest, every
-check) attached to its GitHub release. `test/release.sh` records each stage
-in `/Users/Shared/pi-release/<sha>/` and redacts keys, tokens, emails and
-tailnet names. Run it with no stage at any point to see what passed and the
-next command.
+and fleet step 8, with `release.json` attached to its GitHub release.
+`test/release.sh` keeps each stage's redacted record in
+`/Users/Shared/pi-release/<sha>/`; run it with no stage to see what passed and
+what is next.
 
-| Where | Command | Hand checks |
+Push the candidate, wait for CI, run `./build.sh fleet` and restart
+`pic serve`. R is the throwaway repo (Setup above); FILE is a mode-600 env
+file with its token.
+
+| Where | Command | By hand |
 |---|---|---|
-| Main account, `pic serve` up | `test/release.sh fleet --repo R` | 4 (scratch, kill -9, restart, Ctrl-C) |
-| Main account, `pic serve` stopped | `test/release.sh tester NAME --env FILE --repo R` | none |
-| Logged in as NAME | `~/tan-toolchains/pi-container/test/release.sh account` | the TUI ones |
-| Main account | `test/release.sh report`, then `publish vX.Y.Z --push` | none |
+| Main account, `pic serve` up | `test/release.sh fleet --repo R` | scratch, kill -9, restart, Ctrl-C |
+| Main account, `pic serve` stopped | `test/release.sh tester NAME --env FILE --repo R` | nothing |
+| Logged in as NAME | `~/tan-toolchains/pi-container/test/release.sh account` | the TUI checks |
+| Main account | `test/release.sh report`, then `publish vX.Y.Z --push` | nothing |
 
-R is the throwaway repo (Setup above) and FILE an env file with its token.
-Push the candidate and wait for CI first; build fleetd from it with
-`./build.sh fleet` and restart `pic serve`.
-
-- `tester` refuses an env file that is not mode 600 or 400, stops this
-  account's `container`, deletes the old NAME (only a standard account it
-  made, with nothing running) and that SHA's test records, and creates NAME
-  with FILE, R, a random id, the brew line and a clone at the SHA.
-- `account` runs `fresh`, writes `~/.config/pi-container/env` at mode 600,
-  starts `container`, runs `verify` and `manual`, then stops `container`.
-  After a failure outside the code, fix it and rerun: passed stages are
-  skipped. If `fresh` fails after setup, recreate the account with `tester`.
-  A code fix is a new SHA: start again from `fleet`.
-- `publish` uses your own git and `gh` credentials, and prints the command
+- `tester` replaces NAME only if it made it, NAME is a standard account, and
+  nothing runs as it.
+- `account` skips stages that passed. After a failure outside the code, fix
+  it and rerun; if `fresh` fails after setup, rerun `tester`. A code fix is a
+  new SHA: start again from `fleet`.
+- `publish` uses your own git and `gh` credentials and prints the command
   that deletes NAME.
 
-The gate stays closed on any FAIL or skip, a missing stage, red CI, another
-SHA, fresh/verify/manual outside one account made by `tester` (matched by its
-id, not its name) or out of order, an admin test account, fleet from the test
-account, or a fleetd not built from the SHA.
+The gate stays closed on any FAIL or skip, a missing stage, red CI or another
+SHA. It also needs `fresh`, `verify` and `manual` in that order in one
+standard account made by `tester`, `fleet` from another account, and a
+fleetd built from the SHA.

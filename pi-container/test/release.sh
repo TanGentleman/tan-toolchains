@@ -28,9 +28,8 @@
 #                                          --push pushes the tag and makes
 #                                          a GitHub release with release.json
 #
-# Every stage checks out the same SHA: HEAD of a clean tree. The gate also
-# needs fresh, verify and manual from one account, in that order, fleet from
-# another, and a fleetd built from the SHA.
+# Every stage checks out the same SHA: HEAD of a clean tree. E2E.md lists
+# what else closes the gate.
 set -uo pipefail
 
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
