@@ -247,7 +247,7 @@ stage_fleet() {
   tree_checks
   check "tailscale is installed" sh -c 'command -v tailscale'
   check "Tailscale is running" sh -c 'tailscale status --json | jq -e ".BackendState == \"Running\""'
-  check "tailscale serve is serving fleetd" sh -c 'tailscale serve status 2>/dev/null | grep -q 127.0.0.1'
+  check "tailscale serve is serving fleetd" sh -c 'tailscale serve status --json | jq -e "[.. | objects | .Proxy? // empty | strings] | any(startswith(\"http://127.0.0.1:\"))"'
   pid=$(pgrep -f 'fleetd -listen' | head -n 1)
   if [ -z "$pid" ]; then
     rec fail "fleetd is running" "start pic serve (fleet/docs/macos.md step 6)"

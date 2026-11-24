@@ -9,13 +9,6 @@ rel_semver() {
   printf '%s\n' "$1" | grep -Eo '[0-9]+\.[0-9]+\.[0-9]+' | head -n 1
 }
 
-# rel_sed_unbuffered: the flag that makes this sed flush every line.
-rel_sed_unbuffered() {
-  if sed -l -n '' </dev/null 2>/dev/null; then echo -l
-  elif sed -u -n '' </dev/null 2>/dev/null; then echo -u
-  fi
-}
-
 # rel_redact [VALUE...]: copy stdin to stdout with each non-empty VALUE and
 # anything shaped like a key, token, tailnet name or tailnet IP replaced.
 rel_redact() {
@@ -25,7 +18,7 @@ rel_redact() {
     v=$(printf '%s' "$v" | sed 's/[][\\/.*^$|+?(){}]/\\&/g')
     script="${script}s/${v}/<redacted>/g;"
   done
-  sed -E $(rel_sed_unbuffered) "${script}"'
+  sed -E -u "${script}"'
     s/sk-or-v1-[A-Za-z0-9]{8,}/sk-or-v1-<redacted>/g
     s/(ghp|gho|ghs|ghu|ghr)_[A-Za-z0-9]{8,}/\1_<redacted>/g
     s/github_pat_[A-Za-z0-9_]{8,}/github_pat_<redacted>/g
