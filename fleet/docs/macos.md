@@ -179,8 +179,9 @@ is the first; a fork's `base` is the parent's `commit`; Abort records
 prompt runs; a workflow change and a token in a file are `push refused`
 with the branch unchanged. It ends with `fleet-e2e: ok`. `release.sh fleet`
 also checks that fleetd was built from the commit, that the key isn't in
-its environment, that it listens on loopback only, and that the proxy log
-shows only `openrouter.ai` and GitHub hosts.
+its environment, that it listens on loopback only, and that during the
+turns the proxy log has OpenRouter calls and GitHub tunnels, nothing else,
+and no refusals.
 
 If a refusal check fails because Pi declined to run the command, rerun it.
 

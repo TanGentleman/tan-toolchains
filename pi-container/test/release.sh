@@ -280,7 +280,7 @@ stage_manual() {
 }
 
 stage_fleet() {
-  local repo="" pid log exe fleetd_commit="" proxy n0 hosts
+  local repo="" pid log exe fleetd_commit="" proxy n0 why
   while [ $# -gt 0 ]; do
     case $1 in
       --repo) repo=${2:-}; shift 2 || shift ;;
@@ -327,13 +327,11 @@ stage_fleet() {
     esac
   done <"$log"
   check "fleet-e2e.sh finished with fleet-e2e: ok" grep -q '^fleet-e2e: ok$' "$log"
-  hosts=$(container logs "$proxy" 2>/dev/null | tail -n +"$((n0 + 1))" | sed -n 's/.*allow \([^ ]*\).*/\1/p' | sort -u)
-  check "the turns went through $proxy to openrouter" sh -c \
-    'container logs "$1" 2>/dev/null | tail -n +"$2" | grep -q openrouter' sh "$proxy" "$((n0 + 1))"
-  if [ -z "$(grep -vxE 'openrouter\.ai|(api\.|codeload\.|uploads\.)?github\.com|(objects|raw)\.githubusercontent\.com' <<<"$hosts")" ]; then
-    rec pass "the proxy allowed only openrouter.ai and GitHub hosts"
+  # The turns' lines in $proxy's log: OpenRouter and GitHub only, none refused.
+  if why=$(container logs "$proxy" 2>/dev/null | tail -n +"$((n0 + 1))" | rel_proxy_log); then
+    rec pass "the turns used $proxy for OpenRouter and GitHub only; nothing refused"
   else
-    rec fail "the proxy allowed only openrouter.ai and GitHub hosts" "$(tr '\n' ' ' <<<"$hosts")"
+    rec fail "the turns used $proxy for OpenRouter and GitHub only; nothing refused" "$(tr '\n' ';' <<<"$why")"
   fi
   [ -r /dev/tty ] || die "the step 8 checks need a terminal"
   echo "== step 8, by hand (fleet/docs/macos.md)"

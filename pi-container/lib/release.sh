@@ -80,6 +80,24 @@ rel_old_tester() {
   return 0
 }
 
+# rel_proxy_log: read proxy.py log lines from a fleet run on stdin and print
+# one line per reason they fail step 8: no OpenRouter call, no GitHub tunnel
+# (so the log was not the turns' proxy, or its format changed), a refused
+# request, or an allowed host outside GitHub. Status 0 only when none.
+rel_proxy_log() {
+  awk '
+    $2 == "openrouter" && $3 != "failed" { or = 1 }
+    $2 == "allow" { gh = 1; if ($3 !~ /^((api|codeload|uploads)\.)?github\.com$|^(objects|raw)\.githubusercontent\.com$/) bad[$3] = 1 }
+    $2 == "deny" { den[$3] = 1 }
+    END {
+      if (!or) print "no OpenRouter request in the proxy log"
+      if (!gh) print "no GitHub tunnel in the proxy log"
+      for (h in bad) print "the proxy allowed " h
+      for (h in den) print "the proxy refused " h
+    }' | sort | grep . && return 1
+  return 0
+}
+
 # rel_ci_conclusion: read GitHub's check-runs JSON for one commit and print
 # success, pending, failure or none.
 rel_ci_conclusion() {

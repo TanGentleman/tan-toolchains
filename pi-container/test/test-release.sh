@@ -81,6 +81,18 @@ contains "was not made by test/release.sh tester" "$(old ghost)" "tester keeps a
 contains "is an admin" "$(old boss)" "tester keeps an admin account"
 contains "has processes running" "$(old busy)" "tester keeps an account with processes"
 
+plog='12:00:00 allow github.com
+12:00:01 openrouter POST /api/v1/chat/completions
+12:00:02 allow api.github.com'
+rc 0 "proxy log: OpenRouter and GitHub pass" rel_proxy_log <<<"$plog"
+out=$(printf '%s\n' "$plog" '12:00:03 deny registry.npmjs.org:443' '12:00:04 allow evil.example' | rel_proxy_log)
+contains "the proxy refused registry.npmjs.org:443" "$out" "proxy log: a refused request fails"
+contains "the proxy allowed evil.example" "$out" "proxy log: a non-GitHub tunnel fails"
+out=$(printf '12:00:00 listening 0.0.0.0:3128\n' | rel_proxy_log)
+contains "no OpenRouter request" "$out" "proxy log: no traffic fails, not passes"
+contains "no GitHub tunnel" "$out" "proxy log: no GitHub fails"
+contains "no OpenRouter request" "$(printf '1 openrouter failed TimeoutError\n1 allow github.com\n' | rel_proxy_log)" "proxy log: a failed OpenRouter call is not a call"
+
 printf 'not json' >"$tmp/broken.json"
 rc 1 "gate refuses a broken report" rel_gate "$tmp/broken.json" abc
 

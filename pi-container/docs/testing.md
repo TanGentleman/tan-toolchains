@@ -64,6 +64,6 @@ CI against a fake Pi and a local bare repo.
 `test/release.sh` runs the release gate in [E2E.md](../E2E.md#release) and
 writes `release.json`. `PI_RELEASE_DIR` (default `/Users/Shared/pi-release`)
 moves its records; `test-release.sh` covers the redaction, the gate, the
-report, the status line, the fleet, tester and account
+proxy-log check, the report, the status line, the fleet, tester and account
 argument checks, and, with fake `dscl`, `id`, `ps` and `sudo`, the refusals
 that keep `tester` from deleting an account it did not make.
