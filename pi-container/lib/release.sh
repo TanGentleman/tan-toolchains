@@ -44,15 +44,39 @@ rel_gate() {
       (if (.skip // 0) > 0 then "\($k): \(.skip) skipped" else empty end)),
     (if .ci.conclusion != "success" then "CI on \($sha) is \(.ci.conclusion // "unknown")" else empty end),
     (.stages.fresh.user // null) as $t
-    | (if $t != null and ([.stages.verify.user, .stages.manual.user] | any(. != null and . != $t))
+    | (.stages.fresh.account_id // "") as $id
+    | (if $t != null and $id == "" then "fresh did not run in an account made by tester" else empty end),
+      (if $t != null and ([.stages.verify, .stages.manual] | any(. != null and (.account_id // "") != $id))
        then "fresh, verify and manual ran in different accounts" else empty end),
       (if $t != null and .stages.fleet.user == $t then "fleet ran in the test account \($t)" else empty end),
+      (if $t != null and .test_machine.admin != false then "the test account is not a standard account" else empty end),
       (if (.stages.fresh.date // "") > (.stages.verify.date // "~") then "verify ran before fresh" else empty end),
       (if (.stages.verify.date // "") > (.stages.manual.date // "~") then "manual ran before verify" else empty end),
       (if (.stages.fleet // null) != null and .fleetd_commit != $sha
        then "fleetd was built from \(.fleetd_commit // "an unknown commit"), not \($sha)" else empty end)
   ' "$1" 2>/dev/null | grep . && return 1
   jq -e . "$1" >/dev/null 2>&1 || { echo "report $1 is not JSON"; return 1; }
+  return 0
+}
+
+# rel_old_tester NAME: status 0 when the existing account NAME may be deleted
+# by test/release.sh tester: tester made it (~/.pi-release/sha), it is not an
+# admin, and nothing runs as it. Otherwise print why and return 1.
+rel_old_tester() {
+  local home
+  home=$(dscl . -read "/Users/$1" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
+  if [ -z "$home" ] || ! sudo test -f "$home/.pi-release/sha"; then
+    echo "account $1 exists and was not made by test/release.sh tester; delete it yourself or pick another NAME"
+    return 1
+  fi
+  if id -Gn "$1" | tr ' ' '\n' | grep -qx admin; then
+    echo "$1 is an admin; not deleting it"
+    return 1
+  fi
+  if ps -axo uid= | awk -v u="$(id -u "$1")" '$1 == u { f = 1 } END { exit !f }'; then
+    echo "$1 has processes running; log it out first"
+    return 1
+  fi
   return 0
 }
 

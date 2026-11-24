@@ -247,16 +247,19 @@ R is the throwaway repo (Setup above) and FILE an env file with its token.
 Push the candidate and wait for CI first; build fleetd from it with
 `./build.sh fleet` and restart `pic serve`.
 
-- `tester` stops this account's `container`, deletes the old NAME (only an
-  account it made), and creates NAME with FILE, R, the brew line and a clone
-  at the SHA.
+- `tester` refuses an env file that is not mode 600 or 400, stops this
+  account's `container`, deletes the old NAME (only a standard account it
+  made, with nothing running) and that SHA's test records, and creates NAME
+  with FILE, R, a random id, the brew line and a clone at the SHA.
 - `account` runs `fresh`, writes `~/.config/pi-container/env` at mode 600,
   starts `container`, runs `verify` and `manual`, then stops `container`.
-  After a failure, fix it and rerun: passed stages are skipped. If `fresh`
-  fails after setup, recreate the account with `tester`.
+  After a failure outside the code, fix it and rerun: passed stages are
+  skipped. If `fresh` fails after setup, recreate the account with `tester`.
+  A code fix is a new SHA: start again from `fleet`.
 - `publish` uses your own git and `gh` credentials, and prints the command
   that deletes NAME.
 
 The gate stays closed on any FAIL or skip, a missing stage, red CI, another
-SHA, fresh/verify/manual from more than one account or out of order, fleet
-from the test account, or a fleetd not built from the SHA.
+SHA, fresh/verify/manual outside one account made by `tester` (matched by its
+id, not its name) or out of order, an admin test account, fleet from the test
+account, or a fleetd not built from the SHA.

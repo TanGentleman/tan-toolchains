@@ -38,6 +38,7 @@ pc=$(CDPATH= cd -- "$here/.." && pwd -P)
 top=$(CDPATH= cd -- "$pc/.." && pwd -P)
 . "$pc/names.sh"
 . "$pc/lib/release.sh"
+. "$pc/lib/paths.sh"
 
 die() { echo "release.sh: $*" >&2; exit 2; }
 upstream=TanGentleman/tan-toolchains
@@ -152,11 +153,26 @@ tree_checks() {
      git -C "$1" fetch -q "https://github.com/$2" "$3"' sh "$top" "$upstream" "$sha"
 }
 
+# The test account's id from tester, so a record from an earlier account
+# with the same name never counts for this one. Empty in other accounts.
+account_id=$(cat "$staged/id" 2>/dev/null || true)
+
+# new_file PATH: PATH is empty and this account can write it. A file left by
+# another account (the sticky release dir) refuses, so stale output is never
+# read back as this run's.
+new_file() {
+  rm -f "$1" 2>/dev/null
+  : 2>/dev/null >"$1" || die "cannot write $1 (left by another account?); remove it with sudo rm"
+}
+
 save() {
   local extra=${1:-'{}'}
+  new_file "$dir/$stage.json.$$"
   rel_checks_json "$stage" "$(id -un)" <"$results" |
-    jq --arg sha "$sha" --argjson extra "$extra" '. + {sha: $sha} + $extra' | redact >"$dir/$stage.json"
-  chmod 644 "$dir/$stage.json"
+    jq --arg sha "$sha" --arg id "$account_id" --argjson extra "$extra" \
+      '. + {sha: $sha, account_id: $id} + $extra' | redact >"$dir/$stage.json.$$"
+  chmod 644 "$dir/$stage.json.$$"
+  mv -f "$dir/$stage.json.$$" "$dir/$stage.json" || die "cannot replace $dir/$stage.json; remove it with sudo rm"
   echo "release.sh: $stage: $(jq -r '"\(.pass) passed, \(.fail) failed, \(.skip) skipped"' "$dir/$stage.json") -> $dir/$stage.json"
   [ "$nfail" = 0 ]
 }
@@ -215,6 +231,7 @@ stage_verify() {
   echo "== Script checks ($sha)"
   tree_checks
   log=$dir/verify-run-tests.log
+  new_file "$log"
   (cd "$pc" && ./test/run-tests.sh) >"$log" 2>&1
   check "test/run-tests.sh" grep -q "run-tests.sh: all tests passed" "$log"
   local f bad=""
@@ -226,6 +243,7 @@ stage_verify() {
     'import sys; compile(open(sys.argv[1]).read(), sys.argv[1], "exec")' "$pc/proxy.py"
   echo "== test/mac-e2e.sh build auto (this takes a while)"
   log=$dir/verify-mac-e2e.log
+  new_file "$log"
   "$here/mac-e2e.sh" --repo "$repo" build auto 2>&1 | redact | tee "$log"
   rel_e2e_lines <"$log" >>"$results"
   nfail=$((nfail + $(grep -c '^fail' "$results")))
@@ -298,6 +316,7 @@ stage_fleet() {
   proxy=$(pi_proxy_name "$(pi_default_config_dir)")
   n0=$(container logs "$proxy" 2>/dev/null | wc -l)
   log=$dir/fleet-e2e.log
+  new_file "$log"
   echo "== test/fleet-e2e.sh $repo (a few minutes of real turns)"
   "$here/fleet-e2e.sh" "$repo" 2>&1 | redact | tee "$log" || true
   # Each check line becomes a record; a missing summary means it died early.
@@ -334,9 +353,10 @@ run_stage() {
   (stage=$s && : >"$results" && nfail=0 && "stage_$s" "$@")
 }
 
-# stage_ok STAGE [USER]: STAGE passed for this SHA with no skip, as USER.
+# stage_ok STAGE [ID]: STAGE passed for this SHA with no skip, in the test
+# account with tester id ID.
 stage_ok() {
-  jq -e --arg u "${2:-}" '.fail == 0 and .skip == 0 and ($u == "" or .user == $u)' \
+  jq -e --arg id "${2:-}" '.fail == 0 and .skip == 0 and ($id == "" or .account_id == $id)' \
     "$dir/$1.json" >/dev/null 2>&1
 }
 
@@ -347,7 +367,7 @@ apiserver_running() {
 }
 
 stage_tester() {
-  local name="" envf="" repo="" home k
+  local name="" envf="" repo="" home k why
   while [ $# -gt 0 ]; do
     case $1 in
       --env) [ $# -ge 2 ] || die "--env needs a file"; envf=$2; shift 2 ;;
@@ -360,6 +380,10 @@ stage_tester() {
   [ "$name" != "$(id -un)" ] || die "NAME must be a new account, not this one"
   [[ $repo =~ ^[A-Za-z0-9-]+/[A-Za-z0-9._-]+$ ]] || die "tester needs --repo OWNER/REPO (the throwaway repo)"
   [ -r "$envf" ] || die "tester needs --env FILE: an env file with the throwaway repo's GITHUB_TOKEN"
+  case $(pi_file_mode "$envf") in
+    600 | 400) ;;
+    *) die "$envf must be mode 600 (chmod 600)" ;;
+  esac
   for k in OPENROUTER_API_KEY GITHUB_TOKEN; do
     [ -n "$(rel_env_value "$envf" "$k")" ] || die "$envf has no $k"
   done
@@ -373,15 +397,15 @@ stage_tester() {
     container system stop || die "container system stop failed"
   fi
   if id "$name" >/dev/null 2>&1; then
-    home=$(dscl . -read "/Users/$name" NFSHomeDirectory 2>/dev/null | awk '{print $2}')
-    sudo test -f "$home/.pi-release/sha" || die "account $name exists and was not made by this command; delete it yourself or pick another NAME"
-    ! id -Gn "$name" | tr ' ' '\n' | grep -qx admin || die "$name is an admin; not deleting it"
-    ! ps -axo uid= | awk -v u="$(id -u "$name")" '$1 == u { f = 1 } END { exit !f }' ||
-      die "$name has processes running; log it out first"
+    why=$(rel_old_tester "$name") || die "$why"
     echo "release.sh: deleting the old test account $name"
     sudo sysadminctl -deleteUser "$name" </dev/tty >/dev/tty 2>&1 || die "sysadminctl -deleteUser $name failed"
   fi
   ! apiserver_running "$(id -u)" || die "another account runs container; run container system stop there"
+  # A new account never reuses an old one's records; sudo because the old
+  # account owns them in the sticky release dir.
+  sudo rm -f "$dir"/fresh.json "$dir"/verify.json "$dir"/manual.json "$dir"/verify-*.log ||
+    die "cannot clear the old test records in $dir"
   echo "release.sh: creating $name (standard account); choose its password"
   sudo sysadminctl -addUser "$name" -fullName "pi-container release tester" -password - </dev/tty >/dev/tty 2>&1 ||
     die "sysadminctl -addUser $name failed"
@@ -393,7 +417,8 @@ stage_tester() {
   sudo install -d -o "$name" -g staff -m 700 "$home/.pi-release" &&
     sudo install -o "$name" -g staff -m 600 "$envf" "$home/.pi-release/env" &&
     printf '%s\n' "$sha" | sudo -u "$name" tee "$home/.pi-release/sha" >/dev/null &&
-    printf '%s\n' "$repo" | sudo -u "$name" tee "$home/.pi-release/repo" >/dev/null ||
+    printf '%s\n' "$repo" | sudo -u "$name" tee "$home/.pi-release/repo" >/dev/null &&
+    od -An -tx1 -N8 /dev/urandom | tr -d ' \n' | sudo -u "$name" tee "$home/.pi-release/id" >/dev/null ||
     die "cannot stage files in $home/.pi-release"
   # The README's first step for a new account.
   [ -z "$brew_bin" ] || printf 'eval "$(%s shellenv)"\n' "$brew_bin" |
@@ -405,7 +430,7 @@ stage_tester() {
 }
 
 stage_account() {
-  local repo="" me cfg
+  local repo="" cfg
   while [ $# -gt 0 ]; do
     case $1 in
       --repo) [ $# -ge 2 ] || die "--repo needs OWNER/REPO"; repo=$2; shift 2 ;;
@@ -416,9 +441,9 @@ stage_account() {
   [ "$(cat "$staged/sha")" = "$sha" ] || die "HEAD is $sha, but tester prepared $(cat "$staged/sha")"
   [ -n "$repo" ] || repo=$(cat "$staged/repo" 2>/dev/null)
   [ -n "$repo" ] || die "account needs --repo OWNER/REPO"
-  me=$(id -un)
+  [ -n "$account_id" ] || die "no $staged/id; recreate this account with test/release.sh tester"
   cfg=$(pi_default_config_dir)
-  if ! stage_ok fresh "$me"; then
+  if ! stage_ok fresh "$account_id"; then
     [ ! -e "$cfg" ] || die "fresh has not passed and $cfg exists, so it cannot pass here; make a new account with test/release.sh tester"
     run_stage fresh || { echo "release.sh: fix the FAIL lines above, then rerun test/release.sh account"; return 1; }
   fi
@@ -428,9 +453,9 @@ stage_account() {
     chmod 600 "$cfg/env"
   fi
   apiserver_running "$(id -u)" own || container system start </dev/tty >/dev/tty 2>&1 || die "container system start failed"
-  stage_ok verify "$me" || run_stage verify --repo "$repo" || {
+  stage_ok verify "$account_id" || run_stage verify --repo "$repo" || {
     echo "release.sh: fix the failures, then rerun test/release.sh account"; return 1; }
-  stage_ok manual "$me" || run_stage manual || {
+  stage_ok manual "$account_id" || run_stage manual || {
     echo "release.sh: rerun test/release.sh account to answer manual again"; return 1; }
   container system stop || true
   echo "release.sh: this account is done. On the main account: test/release.sh"
@@ -467,7 +492,7 @@ merge() {
        test_machine: ($st.fresh.facts // {}), fleet_machine: ($st.fleet.facts // {}),
        images: ($st.verify.images // {}), fleetd_sha256: ($st.fleet.fleetd_sha256 // ""),
        fleetd_commit: ($st.fleet.fleetd_commit // ""),
-       stages: ($st | map_values({user, date, pass, fail, skip, checks}))}
+       stages: ($st | map_values({user, account_id, date, pass, fail, skip, checks}))}
   ' $(for s in fresh verify manual fleet; do [ -f "$dir/$s.json" ] && echo "$dir/$s.json"; done) </dev/null |
     redact >"$dir/release.json.$$"
   cat "$dir/release.json.$$" >"$dir/release.json" && rm -f "$dir/release.json.$$"
