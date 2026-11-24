@@ -182,7 +182,7 @@ env file's token. Each line is a blocker:
 - fork: the fork's `base` is the parent's `commit`;
 - abort: `aborted`, branch unchanged, no `fleet-$sid` container, the next
   prompt runs;
-- refusals: a workflow change and a token in a file are `push refused`, branch
+- refusals: a workflow change and a token-shaped string in a file are `push refused`, branch
   unchanged. If Pi declined to run the command, rerun.
 
 `release.sh fleet` adds: fleetd was built from the commit, the key is not in

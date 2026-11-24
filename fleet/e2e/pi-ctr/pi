@@ -43,6 +43,6 @@ case $prompt in
   "Write the name of the file you just created"*) grep -q 'Create hello.txt' "$file" && echo hello.txt > created.txt ;;
   "Run sleep 120 in bash"*) jq -cn '{type: "tool", cmd: "sleep 120"}'; sleep 30; echo late > late.txt ;;
   "Create .github/workflows/x.yml"*) mkdir -p .github/workflows && echo 'on: push' > .github/workflows/x.yml ;;
-  "Run this in bash: printenv GITHUB_TOKEN"*) printenv GITHUB_TOKEN > token.txt ;;
+  "Run this in bash: printf 'gh%s\\n' p_"*) bash -c "${prompt#Run this in bash: }" ;;
 esac
 jq -cn --arg s "$stop" '{type: "message_end", message: {role: "assistant", stopReason: $s, usage: {input: 3, output: 2}}}'
