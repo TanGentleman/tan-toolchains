@@ -457,8 +457,7 @@ Still manual (E2E.md, needs the Pi TUI): /model, /quit, /login not needed,
 settings.json hash unchanged after /settings and Ctrl+S saves, a host
 settings.json edit applies, the enforcer warning on a ghp_ prompt in the
 TUI, `pi` in --manual reports no models, `./run.sh proxy` follows logs,
---build-arg PI/ZIG/NVIM/ZLS version changes, and fleet's
-fleet/docs/macos.md step 8.
+and fleet's fleet/docs/macos.md step 8.
 EOF
   ;;
 esac

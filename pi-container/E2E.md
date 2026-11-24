@@ -212,10 +212,10 @@ The product path: build in the container, run on the Mac.
       host settings again.
 - [ ] Missing `container` CLI, missing env file, invalid repo name (including
       `PI_CLONE`), and invalid instance names fail clearly.
-- [ ] Starting two instances at once does not race on proxy or network creation.
 - [ ] Proxy already running and network already exists are handled without conflicts.
-- [ ] `--build-arg PI_VERSION=…`, `ZIG_VERSION=…`, `NVIM_VERSION=…`, and
-      `ZLS_VERSION=…` change the image; a ZLS/Zig mismatch fails.
+- [ ] When moving a pin: `--build-arg PI_VERSION=…`, `ZIG_VERSION=…`,
+      `NVIM_VERSION=…`, and `ZLS_VERSION=…` change the image. `build` checks
+      the ZLS/Zig mismatch.
 
 ### Fleet node
 

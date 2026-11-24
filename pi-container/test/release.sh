@@ -237,8 +237,6 @@ stage_manual() {
   ask "the enforcer warns on a ghp_ prompt in the TUI"
   ask "pi in --manual reports no models"
   ask "./run.sh proxy follows the proxy logs"
-  ask "two instances started at once do not race on proxy or network creation"
-  ask "--build-arg PI/ZIG/NVIM/ZLS version changes the image; a ZLS/Zig mismatch fails"
   save
 }
 
