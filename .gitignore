@@ -5,3 +5,6 @@ zigpeek/dist/
 enforcer/.zig-cache/
 enforcer/zig-out/
 fleet/bin/
+
+# python
+__pycache__/
