@@ -14,6 +14,8 @@ spikes/inkling-2-mini/uninstall.sh   # [--keep-model]
 Needs only [uv](https://docs.astral.sh/uv/). Everything goes in
 `~/.local/share/inkling-2-mini` (`INKLING_HOME`): Python, uv cache, venv,
 Hugging Face cache, weights, logs. Uninstall deletes that directory.
+`INKLING_MODEL_DIR=/path/to/mlx-model` serves another local MLX folder
+instead, read only and with no download.
 
 ## Choices
 
