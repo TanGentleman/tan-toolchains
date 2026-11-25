@@ -41,9 +41,11 @@ in these scripts contacts Hugging Face; serving runs offline.
 $S/serve.sh pi
 ```
 
-Listens on `127.0.0.1:8090` and on the container network
-(`192.168.64.1:8090`, read from `container network inspect default`). If macOS
-asks whether Python may accept incoming connections, allow it. Wait for the
+Listens on `127.0.0.1:8090` and on the container network's host address
+(`192.168.64.1:8090`, read from `container network inspect default`), not on
+your LAN. macOS adds that address only while a container runs, so the gateway
+waits for it and binds when `pi.sh` starts `pi-proxy`. If macOS asks whether
+Python may accept incoming connections, allow it. Wait for the
 model to load (`$HOME/.local/share/inkling-2-mini/logs/mlx.log`).
 
 ## 3. Check (terminal 2)

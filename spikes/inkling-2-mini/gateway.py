@@ -6,6 +6,7 @@ into reasoning_content, content and tool_calls, maps reasoning effort to the
 chat template, and logs one JSON line per request (no prompt or reply text).
 Stdlib only."""
 import argparse
+import errno
 import http.client
 import json
 import sys
@@ -322,14 +323,28 @@ def main():
         return check(a.check)
     uh, up = a.upstream.rsplit(":", 1)
     Handler.upstream, Handler.log_file = (uh, int(up)), a.log
-    servers = []
-    for addr in a.listen or ["127.0.0.1:8090"]:
-        host, port = addr.rsplit(":", 1)
-        servers.append(ThreadingHTTPServer((host, int(port)), Handler))
-        print(f"gateway on http://{addr}/v1 -> mlx_lm.server {a.upstream}", file=sys.stderr, flush=True)
-    for srv in servers[1:]:
-        threading.Thread(target=srv.serve_forever, daemon=True).start()
-    servers[0].serve_forever()
+    first, *rest = [(h, int(p)) for h, p in (x.rsplit(":", 1) for x in a.listen or ["127.0.0.1:8090"])]
+    for addr in rest:
+        threading.Thread(target=serve, args=(addr, a.upstream), daemon=True).start()
+    serve(first, a.upstream)
+
+
+def serve(addr, upstream):
+    # The container network's host address exists only while a container runs.
+    waiting = False
+    while True:
+        try:
+            srv = ThreadingHTTPServer(addr, Handler)
+            break
+        except OSError as e:
+            if e.errno != errno.EADDRNOTAVAIL:
+                raise
+            if not waiting:
+                print(f"gateway waiting for {addr[0]} (appears when a container starts)", file=sys.stderr, flush=True)
+                waiting = True
+            time.sleep(1)
+    print(f"gateway on http://{addr[0]}:{addr[1]}/v1 -> mlx_lm.server {upstream}", file=sys.stderr, flush=True)
+    srv.serve_forever()
 
 
 if __name__ == "__main__":

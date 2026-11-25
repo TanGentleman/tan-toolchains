@@ -19,7 +19,7 @@ listen=(--listen "$host:$port")
 if [ "${1:-}" = pi ]; then listen+=(--listen "$(container_gateway):$port"); fi
 
 pids=()
-stop() { for p in ${pids[@]+"${pids[@]}"}; do kill "$p" 2>/dev/null || true; done; rm -f "$INKLING_HOME"/run/*.pid; }
+stop() { for p in ${pids[@]+"${pids[@]}"}; do kill "$p" 2>/dev/null || true; done; rm -f "$INKLING_HOME"/run/*.pid "$INKLING_HOME/run/pi"; }
 trap stop EXIT
 trap 'exit 130' INT TERM
 
@@ -38,5 +38,6 @@ echo "mlx_lm.server pid $! loading $model_dir (log: $INKLING_HOME/logs/mlx.log)"
 "$venv/bin/python" "$spike_dir/gateway.py" "${listen[@]}" \
   --upstream "127.0.0.1:$mlx_port" --log "$INKLING_HOME/logs/requests.jsonl" &
 pids+=($!); echo $! > "$INKLING_HOME/run/gateway.pid"
+if [ "${1:-}" = pi ]; then touch "$INKLING_HOME/run/pi"; fi
 # macOS /bin/bash is 3.2, which has no wait -n.
 while kill -0 "${pids[0]}" 2>/dev/null && kill -0 "${pids[1]}" 2>/dev/null; do sleep 1; done
