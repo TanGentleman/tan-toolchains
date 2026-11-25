@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Remove everything install.sh and serve.sh created: stop their processes,
-# then delete $INKLING_HOME. --keep-model keeps the ~20 GB of weights.
+# then delete $INKLING_HOME. --keep-model keeps the 17.3 GB of weights.
 set -euo pipefail
 . "$(dirname "$0")/env.sh"
 keep_model=0; [ "${1:-}" = --keep-model ] && keep_model=1

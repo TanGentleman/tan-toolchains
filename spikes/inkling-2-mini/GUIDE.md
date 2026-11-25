@@ -32,8 +32,11 @@ S=spikes/inkling-2-mini
 $S/install.sh
 ```
 
-Answer `y` at the prompt to download ~20 GB from huggingface.co. Nothing else
-in these scripts contacts Hugging Face; serving runs offline.
+Answer `y` at the prompt to download 17.3 GB from huggingface.co
+(`mlx-community/Inkling-2-Mini-4bit`). The repo is public; a token only
+raises rate limits. `export HF_TOKEN=...` first, or an existing `hf auth login`
+token is used. Nothing else in these scripts contacts Hugging Face; serving
+runs offline.
 
 ## 2. Serve (terminal 1)
 
@@ -75,7 +78,7 @@ upstream is gone and recreates `pi-proxy` pointing at openrouter.ai.
 ## 6. Uninstall
 
 ```sh
-$S/uninstall.sh                  # or --keep-model to keep the 20 GB of weights
+$S/uninstall.sh                  # or --keep-model to keep the 17.3 GB of weights
 ```
 
 Then run `pi-container/run.sh check` once so the proxy points at OpenRouter
@@ -83,7 +86,7 @@ again.
 
 ## Memory
 
-About 20–25 GB for the model, 4 GB for the Pi VM (`PI_MEMORY`) and 1 GB for
+About 17.3 GB of weights plus up to 4 GB of prompt cache, 4 GB for the Pi VM (`PI_MEMORY`) and 1 GB for
 the proxy: close to 30 GB. Use `PI_MEMORY=2G $S/pi.sh` if the Mac swaps.
 
 ## Try it with a small model first

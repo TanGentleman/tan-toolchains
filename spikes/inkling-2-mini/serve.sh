@@ -23,7 +23,7 @@ stop() { for p in ${pids[@]+"${pids[@]}"}; do kill "$p" 2>/dev/null || true; don
 trap stop EXIT
 trap 'exit 130' INT TERM
 
-# One agent turn at a time; the prompt cache is capped so weights (~20 GB)
+# One agent turn at a time; the prompt cache is capped so weights (17.3 GB)
 # plus cache and activations stay under ~30 GB. Sampling follows the model's
 # generation_config (temperature 1.0) and the mlx-lm PR's benchmark.
 HF_HUB_OFFLINE=1 "$venv/bin/mlx_lm.server" --model "$model_dir" \

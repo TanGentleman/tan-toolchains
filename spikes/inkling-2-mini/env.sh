@@ -4,9 +4,10 @@ spike_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 INKLING_HOME=${INKLING_HOME:-$HOME/.local/share/inkling-2-mini}
 marker="$INKLING_HOME/.inkling-2-mini-spike"
 
-# Official weights, pinned. Commits after ed40e7d change only README/evals.
-model_repo=thinkingmachines/Inkling-2-Mini
-model_rev=c9d028302cd0f035fdf8e7e91f089a4ce94d2195
+# MLX 4-bit build of the official checkpoint, pinned. Converted with the same
+# mlx-lm PR as uv.lock; routed experts keep the official NVFP4/MXFP8.
+model_repo=mlx-community/Inkling-2-Mini-4bit
+model_rev=9c0e2960609ba7cb40daf92c6f7bf8ed56e1dd62
 # INKLING_MODEL_DIR serves another local MLX model folder instead (read only).
 model_dir=${INKLING_MODEL_DIR:-$INKLING_HOME/model}
 venv="$INKLING_HOME/venv"
@@ -21,6 +22,9 @@ export UV_PYTHON_INSTALL_DIR="$INKLING_HOME/python"
 export UV_PYTHON_PREFERENCE=only-managed
 export UV_PROJECT_ENVIRONMENT="$venv"
 export HF_HOME="$INKLING_HOME/hf"
+# HF_HOME moves the token file too; read an existing `hf auth login` token in
+# place (never written or deleted here). HF_TOKEN still wins when set.
+export HF_TOKEN_PATH=${HF_TOKEN_PATH:-$HOME/.cache/huggingface/token}
 export HF_HUB_DISABLE_TELEMETRY=1
 export PYTHONDONTWRITEBYTECODE=1
 

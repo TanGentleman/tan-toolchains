@@ -27,10 +27,12 @@ elif [ -f "$model_dir/.complete" ] && [ "$(cat "$model_dir/.complete")" = "$mode
 else
   free_gb=$(df -g "$INKLING_HOME" | awk 'NR==2 {print $4}')
   cmd=("$venv/bin/hf" download "$model_repo" --revision "$model_rev"
-       --local-dir "$model_dir" --exclude 'mtp.safetensors' '.eval_results/*')
-  echo "This downloads about 20.2 GB from huggingface.co ($free_gb GB free):"
+       --local-dir "$model_dir" --exclude '.eval_results/*')
+  echo "This downloads about 17.3 GB from huggingface.co ($free_gb GB free):"
   printf '  %q' "${cmd[@]}"; echo
   confirm "Run it now?" || { echo "Skipped. Re-run install.sh to download."; exit 0; }
+  # A partial or older download (another repo or revision) must not mix in.
+  rm -rf "$model_dir"
   "${cmd[@]}"
   printf '%s\n' "$model_rev" > "$model_dir/.complete"
 fi
