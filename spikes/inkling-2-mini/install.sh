@@ -20,7 +20,9 @@ echo "== 1/2 Python env (uv sync --frozen into $venv)"
 (cd "$spike_dir" && uv sync --frozen)
 
 echo "== 2/2 weights"
-if [ -f "$model_dir/.complete" ] && [ "$(cat "$model_dir/.complete")" = "$model_rev" ]; then
+if [ -n "${INKLING_MODEL_DIR:-}" ]; then
+  echo "INKLING_MODEL_DIR is set; not downloading"
+elif [ -f "$model_dir/.complete" ] && [ "$(cat "$model_dir/.complete")" = "$model_rev" ]; then
   echo "already at $model_rev"
 else
   free_gb=$(df -g "$INKLING_HOME" | awk 'NR==2 {print $4}')

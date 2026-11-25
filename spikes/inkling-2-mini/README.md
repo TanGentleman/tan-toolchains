@@ -23,7 +23,7 @@ Hugging Face cache, weights, logs. Uninstall deletes that directory.
 | Weights | Official checkpoint, pinned revision, `mtp.safetensors` skipped | The model authors' own NVFP4/MXFP8 mix (~20 GB). mlx-lm does not use the MTP head. Community 4-bit conversions save ~3 GB but are a second quantization. |
 | Server | `mlx_lm.server`, loopback, 1 request at a time, prompt cache capped at 4 GB | One agent turn at a time fits in 30 GB. `server_v2` has no image input. |
 | Sampling | temperature 1.0, top-p 0.95, top-k 20, max 32768 tokens | Model's `generation_config` and the PR's benchmark. The server's defaults (0.0, 512) are wrong for this model. |
-| Front | `gateway.py` (stdlib, ~300 lines) on port 8090 | See below. |
+| Front | `gateway.py` (stdlib, ~320 lines) on port 8090 | See below. |
 
 `mlx_lm.server` returns Inkling's markup (`<|message_model|>…<|content_invoke_tool_json|>…`)
 as plain text, so agent clients get no `tool_calls` and see the thinking.

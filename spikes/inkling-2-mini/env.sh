@@ -7,7 +7,8 @@ marker="$INKLING_HOME/.inkling-2-mini-spike"
 # Official weights, pinned. Commits after ed40e7d change only README/evals.
 model_repo=thinkingmachines/Inkling-2-Mini
 model_rev=c9d028302cd0f035fdf8e7e91f089a4ce94d2195
-model_dir="$INKLING_HOME/model"
+# INKLING_MODEL_DIR serves another local MLX model folder instead (read only).
+model_dir=${INKLING_MODEL_DIR:-$INKLING_HOME/model}
 venv="$INKLING_HOME/venv"
 
 mlx_port=${INKLING_MLX_PORT:-8091}     # mlx_lm.server, loopback only

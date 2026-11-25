@@ -194,7 +194,7 @@ class Handler(BaseHTTPRequestHandler):
             events = p.feed(msg.get("content") or "") + p.flush()
             reasoning = "".join(t for k, t in events if k == "reasoning").strip()
             content = "".join(t for k, t in events if k == "content").strip()
-            calls = [t for k, t in events if k == "tool_call"]
+            calls = (msg.get("tool_calls") or []) + [t for k, t in events if k == "tool_call"]
             msg["content"] = content or None
             if reasoning:
                 msg["reasoning_content"] = msg["reasoning"] = reasoning
@@ -243,7 +243,7 @@ class Handler(BaseHTTPRequestHandler):
                     send({"tool_calls": [{"index": n_calls, **val}]})
                     n_calls += 1
 
-        finish, usage = None, None
+        finish, usage, upstream_calls = None, None, set()
         for line in resp:
             if not line.startswith(b"data: "):
                 continue
@@ -253,9 +253,17 @@ class Handler(BaseHTTPRequestHandler):
             chunk = json.loads(payload)
             usage = chunk.get("usage") or usage
             for choice in chunk.get("choices", []):
-                emit(p.feed((choice.get("delta") or {}).get("content") or ""))
+                delta = choice.get("delta") or {}
+                # Non-Inkling models: mlx_lm.server parses these itself.
+                for tc in delta.get("tool_calls") or []:
+                    send({"tool_calls": [{**tc, "index": n_calls + tc.get("index", 0)}]})
+                    upstream_calls.add(tc.get("index", 0))
+                if delta.get("reasoning"):
+                    emit([("reasoning", delta["reasoning"])])
+                emit(p.feed(delta.get("content") or ""))
                 finish = choice.get("finish_reason") or finish
         emit(p.flush())
+        n_calls += len(upstream_calls)
         finish = "tool_calls" if n_calls else (finish or "stop")
         send({}, finish, usage)
         self.wfile.write(b"data: [DONE]\n\n")
@@ -272,12 +280,25 @@ def check(base):
     tool = {"type": "function", "function": {
         "name": "get_weather", "description": "Current weather for a city.",
         "parameters": {"type": "object", "properties": {"city": {"type": "string"}}, "required": ["city"]}}}
+    t, host = time.monotonic(), base.split("//")[1]
+    while True:
+        try:
+            c = http.client.HTTPConnection(host, timeout=5)
+            c.request("GET", "/health")
+            if c.getresponse().status == 200:
+                break
+        except OSError:
+            pass
+        if time.monotonic() - t > 600:
+            sys.exit("gateway or mlx_lm.server not up after 600s")
+        time.sleep(2)
+    print(f"ready      {time.monotonic() - t:5.1f}s")
     t = time.monotonic()
     r = post({"model": "thinkingmachines/inkling-2-mini", "reasoning_effort": "low", "tools": [tool],
               "messages": [{"role": "user", "content": "What's the weather in Paris? Use the tool."}]})
     msg = json.loads(r.read())["choices"][0]["message"]
     calls = msg.get("tool_calls") or []
-    print(f"tool call  {time.monotonic() - t:5.1f}s  {[c['function'] for c in calls] or msg}")
+    print(f"tool call  {time.monotonic() - t:5.1f}s  {'ok' if calls else 'FAIL'}  {[c['function'] for c in calls] or msg}")
     t = time.monotonic()
     r = post({"model": "thinkingmachines/inkling-2-mini", "stream": True, "reasoning_effort": "none",
               "max_tokens": 64, "messages": [{"role": "user", "content": "Say hello in five words."}]})
@@ -285,7 +306,7 @@ def check(base):
     for line in r:
         if line.startswith(b"data: {"):
             text += json.loads(line[6:])["choices"][0]["delta"].get("content") or ""
-    print(f"stream     {time.monotonic() - t:5.1f}s  {text.strip()!r}")
+    print(f"stream     {time.monotonic() - t:5.1f}s  {'ok' if text.strip() else 'FAIL'}  {text.strip()!r}")
     sys.exit(0 if calls and text.strip() else 1)
 
 

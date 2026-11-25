@@ -5,6 +5,8 @@ set -euo pipefail
 . "$(dirname "$0")/env.sh"
 keep_model=0; [ "${1:-}" = --keep-model ] && keep_model=1
 
+# A plain `uv sync` in this folder (without env.sh) makes .venv here.
+if [ -d "$spike_dir/.venv" ] && confirm "Delete $spike_dir/.venv?"; then rm -rf "$spike_dir/.venv"; fi
 if [ ! -e "$INKLING_HOME" ]; then echo "nothing at $INKLING_HOME"; exit 0; fi
 case $(cd "$INKLING_HOME" && pwd -P) in /|"$(cd "$HOME" && pwd -P)") die "refusing to delete $INKLING_HOME" ;; esac
 [ -f "$marker" ] || die "$INKLING_HOME has no $(basename "$marker"); not deleting it"

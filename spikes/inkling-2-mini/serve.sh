@@ -9,7 +9,11 @@ set -euo pipefail
 if [ "${1:-}" = check ]; then
   exec "$venv/bin/python" "$spike_dir/gateway.py" --check "http://127.0.0.1:$port"
 fi
-[ -f "$model_dir/.complete" ] || die "weights missing; run install.sh"
+if [ -n "${INKLING_MODEL_DIR:-}" ]; then
+  [ -f "$model_dir/config.json" ] || die "no config.json in $model_dir"
+else
+  [ -f "$model_dir/.complete" ] || die "weights missing; run install.sh"
+fi
 
 pids=()
 stop() { for p in ${pids[@]+"${pids[@]}"}; do kill "$p" 2>/dev/null || true; done; rm -f "$INKLING_HOME"/run/*.pid; }
