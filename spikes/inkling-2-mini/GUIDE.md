@@ -41,10 +41,9 @@ in these scripts contacts Hugging Face; serving runs offline.
 $S/serve.sh pi
 ```
 
-Listens on port 8090 on all interfaces, but serves only loopback and the
-container network (`192.168.64.0/24`, read from `container network inspect
-default`); anything else, such as your LAN, gets the connection closed. If
-macOS asks whether Python may accept incoming connections, allow it. Wait for the
+Listens on `127.0.0.1:8090` and on the container network
+(`192.168.64.1:8090`, read from `container network inspect default`). If macOS
+asks whether Python may accept incoming connections, allow it. Wait for the
 model to load (`$HOME/.local/share/inkling-2-mini/logs/mlx.log`).
 
 ## 3. Check (terminal 2)
@@ -96,9 +95,9 @@ $S/serve.sh pi
 
 ## Security notes
 
-- In `pi` mode the gateway closes connections from anything but loopback and
-  the container network, so your LAN can't use it. Containers on the default
-  network can reach it; it serves only the model.
+- The gateway listens only on loopback and the container network's host
+  address, not on your LAN. Containers on the default network can reach it;
+  it serves only the model.
 - `pi-proxy` still adds your OpenRouter key to each request, so the key goes to
   the gateway over the host-only bridge. The gateway does not read or log it.
 - Request logs hold timings and token counts, not prompts or replies.

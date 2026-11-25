@@ -26,17 +26,13 @@ export PYTHONDONTWRITEBYTECODE=1
 
 # Host side of Apple container's default network. pi-proxy sits on that
 # network, so `serve.sh pi` also listens here and pi.sh points the proxy here.
-# Apple container's default network: "GATEWAY SUBNET". The host gets the
-# gateway address only while a container runs, so serve.sh pi binds 0.0.0.0.
-container_net() {
+container_gateway() {
   command -v container >/dev/null || die "needs Apple container"
   command -v jq >/dev/null || die "needs jq"
-  local net
-  net=$(container network inspect default 2>/dev/null | jq -r '.[0] |
-    [.status.ipv4Gateway, (.status.ipv4Subnet // .configuration.ipv4Subnet)] |
-    select(all(. != null)) | join(" ")') || true
-  [ -n "$net" ] || die "no default container network; run: container system start"
-  printf '%s\n' "$net"
+  local gw
+  gw=$(container network inspect default 2>/dev/null | jq -r '.[0].status.ipv4Gateway // empty') || true
+  [ -n "$gw" ] || die "no default container network; run: container system start"
+  printf '%s\n' "$gw"
 }
 
 die() { echo "${0##*/}: $*" >&2; exit 1; }

@@ -7,9 +7,9 @@ chat template, and logs one JSON line per request (no prompt or reply text).
 Stdlib only."""
 import argparse
 import http.client
-import ipaddress
 import json
 import sys
+import threading
 import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -313,8 +313,7 @@ def check(base):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--listen", default="127.0.0.1:8090", help="HOST:PORT")
-    ap.add_argument("--allow", action="append", metavar="CIDR", help="accept only these clients (repeatable)")
+    ap.add_argument("--listen", action="append", help="HOST:PORT, repeatable (default 127.0.0.1:8090)")
     ap.add_argument("--upstream", default="127.0.0.1:8091")
     ap.add_argument("--log")
     ap.add_argument("--check", metavar="URL")
@@ -323,17 +322,15 @@ def main():
         return check(a.check)
     uh, up = a.upstream.rsplit(":", 1)
     Handler.upstream, Handler.log_file = (uh, int(up)), a.log
-    host, port = a.listen.rsplit(":", 1)
-    nets = [ipaddress.ip_network(n) for n in a.allow or []]
+    servers = []
+    for addr in a.listen or ["127.0.0.1:8090"]:
+        host, port = addr.rsplit(":", 1)
+        servers.append(ThreadingHTTPServer((host, int(port)), Handler))
+        print(f"gateway on http://{addr}/v1 -> mlx_lm.server {a.upstream}", file=sys.stderr, flush=True)
+    for srv in servers[1:]:
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+    servers[0].serve_forever()
 
-    class Server(ThreadingHTTPServer):
-        def verify_request(self, request, client_address):
-            return not nets or any(ipaddress.ip_address(client_address[0]) in n for n in nets)
-
-    srv = Server((host, int(port)), Handler)
-    print(f"gateway on http://{a.listen}/v1 -> mlx_lm.server {a.upstream}"
-          + (f", clients: {' '.join(a.allow)}" if a.allow else ""), file=sys.stderr, flush=True)
-    srv.serve_forever()
 
 if __name__ == "__main__":
     main()
