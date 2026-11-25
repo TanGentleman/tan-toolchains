@@ -218,6 +218,10 @@ def main():
         n = r["requests"]
         print(f"{t['id']:<16} {r['seconds']:6.1f}s  {'ok' if r['ok'] else 'FAIL'}  "
               f"{n['count']} requests, {n['completion_tokens']} tokens out  {why}".rstrip())
+        if r["exit_code"]:
+            with open(os.path.join(run, "pi.log"), errors="replace") as f:
+                for line in f.read().splitlines()[-5:]:
+                    print(f"{'':<16} pi.log: {line}")
         print(f"{'':<16} {run}/result.json")
         failed += not r["ok"]
     sys.exit(1 if failed else 0)

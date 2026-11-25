@@ -165,6 +165,10 @@ class Runs(Base):
         p = subprocess.run(args + ["--"] + SORTER, capture_output=True, text=True)
         self.assertEqual(p.returncode, 0, p.stderr)
         self.assertRegex(p.stdout, r"^t +[0-9.]+s  ok  0 requests")
+        p = subprocess.run(args + ["--", "bash", "-c", "echo run.sh: refused >&2; exit 1"],
+                           capture_output=True, text=True)
+        self.assertEqual(p.returncode, 1)
+        self.assertIn("pi.log: run.sh: refused", p.stdout)
         p = subprocess.run(args, capture_output=True, text=True)
         self.assertEqual(p.returncode, 2)
         p = subprocess.run(args[:2] + [self.task({**GOOD, "v": 0})] + args[3:] + ["--", "true"],
