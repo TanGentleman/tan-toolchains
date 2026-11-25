@@ -19,7 +19,12 @@ listen=(--listen "$host:$port")
 if [ "${1:-}" = pi ]; then listen+=(--listen "$(container_gateway):$port"); fi
 
 pids=()
-stop() { for p in ${pids[@]+"${pids[@]}"}; do kill "$p" 2>/dev/null || true; done; rm -f "$INKLING_HOME"/run/*.pid "$INKLING_HOME/run/pi"; }
+# Stopping waits for mlx_lm.server to exit, so the model is unloaded when it returns.
+stop() {
+  for p in ${pids[@]+"${pids[@]}"}; do kill "$p" 2>/dev/null || true; done
+  for p in ${pids[@]+"${pids[@]}"}; do wait "$p" 2>/dev/null || true; done
+  rm -f "$INKLING_HOME"/run/*.pid "$INKLING_HOME/run/pi"
+}
 trap stop EXIT
 trap 'exit 130' INT TERM
 

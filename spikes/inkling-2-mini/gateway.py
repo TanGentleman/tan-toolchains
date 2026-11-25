@@ -303,12 +303,16 @@ def check(base):
     print(f"tool call  {time.monotonic() - t:5.1f}s  {'ok' if calls else 'FAIL'}  {[c['function'] for c in calls] or msg}")
     t = time.monotonic()
     r = post({"model": "thinkingmachines/inkling-2-mini", "stream": True, "reasoning_effort": "none",
-              "max_tokens": 64, "messages": [{"role": "user", "content": "Say hello in five words."}]})
-    text = ""
+              "max_tokens": 512, "messages": [{"role": "user", "content": "Say hello in five words."}]})
+    text, reasoning, finish = "", 0, None
     for line in r:
         if line.startswith(b"data: {"):
-            text += json.loads(line[6:])["choices"][0]["delta"].get("content") or ""
-    print(f"stream     {time.monotonic() - t:5.1f}s  {'ok' if text.strip() else 'FAIL'}  {text.strip()!r}")
+            choice = json.loads(line[6:])["choices"][0]
+            text += choice["delta"].get("content") or ""
+            reasoning += len(choice["delta"].get("reasoning_content") or "")
+            finish = choice.get("finish_reason") or finish
+    why = "" if text.strip() else f"  (finish={finish}, reasoning chars={reasoning})"
+    print(f"stream     {time.monotonic() - t:5.1f}s  {'ok' if text.strip() else 'FAIL'}  {text.strip()!r}{why}")
     sys.exit(0 if calls and text.strip() else 1)
 
 
