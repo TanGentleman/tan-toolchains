@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # pi-container/run.sh with pi-proxy forwarding model calls to the local
 # gateway instead of openrouter.ai. Takes run.sh's arguments:
-#   pi.sh check | pi.sh | pi.sh -p "prompt" | pi.sh --instance NAME ...
+#   pi.sh check | pi.sh | pi.sh pi -p "prompt" | pi.sh --instance NAME ...
 # Needs `serve.sh pi` running. Plain run.sh afterwards switches back.
 set -euo pipefail
 . "$(dirname "$0")/env.sh"
