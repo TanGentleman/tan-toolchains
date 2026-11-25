@@ -44,6 +44,12 @@ network_name="${PI_NETWORK_NAME:-$(pi_network_name "$cfg")}"
 locked_subnet="${PI_LOCKED_SUBNET:-$(pi_locked_subnet "$cfg")}"
 proxy_image="${PI_PROXY_IMAGE:-$(pi_proxy_image "$cfg")}"
 lock_dir="$(pi_lock_dir)"
+# Where pi-proxy forwards openrouter.ai requests (default: openrouter.ai).
+# spikes/inkling-2-mini/pi.sh points it at a model server on this Mac.
+upstream_env=()
+for v in PI_PROXY_OPENROUTER_HOST PI_PROXY_OPENROUTER_PORT PI_PROXY_OPENROUTER_TLS; do
+  if [ -n "${!v:-}" ]; then upstream_env+=(-e "$v=${!v}"); fi
+done
 
 usage() {
   cat <<'EOF'
@@ -561,7 +567,7 @@ ensure_proxy() {
   write_proxy_env
   stamp="$cfg/proxy.stamp"
   image_hash=$(hash_files "$here/proxy.py" "$here/Dockerfile.proxy")
-  config_hash=$( { cat "$proxy_env" 2>/dev/null || true; printf '%s\n' "$port" "$locked_subnet" "$network_name" "$proxy_image"; } | pi_sha256 | awk '{print $1}' )
+  config_hash=$( { cat "$proxy_env" 2>/dev/null || true; printf '%s\n' "$port" "$locked_subnet" "$network_name" "$proxy_image" ${upstream_env[@]+"${upstream_env[@]}"}; } | pi_sha256 | awk '{print $1}' )
   old_image=""
   old_config=""
   if [ -f "$stamp" ]; then read -r old_image old_config < "$stamp" || true; fi
@@ -608,6 +614,7 @@ ensure_proxy() {
     -e "PI_PROXY_PORT=$port" \
     -e "PI_PROXY_LOCKED_CIDR=$locked_subnet" \
     -e PI_ENV_FILE=/private/proxy.env \
+    ${upstream_env[@]+"${upstream_env[@]}"} \
     -v "$cfg/private:/private" -v "$cfg/certs:/certs" \
     "$proxy_image" >/dev/null
 }

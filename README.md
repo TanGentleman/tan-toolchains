@@ -30,7 +30,10 @@ Pi's VM runs behind the egress lock in pi-container's normal mode, `run.sh
 check`, and fleet turns.
 
 - **Allowed:** `pi-proxy` only. It tunnels GitHub, adds the OpenRouter key
-  for `openrouter.ai`, and refuses every other host.
+  for `openrouter.ai`, and refuses every other host. With
+  `PI_PROXY_OPENROUTER_HOST` set (`spikes/inkling-2-mini/pi.sh`), it sends
+  those model calls to that host instead, such as a model server on this Mac;
+  Pi still cannot reach the Mac directly.
 - **Blocked:** the Mac and its services (for example Continuity's
   `rapportd`), Tailscale's DNS resolver at `100.100.100.100` and with it your
   tailnet names, the tailnet, and the internet, over IPv4 and IPv6.

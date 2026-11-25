@@ -976,6 +976,42 @@ case_nuke_all_builder_failure() {
   log_has "volume delete pi-agent-home" "agent volume deleted"
 }
 
+# ------------------------------------------- proxy upstream override (local model)
+case_proxy_upstream() {
+  new_case upstream
+  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  image_json 1.4.0 > "$world/images/pi-proxy_local.json"
+  network_json "172.30.240.0/24" > "$world/networks/pi-locked.json"
+  printf 'pi-locked\n' > "$world/networks.list"
+  proxy_running_json > "$world/containers/pi-proxy.json"
+  printf '172.30.240.2\n' > "$cfg/private/proxy.addr"
+  (
+    cd "$t/project" || exit 1
+    pi "$run_sh" pi
+  )
+  expect_status 0 "run without an upstream override"
+  : > "$logfile"
+  (
+    cd "$t/project" || exit 1
+    export PI_PROXY_OPENROUTER_HOST=192.168.64.1 PI_PROXY_OPENROUTER_PORT=8090 PI_PROXY_OPENROUTER_TLS=0
+    pi "$run_sh" pi
+  )
+  expect_status 0 "run with an upstream override"
+  log_has "delete --force pi-proxy" "changing the upstream recreates the proxy"
+  log_lacks "build -t pi-proxy" "changing the upstream does not rebuild the image"
+  log_has "run --rm -i --init --network pi-locked" "Pi still runs on the locked network"
+  # Absent proxy: the new one gets the override. The fake publishes no
+  # address, so the run then fails on the address wait.
+  rm -f "$world/containers/pi-proxy.json"
+  : > "$logfile"
+  (
+    cd "$t/project" || exit 1
+    export PI_PROXY_OPENROUTER_HOST=192.168.64.1 PI_PROXY_OPENROUTER_PORT=8090 PI_PROXY_OPENROUTER_TLS=0 PI_PROXY_WAIT=0
+    pi "$run_sh" pi
+  )
+  log_has "-e PI_PROXY_OPENROUTER_HOST=192.168.64.1 -e PI_PROXY_OPENROUTER_PORT=8090 -e PI_PROXY_OPENROUTER_TLS=0" "override reaches the proxy"
+}
+
 # ------------------------------------------------------------------- drivers
 for c in case_normal_run case_check_enforcer case_tokenless_run case_tokenless_check case_pack_missing_pi \
          case_egress_run case_egress_clone case_egress_refusals case_egress_requires_key \
@@ -986,7 +1022,7 @@ for c in case_normal_run case_check_enforcer case_tokenless_run case_tokenless_c
          case_nuke_agent case_nuke_agent_without_image case_nuke_clones_scoped \
          case_nuke_profile case_nuke_profile_rejects_instance \
          case_option_guards case_nuke_all_builder_failure case_mount_guards case_fleet_state case_pi_ctr_stop \
-         case_netlock_modes case_netlock_capability case_proxy_running_no_addr; do
+         case_netlock_modes case_netlock_capability case_proxy_running_no_addr case_proxy_upstream; do
   "$c"
 done
 

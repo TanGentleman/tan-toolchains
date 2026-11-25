@@ -196,6 +196,9 @@ and `--manual`.
 | `PI_NETWORK_NAME` | Profile-derived | Host-only network name. |
 | `PI_LOCKED_SUBNET` | Profile-derived | Host-only subnet. Must match an existing profile network. |
 | `PI_PROXY_PORT` | `8888` | Proxy port. Must be 1–65535. |
+| `PI_PROXY_OPENROUTER_HOST` | unset (`openrouter.ai`) | Where `pi-proxy` forwards OpenRouter requests, e.g. a model server on this Mac. Changing it recreates the proxy. |
+| `PI_PROXY_OPENROUTER_PORT` | `443` | Port for that upstream. |
+| `PI_PROXY_OPENROUTER_TLS` | `1` | `0` uses plain HTTP to that upstream. |
 
 ### Runtime and editor
 
