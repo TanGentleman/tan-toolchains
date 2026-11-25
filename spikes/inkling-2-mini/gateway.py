@@ -9,6 +9,7 @@ import argparse
 import http.client
 import json
 import sys
+import threading
 import time
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -312,18 +313,23 @@ def check(base):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--listen", default="127.0.0.1:8090")
+    ap.add_argument("--listen", action="append", help="HOST:PORT, repeatable (default 127.0.0.1:8090)")
     ap.add_argument("--upstream", default="127.0.0.1:8091")
     ap.add_argument("--log")
     ap.add_argument("--check", metavar="URL")
     a = ap.parse_args()
     if a.check:
         return check(a.check)
-    host, port = a.listen.rsplit(":", 1)
     uh, up = a.upstream.rsplit(":", 1)
     Handler.upstream, Handler.log_file = (uh, int(up)), a.log
-    print(f"gateway on http://{host}:{port}/v1 -> mlx_lm.server {a.upstream}", file=sys.stderr, flush=True)
-    ThreadingHTTPServer((host, int(port)), Handler).serve_forever()
+    servers = []
+    for addr in a.listen or ["127.0.0.1:8090"]:
+        host, port = addr.rsplit(":", 1)
+        servers.append(ThreadingHTTPServer((host, int(port)), Handler))
+        print(f"gateway on http://{addr}/v1 -> mlx_lm.server {a.upstream}", file=sys.stderr, flush=True)
+    for srv in servers[1:]:
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+    servers[0].serve_forever()
 
 
 if __name__ == "__main__":

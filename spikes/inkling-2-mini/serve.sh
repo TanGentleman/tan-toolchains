@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # serve.sh        mlx_lm.server on 127.0.0.1:$mlx_port, gateway on $host:$port
+# serve.sh pi     same, and also listen on the container network for pi.sh
 # serve.sh check  one tool call and one streamed reply through the gateway
 # No network: Hugging Face is forced offline and the model is a local path.
 set -euo pipefail
@@ -14,6 +15,8 @@ if [ -n "${INKLING_MODEL_DIR:-}" ]; then
 else
   [ -f "$model_dir/.complete" ] || die "weights missing; run install.sh"
 fi
+listen=(--listen "$host:$port")
+if [ "${1:-}" = pi ]; then listen+=(--listen "$(container_gateway):$port"); fi
 
 pids=()
 stop() { for p in ${pids[@]+"${pids[@]}"}; do kill "$p" 2>/dev/null || true; done; rm -f "$INKLING_HOME"/run/*.pid; }
@@ -32,7 +35,7 @@ HF_HUB_OFFLINE=1 "$venv/bin/mlx_lm.server" --model "$model_dir" \
 pids+=($!); echo $! > "$INKLING_HOME/run/mlx.pid"
 echo "mlx_lm.server pid $! loading $model_dir (log: $INKLING_HOME/logs/mlx.log)"
 
-"$venv/bin/python" "$spike_dir/gateway.py" --listen "$host:$port" \
+"$venv/bin/python" "$spike_dir/gateway.py" "${listen[@]}" \
   --upstream "127.0.0.1:$mlx_port" --log "$INKLING_HOME/logs/requests.jsonl" &
 pids+=($!); echo $! > "$INKLING_HOME/run/gateway.pid"
 # macOS /bin/bash is 3.2, which has no wait -n.

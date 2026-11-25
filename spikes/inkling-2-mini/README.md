@@ -4,10 +4,13 @@ Runs [thinkingmachines/Inkling-2-Mini](https://huggingface.co/thinkingmachines/I
 on an Apple silicon Mac (32 GB+), as an OpenAI-compatible endpoint on
 `http://127.0.0.1:8090/v1`. Peak memory is about 20–25 GB.
 
+With Pi in a container: [GUIDE.md](GUIDE.md).
+
 ```sh
 spikes/inkling-2-mini/install.sh     # uv sync, then asks before the 20 GB download
-spikes/inkling-2-mini/serve.sh       # foreground; Ctrl-C stops both processes
+spikes/inkling-2-mini/serve.sh [pi]  # foreground; Ctrl-C stops both; pi: also listen for pi-proxy
 spikes/inkling-2-mini/serve.sh check # in a second terminal
+spikes/inkling-2-mini/pi.sh          # pi-container/run.sh, model calls go to the gateway
 spikes/inkling-2-mini/uninstall.sh   # [--keep-model]
 ```
 
