@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "id": "sort-names",
+  "prompt": "names.txt in the current folder has one name per line. Write sorted.txt with the same names sorted alphabetically, one per line. Do not change names.txt.",
+  "timeout_s": 900,
+  "files": {"names.txt": "Mallory\nAlice\nOscar\nBob\nEve\n"},
+  "checks": [
+    {"type": "file_equals", "path": "sorted.txt", "text": "Alice\nBob\nEve\nMallory\nOscar\n"},
+    {"type": "file_unchanged", "path": "names.txt"}
+  ]
+}

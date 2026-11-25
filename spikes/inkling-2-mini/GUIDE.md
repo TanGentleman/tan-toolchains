@@ -64,18 +64,40 @@ $S/pi.sh check      # Pi VM -> pi-proxy -> gateway; OpenRouter line should pass
 
 ```sh
 $S/pi.sh                         # interactive Pi on the current folder
-$S/pi.sh -p "list the files here"
+$S/pi.sh pi -p "list the files here"   # Pi's own flags go after `pi`
 ```
 
 Pi still asks for its configured model (`inkling-2-small` by default). The
 gateway ignores the name and answers with Inkling 2 Mini.
 
-## 5. Back to OpenRouter
+## 5. Evals
+
+```sh
+$S/eval.sh                       # every task in $S/evals/
+$S/eval.sh $S/evals/fix-add.json
+```
+
+For each task, Pi (`pi --mode json -p`) works in a fresh folder,
+`$HOME/.local/share/inkling-2-mini/evals/<time>-<id>/work`, that holds only
+the task's files. Then `eval.py` reads the files Pi left and checks them. It
+never runs anything Pi wrote. Each run folder also holds `pi.jsonl` (Pi's
+events), `pi.log` and `result.json`. Exit status 0 means every task passed.
+
+Model calls go only to this Mac. `pi-proxy` still tunnels GitHub, but the
+tasks don't need it.
+
+Task files and `result.json` carry `"v": 1`. `eval.py` refuses unknown keys,
+other versions, and paths that are absolute or contain `..`. It reads no file
+through a symlink. Check types: `file_equals` (ignores surrounding
+whitespace), `file_contains`, `file_matches` (regex, multiline),
+`file_unchanged` (same as the seeded file).
+
+## 6. Back to OpenRouter
 
 Stop `serve.sh` (Ctrl-C) and run plain `pi-container/run.sh`. It sees the
 upstream is gone and recreates `pi-proxy` pointing at openrouter.ai.
 
-## 6. Uninstall
+## 7. Uninstall
 
 ```sh
 $S/uninstall.sh                  # or --keep-model to keep the 17.3 GB of weights

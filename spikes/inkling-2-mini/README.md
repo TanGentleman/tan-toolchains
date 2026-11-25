@@ -11,6 +11,7 @@ spikes/inkling-2-mini/install.sh     # uv sync, then asks before the 17.3 GB dow
 spikes/inkling-2-mini/serve.sh [pi]  # foreground; Ctrl-C stops both; pi: also listen for pi-proxy
 spikes/inkling-2-mini/serve.sh check # in a second terminal
 spikes/inkling-2-mini/pi.sh          # pi-container/run.sh, model calls go to the gateway
+spikes/inkling-2-mini/eval.sh        # small tasks for Pi through pi.sh, checked on the host
 spikes/inkling-2-mini/uninstall.sh   # [--keep-model]
 ```
 

@@ -1,0 +1,11 @@
+{
+  "v": 1,
+  "id": "fix-add",
+  "prompt": "calc.py has a bug: add() should return the sum of its arguments. Fix it by editing calc.py. Change nothing else.",
+  "timeout_s": 900,
+  "files": {"calc.py": "def add(a, b):\n    return a - b\n\n\ndef mul(a, b):\n    return a * b\n"},
+  "checks": [
+    {"type": "file_matches", "path": "calc.py", "regex": "^    return (a \\+ b|b \\+ a)\\s*$"},
+    {"type": "file_contains", "path": "calc.py", "text": "def mul(a, b):\n    return a * b\n"}
+  ]
+}
