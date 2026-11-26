@@ -300,9 +300,15 @@ if [ "$egress_mode" != standard ] && { [ "$manual" = 1 ] || [ "$egress" = 1 ]; }
   echo "run.sh: egress $egress_mode needs pi-proxy; --manual and --allow-egress have none (pass --egress standard)" >&2
   exit 2
 fi
+# Without a GitHub route, --clone clones from a local mirror, mounted
+# read-only; nothing is pushed.
+clone_source=""
 if [ -n "$clone" ] && [ "$manual" = 0 ] && [ "$egress" = 0 ] && ! pi_egress_tunnels "$egress_tunnel" github.com; then
-  echo "run.sh: egress $egress_mode has no GitHub route, so --clone cannot clone; mount a folder or pass --egress standard" >&2
-  exit 2
+  clone_source="$cfg/mirrors/$clone.git"
+  if ! pi_mirror_ready "$clone_source"; then
+    echo "run.sh: egress $egress_mode has no GitHub route, so --clone needs a local mirror. Make it with: git clone --mirror https://github.com/$clone.git $clone_source (refresh: git -C $clone_source fetch --prune)" >&2
+    exit 2
+  fi
 fi
 if [ "$egress" = 1 ] && [ "$model_url" != openrouter ]; then
   echo "run.sh: --allow-egress calls openrouter.ai directly; model_url $model_url needs pi-proxy (pass --model-url openrouter)" >&2
@@ -360,7 +366,12 @@ if [ -e "$d" ] && [ ! -d "$d/.git" ]; then
   echo "run.sh: $d exists but is not a git clone; delete the clone volume and retry" >&2
   exit 1
 fi
-[ -d "$d/.git" ] || git clone "https://github.com/$PI_CLONE.git" "$d" || exit 1
+if [ -n "${PI_CLONE_SOURCE:-}" ]; then
+  git config --global --add safe.directory "$PI_CLONE_SOURCE"
+  [ -d "$d/.git" ] || git clone -q "$PI_CLONE_SOURCE" "$d" || exit 1
+else
+  [ -d "$d/.git" ] || git clone "https://github.com/$PI_CLONE.git" "$d" || exit 1
+fi
 cd "$d" && exec "$@"
 EOF
 }
@@ -1113,6 +1124,7 @@ elif [ -n "$fleet_state" ]; then
   args+=(-v "$fleet_state:$fleet_state" -e "FLEET_STATE=$fleet_state" -w /work)
   if [ -n "$clone" ]; then
     args+=(-e "PI_CLONE=$clone")
+    [ -z "$clone_source" ] || args+=(-v "$clone_source:$clone_source:ro" -e "PI_CLONE_SOURCE=$clone_source")
     set -- bash -c "$(clone_boot_script)" boot "$@"
   else
     set -- bash -c 'mkdir -p /work && cd /work && exec "$@"' boot "$@"
@@ -1123,6 +1135,7 @@ elif [ -n "$clone" ]; then
   ensure_volume "$vol" clone "$clone"
   echo "run.sh: clone volume: $vol" >&2
   args+=(-v "$vol:/work" -w /work -e "PI_CLONE=$clone")
+  [ -z "$clone_source" ] || args+=(-v "$clone_source:$clone_source:ro" -e "PI_CLONE_SOURCE=$clone_source")
   set -- bash -c "$boot" boot "$@"
 else
   args+=(-v "$PWD:$PWD" -w "$PWD")

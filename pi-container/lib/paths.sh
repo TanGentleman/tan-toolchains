@@ -57,3 +57,9 @@ pi_path_within() { # parent, child
   case $child in "$parent"|"$parent"/*) return 0 ;; esac
   return 1
 }
+
+# A local mirror for clones without a GitHub route: a real (not symlinked)
+# bare repository, as `git clone --mirror` makes.
+pi_mirror_ready() { # path
+  [ -d "$1" ] && [ ! -L "$1" ] && [ -f "$1/HEAD" ] && [ -d "$1/objects" ] && [ -d "$1/refs" ]
+}

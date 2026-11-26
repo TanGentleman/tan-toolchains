@@ -89,8 +89,18 @@ if [ -z "$push" ]; then
   wait "$pid"
   exit $?
 fi
+# Cloned from a local mirror (no GitHub route): nothing is pushed. Each
+# turn's commits go to $FLEET_STATE/repo.bundle instead, which fleetd
+# checkpoints, so the next turn and forks start from it.
+offline=0 bundle="$FLEET_STATE/repo.bundle"
+[ -z "${PI_CLONE_SOURCE:-}" ] || offline=1
+if [ "$offline" = 1 ] && [ -f "$bundle" ]; then
+  git fetch -q "$bundle" '+refs/heads/*:refs/bundle/*' >&2 || { log "cannot read $bundle"; exit 1; }
+fi
 new_base=""
-if git ls-remote --exit-code --heads origin "refs/heads/$push" >/dev/null 2>&1; then
+if [ "$offline" = 1 ] && git rev-parse -q --verify "refs/bundle/$push^{commit}" >/dev/null; then
+  git checkout -q -B "$push" "refs/bundle/$push" >&2 || exit 1
+elif [ "$offline" = 0 ] && git ls-remote --exit-code --heads origin "refs/heads/$push" >/dev/null 2>&1; then
   git fetch -q origin "refs/heads/$push" >&2 && git checkout -q -B "$push" FETCH_HEAD >&2 || { log "cannot check out $push"; exit 1; }
 elif [ -n "$base" ]; then
   git cat-file -e "$base^{commit}" 2>/dev/null || git fetch -q origin "$base" >&2 || { log "cannot fetch base $base"; exit 1; }
@@ -137,6 +147,18 @@ git config user.email >/dev/null || git config user.email fleet@localhost
 if ! git diff --cached --quiet; then
   git commit -q -m "fleet: $push (pi exit $code)" >&2 || refuse "git commit failed"
 fi
+if [ "$offline" = 1 ]; then
+  if [ -n "$(git rev-list -n 1 "$push" --not --remotes=origin)" ]; then
+    git bundle create "$bundle.tmp" "refs/heads/$push" --not --remotes=origin 2>/dev/null && mv -f "$bundle.tmp" "$bundle" ||
+      refuse "git bundle create failed"
+  else
+    rm -f "$bundle"
+  fi
+  commit=$(git rev-parse HEAD)
+  printf '{"commit":"%s","base":"%s"}\n' "$commit" "$new_base" > "$handoff"
+  jq -cn --arg b "$push" --arg c "$commit" '{type: "pi_ctr.bundle", ok: true, branch: $b, commit: $c, file: "repo.bundle"}'
+  exit "$code"
+fi
 if ! err=$(git push -q origin "HEAD:refs/heads/$push" 2>&1); then
   printf '%s\n' "$err" >&2
   case $err in
@@ -168,5 +190,5 @@ fi
 rm -f "$handoff"
 s=$FLEET_STATE
 find "$s" -mindepth 1 -type d ! -path "$s/pi" ! -path "$s/pi/sessions" -prune -exec rm -rf {} +
-find "$s" -mindepth 1 ! -type d ! \( -type f \( -path "$s/agent.json" -o -path "$s/pi/sessions/*.jsonl" \) \) -exec rm -f {} +
+find "$s" -mindepth 1 ! -type d ! \( -type f \( -path "$s/agent.json" -o -path "$s/repo.bundle" -o -path "$s/pi/sessions/*.jsonl" \) \) -exec rm -f {} +
 exit "$code"

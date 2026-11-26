@@ -216,4 +216,22 @@ grep -q "can't read o/missing" <<<"$out" || fail "fleet-e2e.sh did not explain a
 
 events "$sid" > "$tmp/events"
 ms=$(grep -o 'first_output_ms[^,]*' "$tmp/events" | tr -d '\\"' | sed 's/first_output_ms://' | sort -n | tr '\n' ' ')
+# Offline repo session: clones from a local mirror, pushes nothing, and
+# keeps its commits in the session's repo.bundle for the next turn.
+git clone -q --mirror "$tmp/gh/o/r.git" "$cfg/mirrors/o/r.git"
+printf '{"v":1,"egress":"offline","model_url":"http://10.0.0.5:8090"}\n' > "$cfg/config.json"
+osid=$(api POST /v1/sessions '{"harness":"pi-ctr","repo":"o/r","key":"k-off","prompt":"write off1"}' | jq -r .sid)
+idle "$osid"
+o1=$(st "$osid" commit)
+[ -n "$o1" ] || fail "offline turn recorded no commit: $(events "$osid" | tail -5)"
+[ -z "$(tip "fleet/$osid")" ] || fail "offline turn pushed to GitHub"
+b="$home/.fleet/sessions/$osid/state/repo.bundle"
+[ "$(git bundle list-heads "$b" | awk '{print $1}')" = "$o1" ] || fail "repo.bundle does not hold the turn's commit"
+say "$osid" off2 "write off2"
+o2=$(st "$osid" commit)
+[ "$(git -C "$tmp/gh/o/r.git" rev-parse -q --verify "$o2^" 2>/dev/null || git --git-dir="$cfg/mirrors/o/r.git" fetch -q "$b" "refs/heads/fleet/$osid:refs/b" 2>/dev/null && git --git-dir="$cfg/mirrors/o/r.git" rev-parse "refs/b^")" = "$o1" ] ||
+  fail "offline turn 2 did not continue from the bundle"
+has "$osid" '"egress":"offline"' || fail "offline turns do not record egress offline"
+rm "$cfg/config.json"
+
 echo "pi-ctr: ok ($sid; $ms)"

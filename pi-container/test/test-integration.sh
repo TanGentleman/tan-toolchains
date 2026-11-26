@@ -1251,9 +1251,15 @@ case_offline_refusals() {
   done
   : > "$logfile"
   offline_pi --clone owner/repo
-  expect_status 2 "offline refuses --clone"
-  contains 'no GitHub route, so --clone cannot clone' "$(e)" "offline --clone message"
-  log_lacks "CALL run" "offline --clone starts nothing"
+  expect_status 2 "offline --clone without a mirror is refused"
+  contains "needs a local mirror. Make it with: git clone --mirror https://github.com/owner/repo.git $cfg/mirrors/owner/repo.git" "$(e)" "offline --clone names the mirror command"
+  log_lacks "CALL run" "offline --clone without a mirror starts nothing"
+  git init -q --bare "$cfg/mirrors/owner/repo.git"
+  : > "$logfile"
+  offline_pi --clone owner/repo
+  expect_status 0 "offline --clone with a mirror runs"
+  log_has "-v $cfg/mirrors/owner/repo.git:$cfg/mirrors/owner/repo.git:ro -e PI_CLONE_SOURCE=$cfg/mirrors/owner/repo.git" "the mirror is mounted read-only"
+  rm -rf "$cfg/mirrors"
   : > "$logfile"
   (cd "$t/project" && pi "$run_sh" --egress Offline pi)
   expect_status 2 "unknown egress refused"
