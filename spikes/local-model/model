@@ -2,20 +2,17 @@
 # model: a local OpenAI-compatible model server. What it serves, and the
 # backend's flags, come from models/<name>.json (GUIDE.md).
 #   model install                   uv sync, then asks before downloading the weights
-#   model uninstall [--keep-model]  down, then remove what install made
-#   model up [--containers]         serve in the background; returns once the model is loaded
-#   model down                      stop; returns after the backend exits (model unloaded)
-#   model status [--json]           up, loading, orphaned or down; model, url, model_url
+#   model uninstall [--keep-model]  remove what install made
+#   model serve [--containers]      serve in this terminal; Ctrl-C or closing it unloads the model
+#   model status [--json]           up, loading or down; model, url, model_url
 #   model check                     one tool call and one stream through the gateway
-#   model serve [--containers]      serve in the foreground; Ctrl-C stops it
 # --containers also listens on the Apple container network, for
 #   pi-container/run.sh --egress offline --model-url http://gateway:8090
 set -euo pipefail
 . "$(dirname "$0")/lib.sh"
 cli="$spike_dir/model"
-log="$home/logs/serve.log"
 
-usage() { sed -n '2,12s/^# \{0,1\}//p' "$0" >&2; exit 2; }
+usage() { sed -n '2,10s/^# \{0,1\}//p' "$0" >&2; exit 2; }
 containers_flag() { # args; prints 1 for --containers, 0 for none
   case $# in
     0) echo 0 ;;
@@ -23,20 +20,15 @@ containers_flag() { # args; prints 1 for --containers, 0 for none
     *) usage ;;
   esac
 }
-served() { # key of the running server's run/serve.json, or empty
-  [ -f "$run/serve.json" ] && jq -r --arg k "$1" '.[$k] // empty' "$run/serve.json" 2>/dev/null || true
+probe() { # host; up, loading or down, from the gateway's /health
+  case $(curl -s -m 5 -o /dev/null -w '%{http_code}' "http://$1:$port/health" 2>/dev/null) in
+    200) echo up ;;
+    503) echo loading ;;
+    *) echo down ;;
+  esac
 }
-served_port() { local p; p=$(served port); printf '%s\n' "${p:-$port}"; }
-healthy() { curl -fsS -m 5 -o /dev/null "http://127.0.0.1:$(served_port)/health" 2>/dev/null; }
-leftover() { pid_live "$run/backend.pid" || pid_live "$run/gateway.pid"; }
+state() { probe 127.0.0.1; }
 need_jq() { command -v jq >/dev/null || die "needs jq"; }
-tail_logs() {
-  local f
-  for f in "$log" "$home/logs/backend.log"; do
-    [ -s "$f" ] || continue
-    echo "--- last lines of $f" >&2; tail -n 15 "$f" >&2
-  done
-}
 
 cmd_install() {
   [ $# = 0 ] || usage
@@ -51,7 +43,7 @@ cmd_install() {
   [ -f "$marker" ] || [ -z "$(ls -A "$home" | grep -vx models || true)" ] ||
     die "$home exists and was not made by model install"
   printf 'created by tan-toolchains spikes/local-model\n' > "$marker"
-  mkdir -p "$home/logs" "$run"
+  mkdir -p "$home/logs"
 
   echo "== 1/2 Python env (uv sync --frozen into $venv)"
   (cd "$spike_dir" && uv sync --frozen)
@@ -79,8 +71,9 @@ cmd_install() {
     printf '%s\n' "$rev" > "$dir/.complete"
   fi
   echo
-  echo "Installed in $home ($(du -sh "$home" | cut -f1)). Next: $cli up"
+  echo "Installed in $home ($(du -sh "$home" | cut -f1)). Next: $cli serve --containers"
 }
+
 
 cmd_uninstall() {
   local keep=0 f items=()
@@ -89,7 +82,7 @@ cmd_uninstall() {
   case $(cd "$home" && pwd -P) in /|"$(cd "$HOME" && pwd -P)") die "refusing to delete $home" ;; esac
   [ -f "$marker" ] || die "$home has no $(basename "$marker"); not deleting anything"
   need_jq
-  cmd_down
+  [ "$(state)" = down ] || die "a server is running; stop it with Ctrl-C in its terminal"
   for f in venv python uv-cache hf logs run evals models; do
     if [ "$f" = models ] && [ "$keep" = 1 ]; then continue; fi
     if [ -e "$home/$f" ]; then items+=("$home/$f"); fi
@@ -108,114 +101,34 @@ cmd_uninstall() {
   echo "removed. Not touched: uv itself, and macOS's own Metal shader cache."
 }
 
-cmd_up() {
-  local containers pid started waited=0
-  containers=$(containers_flag "$@")
-  need_jq
-  [ -x "$venv/bin/python" ] || die "run install first: $cli install"
-  if pid=$(pid_live "$run/serve.pid"); then
-    if [ "$containers" = 1 ] && [ "$(served containers)" != true ]; then
-      die "running without --containers (pid $pid); run: $cli down, then: $cli up --containers"
-    fi
-    started=0
-  elif pid=$(leftover); then
-    die "pid $pid is left over from a server that is gone; run: $cli down"
-  else
-    mkdir -p "$home/logs"
-    if [ "$containers" = 1 ]; then
-      nohup "$cli" serve --containers >>"$log" 2>&1 </dev/null &
-    else
-      nohup "$cli" serve >>"$log" 2>&1 </dev/null &
-    fi
-    pid=$!
-    started=1
-    echo "server pid $pid; loading the model (log: $log)"
-  fi
-  while ! healthy; do
-    if ! pid_alive "$pid"; then
-      tail_logs
-      die "the server exited before the model was ready"
-    fi
-    if [ "$waited" -ge "$up_timeout" ]; then
-      die "still loading after ${up_timeout}s (pid $pid, log: $home/logs/backend.log); stop it: $cli down"
-    fi
-    sleep 1; waited=$((waited + 1))
-  done
-  if [ "$started" = 1 ]; then echo "up (${waited}s)"; else echo "already up: pid $pid"; fi
-  status_text
-}
-
-wait_gone() { # seconds pid...; 0 once none of them runs
-  local n=$1 p left; shift
-  while :; do
-    left=0
-    for p in "$@"; do pid_alive "$p" && left=1; done
-    [ "$left" = 0 ] && return 0
-    [ "$n" -gt 0 ] || return 1
-    sleep 1; n=$((n - 1))
-  done
-}
-
-cmd_down() {
-  [ $# = 0 ] || usage
-  local serve backend gw p pids=()
-  serve=$(pid_live "$run/serve.pid") || serve=""
-  backend=$(pid_live "$run/backend.pid") || backend=""
-  gw=$(pid_live "$run/gateway.pid") || gw=""
-  for p in $serve $backend $gw; do pids+=("$p"); done
-  if [ ${#pids[@]} = 0 ]; then
-    rm -f "$run"/*.pid "$run/serve.json"
-    echo "already down"; return 0
-  fi
-  # serve stops both children and waits for them; without it, stop them here.
-  if [ -n "$serve" ]; then
-    echo "stopping server pid $serve"; kill "$serve" 2>/dev/null || true
-  else
-    echo "stopping leftover pid(s) ${pids[*]}"; kill "${pids[@]}" 2>/dev/null || true
-  fi
-  if ! wait_gone "$down_timeout" "${pids[@]}"; then
-    echo "still running after ${down_timeout}s; sending KILL" >&2
-    kill -KILL "${pids[@]}" 2>/dev/null || true
-    wait_gone 10 "${pids[@]}" || die "pid(s) ${pids[*]} survived KILL"
-  fi
-  rm -f "$run"/*.pid "$run/serve.json"
-  echo "down; the backend has exited, the model is unloaded"
-}
 
 status_json() {
-  local state=down pid="" model="" backend="" containers=false info
-  if pid=$(pid_live "$run/serve.pid"); then
-    if healthy; then state=up; else state=loading; fi
-    model=$(served model); backend=$(served backend)
-    [ "$(served containers)" = true ] && containers=true
-  elif pid=$(leftover); then
-    state=orphaned
-  else
-    pid=""
+  local st gw="" model="" backend="" model_url="" info
+  st=$(state)
+  if [ "$st" != down ] && gw=$( (container_gateway) 2>/dev/null ) && [ "$(probe "$gw")" != down ]; then
+    model_url="http://gateway:$port"
   fi
-  if [ -z "$model" ] && info=$(model_info 2>/dev/null); then
+  if info=$(model_info 2>/dev/null); then
     model=$(jq -r .name <<<"$info"); backend=$(jq -r .backend <<<"$info")
   fi
-  jq -n --arg state "$state" --argjson pid "${pid:-null}" --arg model "$model" --arg backend "$backend" \
-    --argjson port "$(served_port)" --argjson containers "$containers" --arg home "$home" --arg log "$log" \
-    '{v: 1, state: $state, pid: $pid,
+  jq -n --arg state "$st" --arg model "$model" --arg backend "$backend" --argjson port "$port" \
+    --arg model_url "$model_url" --arg home "$home" \
+    '{v: 1, state: $state,
       model: (if $model == "" then null else $model end),
       backend: (if $backend == "" then null else $backend end),
       url: "http://127.0.0.1:\($port)/v1",
-      model_url: (if $containers then "http://gateway:\($port)" else null end),
-      home: $home, log: $log}'
+      model_url: (if $model_url == "" then null else $model_url end),
+      home: $home, log: "\($home)/logs/backend.log"}'
 }
 
 status_text() {
   status_json | jq -r --arg cli "$cli" '
     "state      \(.state)",
-    (if .pid then "pid        \(.pid)" else empty end),
     "model      \(.model // "none (see the error from: \($cli) check)") (\(.backend // "-"))",
     "url        \(.url)",
     (if .model_url then "model_url  \(.model_url)  (pi-container/run.sh --egress offline --model-url \(.model_url))"
-     elif .state == "up" then "model_url  none: not on the container network; \($cli) down, then \($cli) up --containers"
+     elif .state != "down" then "model_url  none: not on the container network; restart it with: \($cli) serve --containers"
      else empty end),
-    (if .state == "orphaned" then "           the server is gone; stop the rest: \($cli) down" else empty end),
     "log        \(.log)"'
 }
 
@@ -234,61 +147,67 @@ cmd_check() {
   [ -x "$venv/bin/python" ] || die "run install first: $cli install"
   local info
   info=$(model_info) || exit 1
-  exec "$venv/bin/python" "$spike_dir/gateway.py" --check "http://127.0.0.1:$(served_port)" \
+  exec "$venv/bin/python" "$spike_dir/gateway.py" --check "http://127.0.0.1:$port" \
     --model-name "$(jq -r .name <<<"$info")"
 }
 
 pids=()
-# Stopping waits for the backend to exit, so the model is unloaded when it returns.
+# Ctrl-C, closing the terminal and kill all land here; it returns once the
+# backend has exited, so the model is out of memory.
 stop_children() {
-  local p
+  local p n=$stop_timeout
+  trap '' INT TERM HUP
   for p in ${pids[@]+"${pids[@]}"}; do kill "$p" 2>/dev/null || true; done
+  while :; do
+    local left=()
+    for p in ${pids[@]+"${pids[@]}"}; do if pid_alive "$p"; then left+=("$p"); fi; done
+    [ ${#left[@]} = 0 ] && break
+    if [ "$n" = 0 ]; then echo "KILL ${left[*]}: still running after ${stop_timeout}s" >&2; kill -9 "${left[@]}" 2>/dev/null || true; break; fi
+    sleep 1; n=$((n - 1))
+  done
   for p in ${pids[@]+"${pids[@]}"}; do wait "$p" 2>/dev/null || true; done
-  rm -f "$run"/*.pid "$run/serve.json"
+  echo "stopped; the model is unloaded"
 }
 
 cmd_serve() {
-  local containers info name backend f p listen
+  local containers info name backend listen waited=0 ready=0
   containers=$(containers_flag "$@")
   need_jq
   [ -x "$venv/bin/python" ] || die "run install first: $cli install"
   info=$(model_info) || exit 1
   name=$(jq -r .name <<<"$info"); backend=$(jq -r .backend <<<"$info")
   [ "$(jq -r .installed <<<"$info")" = true ] || die "weights for $name missing; run: $cli install"
+  [ "$(state)" = down ] || die "already serving on 127.0.0.1:$port, in another terminal; stop it there with Ctrl-C"
   listen=(--listen "127.0.0.1:$port")
   if [ "$containers" = 1 ]; then listen+=(--listen "$(container_gateway):$port"); fi
+  mkdir -p "$home/logs"
 
-  mkdir -p "$home/logs" "$run"
-  for f in serve backend gateway; do
-    if p=$(pid_live "$run/$f.pid"); then die "already running: $f pid $p; stop it: $cli down"; fi
-  done
-  pid_write "$run/serve.pid" $$
   trap stop_children EXIT
-  trap 'exit 130' INT TERM
-
+  trap 'exit 130' INT TERM HUP
   "$venv/bin/python" "$spike_dir/config.py" exec "$backend_port" >>"$home/logs/backend.log" 2>&1 &
-  pids+=($!); pid_write "$run/backend.pid" $!
+  pids+=($!)
   echo "backend $backend pid $! loading $name (log: $home/logs/backend.log)"
-  jq -n --arg model "$name" --arg backend "$backend" --argjson port "$port" \
-    --argjson containers "$([ "$containers" = 1 ] && echo true || echo false)" \
-    '{model: $model, backend: $backend, port: $port, containers: $containers}' > "$run/serve.json"
-
   "$venv/bin/python" "$spike_dir/gateway.py" "${listen[@]}" --upstream "127.0.0.1:$backend_port" \
     --upstream-model "$(jq -r .upstream_model <<<"$info")" --parser "$(jq -r .parser <<<"$info")" \
     --model-name "$name" --log "$home/logs/requests.jsonl" &
-  pids+=($!); pid_write "$run/gateway.pid" $!
+  pids+=($!)
   # macOS /bin/bash is 3.2, which has no wait -n.
-  while kill -0 "${pids[0]}" 2>/dev/null && kill -0 "${pids[1]}" 2>/dev/null; do sleep 1; done
-  die "the backend or the gateway exited; see $home/logs/backend.log"
+  while pid_alive "${pids[0]}" && pid_alive "${pids[1]}"; do
+    if [ "$ready" = 0 ] && [ "$(state)" = up ]; then
+      ready=1
+      echo "ready after ${waited}s on http://127.0.0.1:$port/v1$([ "$containers" = 1 ] && echo ", model_url http://gateway:$port"). Ctrl-C here unloads the model."
+    fi
+    sleep 1; waited=$((waited + 1))
+  done
+  echo "--- last lines of $home/logs/backend.log" >&2; tail -n 15 "$home/logs/backend.log" >&2 || true
+  die "the backend or the gateway exited"
 }
 
 case ${1:-} in
   install) shift; cmd_install "$@" ;;
   uninstall) shift; cmd_uninstall "$@" ;;
-  up) shift; cmd_up "$@" ;;
-  down) shift; cmd_down "$@" ;;
+  serve) shift; cmd_serve "$@" ;;
   status) shift; cmd_status "$@" ;;
   check) shift; cmd_check "$@" ;;
-  serve) shift; cmd_serve "$@" ;;
   *) usage ;;
 esac

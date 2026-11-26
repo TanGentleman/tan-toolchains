@@ -6,11 +6,9 @@ internet. The first model is Inkling 2 Mini (17.3 GB of weights, 32 GB+ Mac).
 
 ```sh
 spikes/local-model/model install                 # uv sync, then asks before downloading the weights
-spikes/local-model/model up [--containers]       # background; returns once the model is loaded
-spikes/local-model/model serve [--containers]    # the same in the foreground; Ctrl-C stops it
-spikes/local-model/model status [--json]         # state, pid, model, backend, url, model_url
+spikes/local-model/model serve [--containers]    # in its own tab; Ctrl-C or closing the tab unloads the model
+spikes/local-model/model status [--json]         # state, model, backend, url, model_url
 spikes/local-model/model check                   # one tool call and one stream through the gateway
-spikes/local-model/model down                    # returns after the backend exits: the model is unloaded
 spikes/local-model/model uninstall [--keep-model]
 spikes/local-model/eval.sh [TASK.json ...]       # small tasks for Pi, checked on the host
 ```
@@ -27,7 +25,7 @@ Hugging Face cache, weights (`models/<name>/`), logs, evals.
 
 | File | What |
 |---|---|
-| `model` | the CLI; `lib.sh` holds paths, ports and pid-file helpers |
+| `model` | the CLI; `lib.sh` holds paths and ports |
 | `models/<name>.json` | what to serve: backend, pinned weights, response parser, backend flags |
 | `config.py` | reads and checks those files; one class per backend (`mlx-lm` only, for now) |
 | `gateway.py` | OpenAI-compatible front on port 8090; logs one line per request, never prompt or reply text |

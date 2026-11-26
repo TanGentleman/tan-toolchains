@@ -18,13 +18,13 @@ MODEL = os.path.join(HERE, "model")
 NAME = "inkling-2-mini"
 
 # Records its argv; healthy FAKE_LOAD_S seconds after start; on TERM, waits
-# FAKE_EXIT_S, then writes backend.exited, so a test can tell down waited.
+# FAKE_EXIT_S, then writes backend.exited, so a test can tell serve waited.
 FAKE_BACKEND = '''
 import json, os, signal, sys, threading, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 home = os.environ["LOCAL_MODEL_HOME"]
 with open(os.path.join(home, "backend.argv"), "w") as f:
-    json.dump({"argv": sys.argv[1:], "offline": os.environ.get("HF_HUB_OFFLINE")}, f)
+    json.dump({"argv": sys.argv[1:], "offline": os.environ.get("HF_HUB_OFFLINE"), "pid": os.getpid()}, f)
 if os.environ.get("FAKE_FAIL"):
     sys.exit("fake backend: failing on purpose")
 port = int(sys.argv[sys.argv.index("--port") + 1])
@@ -96,7 +96,6 @@ class CLI(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.dir, True)
         home = self.home = os.path.join(self.dir, "data")
         self.user = os.path.join(self.dir, "user")
-        self.run_dir = os.path.join(home, "run")
         fakes = os.path.join(self.dir, "fakes")
         write(os.path.join(fakes, "gateway.py"), FAKE_GATEWAY)
         # The venv's python: the fake gateway for gateway.py, the real python otherwise.
@@ -105,7 +104,8 @@ class CLI(unittest.TestCase):
               f'exec "{sys.executable}" "$@"\n', 0o755)
         write(os.path.join(home, "venv", "bin", "mlx_lm.server"), f"#!{sys.executable}\n{FAKE_BACKEND}", 0o755)
         # --containers reads the container network's host address; use loopback.
-        write(os.path.join(fakes, "container"),
+        self.fake_container = os.path.join(self.dir, "container-bin")
+        write(os.path.join(self.fake_container, "container"),
               "#!/bin/sh\n[ \"$*\" = 'network inspect default' ] || exit 1\n"
               "echo '[{\"status\":{\"ipv4Gateway\":\"127.0.0.1\"}}]'\n", 0o755)
         rev = config.load_model(os.path.join(HERE, "models", NAME + ".json"))["weights"]["revision"]
@@ -115,7 +115,6 @@ class CLI(unittest.TestCase):
         self.port = free_port()
         self.env.update(HOME=self.user, LOCAL_MODEL_HOME=home, PATH=f"{fakes}:{os.environ['PATH']}",
                         LOCAL_MODEL_PORT=str(self.port), LOCAL_MODEL_BACKEND_PORT=str(free_port()))
-        self.addCleanup(self.model, "down")
 
     def model(self, *args, **env):
         return subprocess.run([MODEL, *args], env={**self.env, **env}, stdin=subprocess.DEVNULL,
@@ -136,37 +135,72 @@ class CLI(unittest.TestCase):
         self.assertEqual(s["v"], 1)
         return s
 
-    def pid(self, name):
-        with open(os.path.join(self.run_dir, f"{name}.pid")) as f:
-            return int(f.readline())
-
     def argv(self, name):
         with open(os.path.join(self.home, name + ".argv")) as f:
             return json.load(f)
 
-    def test_up_status_down_idempotent(self):
-        down = self.status()
-        self.assertEqual((down["state"], down["pid"], down["model"], down["backend"], down["model_url"]),
-                         ("down", None, NAME, "mlx-lm", None))
-        self.assertIn("already down", self.ok("down").stdout)
-        self.assertIn("loading the model", self.ok("up", FAKE_LOAD_S="2").stdout)
-        s = self.status()
-        serve, backend = self.pid("serve"), self.pid("backend")
-        self.assertEqual((s["state"], s["pid"], s["url"], s["model_url"]),
-                         ("up", serve, f"http://127.0.0.1:{self.port}/v1", None))
-        self.assertIn(f"already up: pid {serve}", self.ok("up").stdout)
-        self.assertEqual(self.pid("serve"), serve)
+    def serve(self, *args, **env):
+        """model serve in its own session, like a terminal tab; returns once it answers."""
+        p = subprocess.Popen([MODEL, "serve", *args], env={**self.env, **env}, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, start_new_session=True)
+        self.addCleanup(p.stdout.close)
+        self.addCleanup(lambda: p.poll() is None and (os.killpg(p.pid, signal.SIGKILL), p.wait()))
+        for _ in range(200):
+            if p.poll() is not None or self.status()["state"] != "down":
+                break
+            time.sleep(0.05)
+        return p
 
-        self.assertIn("model is unloaded", self.ok("down").stdout)
+    def wait_up(self, p):
+        """Reads serve's output until it says it is ready; that output is kept for communicate."""
+        seen = ""
+        for line in p.stdout:
+            seen += line
+            if line.startswith("ready after"):
+                self.assertEqual(self.status()["state"], "up")
+                p.seen = seen
+                return
+        self.fail(seen)
+
+    def backend_pid(self):
+        return self.argv("backend")["pid"]
+
+    def test_serve_owns_the_model(self):
+        down = self.status()
+        self.assertEqual((down["state"], down["model"], down["backend"], down["model_url"]),
+                         ("down", NAME, "mlx-lm", None))
+        p = self.serve(FAKE_LOAD_S="1")
+        self.assertEqual(self.status()["state"], "loading")
+        self.wait_up(p)
+        s = self.status()
+        self.assertEqual((s["url"], s["model_url"]), (f"http://127.0.0.1:{self.port}/v1", None))
+        self.assertIn("in another terminal", self.fails("serve"))
+        self.assertIn("a server is running", self.fails("uninstall"))
+        backend = self.backend_pid()
+        p.send_signal(signal.SIGINT)
+        out, _ = p.communicate(timeout=30)
+        self.assertEqual(p.returncode, 130, out)
+        self.assertIn("ready after", p.seen)
+        self.assertIn("the model is unloaded", out)
         with open(os.path.join(self.home, "backend.exited")) as f:
-            self.assertEqual(int(f.read()), backend)  # exited before down returned
-        self.assertFalse(running(backend) or running(serve))
-        self.assertEqual(os.listdir(self.run_dir), [])
+            self.assertEqual(int(f.read()), backend)  # exited before serve did
+        self.assertFalse(running(backend))
         self.assertEqual(self.status(), down)
-        self.assertIn("already down", self.ok("down").stdout)
+        self.assertFalse(os.path.exists(os.path.join(self.home, "run")))
+
+    def test_closing_the_terminal_unloads(self):
+        for sig, group in ((signal.SIGHUP, True), (signal.SIGHUP, False), (signal.SIGTERM, False)):
+            with self.subTest(sig=sig, group=group):
+                p = self.serve()
+                self.wait_up(p)
+                backend = self.backend_pid()
+                (os.killpg if group else os.kill)(p.pid, sig)
+                p.communicate(timeout=30)
+                self.assertFalse(running(backend))
+                self.assertEqual(self.status()["state"], "down")
 
     def test_config_drives_the_backend_and_gateway(self):
-        self.ok("up")
+        self.wait_up(self.serve())
         m = config.load_model(os.path.join(HERE, "models", NAME + ".json"))
         b = self.argv("backend")
         self.assertEqual(b["offline"], "1")
@@ -178,83 +212,37 @@ class CLI(unittest.TestCase):
             self.assertEqual(g[g.index(flag) + 1], val)
 
     def test_containers(self):
-        self.ok("up", "--containers")
-        s = self.status()
-        self.assertEqual(s["model_url"], f"http://gateway:{self.port}")
+        self.env["PATH"] = f"{self.fake_container}:{self.env['PATH']}"
+        self.wait_up(self.serve("--containers"))
+        self.assertEqual(self.status()["model_url"], f"http://gateway:{self.port}")
         g = self.argv("gateway")
         self.assertEqual([g[i + 1] for i, x in enumerate(g) if x == "--listen"], [f"127.0.0.1:{self.port}"] * 2)
         self.assertIn(f"--egress offline --model-url http://gateway:{self.port}", self.ok("status").stdout)
-        self.assertIn("already up", self.ok("up").stdout)  # it also listens on loopback
-        self.ok("down")
-        self.ok("up")
-        self.assertIn("running without --containers", self.fails("up", "--containers"))
-        self.assertIn("up --containers", self.ok("status").stdout)
 
-    def test_stale_pid_files_are_not_killed(self):
-        other = subprocess.Popen(["sleep", "60"])
-        self.addCleanup(other.wait)
-        self.addCleanup(other.kill)
-        os.makedirs(self.run_dir, exist_ok=True)
-        for name, text in (("serve", f"{other.pid}\nThu Jan  1 00:00:00 1970\n"),
-                           ("backend", f"{other.pid}\n"), ("gateway", "not-a-pid\n")):
-            write(os.path.join(self.run_dir, f"{name}.pid"), text)
-        self.assertEqual(self.status()["state"], "down")
-        self.assertIn("already down", self.ok("down").stdout)
-        self.assertTrue(running(other.pid))
-        self.assertEqual(os.listdir(self.run_dir), [])
-        write(os.path.join(self.run_dir, "serve.pid"), f"{other.pid}\nThu Jan  1 00:00:00 1970\n")
-        self.ok("up")
-        self.assertNotEqual(self.pid("serve"), other.pid)
-        self.ok("down")
-        self.assertTrue(running(other.pid))
+    def test_no_container_network(self):
+        self.wait_up(self.serve())
+        self.assertIn("serve --containers", self.ok("status").stdout)
 
-    def test_up_reports_a_failed_start(self):
-        err = self.fails("up", FAKE_FAIL="1")
-        self.assertIn("exited before the model was ready", err)
-        self.assertIn("failing on purpose", err)
+    def test_serve_reports_a_failed_start(self):
+        p = self.serve(FAKE_FAIL="1")
+        out, _ = p.communicate(timeout=30)
+        self.assertEqual(p.returncode, 1)
+        self.assertIn("the backend or the gateway exited", out)
+        self.assertIn("failing on purpose", out)
         self.assertEqual(self.status()["state"], "down")
 
     def test_missing_weights(self):
         os.remove(os.path.join(self.home, "models", NAME, ".complete"))
-        self.assertIn("weights for inkling-2-mini missing", self.fails("up"))
-
-    def test_orphans_after_serve_dies(self):
-        self.ok("up")
-        serve, backend, gw = self.pid("serve"), self.pid("backend"), self.pid("gateway")
-        os.kill(serve, signal.SIGKILL)
-        for _ in range(50):
-            if not running(serve):
-                break
-            time.sleep(0.1)
-        s = self.status()
-        self.assertEqual((s["state"], s["pid"]), ("orphaned", backend))
-        self.assertIn("left over", self.fails("up"))
-        self.assertIn("already running: backend", self.fails("serve"))
-        self.assertIn("leftover", self.ok("down").stdout)
-        self.assertFalse(running(backend) or running(gw))
-
-    def test_foreground_serve_is_seen_and_stopped(self):
-        p = subprocess.Popen([MODEL, "serve"], env=self.env, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        self.addCleanup(p.wait)
-        self.addCleanup(p.kill)
-        for _ in range(100):
-            if os.path.exists(os.path.join(self.run_dir, "serve.pid")):
-                break
-            time.sleep(0.1)
-        self.ok("up")  # waits for the foreground server instead of starting one
-        self.assertEqual(self.status()["pid"], p.pid)
-        self.assertIn("already running: serve", self.fails("serve"))
-        self.ok("down")
-        self.assertEqual(p.wait(timeout=10), 130)
+        self.assertIn("weights for inkling-2-mini missing", self.fails("serve"))
 
     def test_check_and_usage(self):
         out = self.ok("check").stdout
         self.assertIn(f"--check http://127.0.0.1:{self.port} --model-name {NAME}", out)
-        for args in ((), ("bogus",), ("up", "x"), ("down", "x"), ("status", "--yaml"), ("serve", "x"),
+        for args in ((), ("bogus",), ("up",), ("down",), ("status", "--yaml"), ("serve", "x"),
                      ("install", "x"), ("uninstall", "--all")):
             r = self.model(*args)
             self.assertEqual(r.returncode, 2, args)
-            self.assertIn("model up [--containers]", r.stderr)
+            self.assertIn("model serve [--containers]", r.stderr)
 
     def test_selected_model(self):
         cfg = os.path.join(self.user, ".config", "local-model", "config.json")

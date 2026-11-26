@@ -38,29 +38,28 @@ token only raises rate limits. Serving never contacts Hugging Face.
 
 ## 2. Serve
 
-```sh
-$S/model up --containers      # background; returns once the model is loaded (up to 600 s)
-$S/model serve --containers   # or: foreground in a second terminal; Ctrl-C stops it
-```
-
-Without `--containers` it listens only on `127.0.0.1:8090`. With it, also on
-the container network's host address (not your LAN); macOS adds that address
-only while a container runs, so the gateway waits for it. If macOS asks
-whether Python may accept incoming connections, allow it. `up` again is a
-no-op; `up --containers` refuses while a loopback-only server runs (`down` first).
+Give the model its own terminal tab. That process owns the model: while it
+runs, the model is in memory; when it stops, it is not.
 
 ```sh
-$S/model status          # model_url line has the run.sh command to use
-$S/model status --json   # {"v": 1, "state", "pid", "model", "backend", "url", "model_url", ...}
+$S/model serve --containers   # prints "ready after Ns ..." once loaded; Ctrl-C unloads
 ```
 
-`state` is `up`, `loading`, `down` or `orphaned` (the `serve` process died but
-the backend or gateway still runs; `down` stops them). `model_url` is
-`http://gateway:8090` when serving for containers, else null. Pid files in
-`run/` hold each process's start time, so a pid the OS reused is never killed.
+Ctrl-C, closing the tab, or `kill` stops the backend and returns only after it
+has exited (KILL after 60 s). Without `--containers` it listens only on
+`127.0.0.1:8090`. With it, also on the container network's host address (not
+your LAN); macOS adds that address only while a container runs, so the
+gateway waits for it. If macOS asks whether Python may accept incoming
+connections, allow it. A second `serve` refuses while one answers on 8090.
 
-`$S/model down` returns after the backend has exited, so the model is out of
-memory; after 60 s it sends KILL. `down` again is a no-op.
+```sh
+$S/model status          # from another tab; model_url line has the run.sh command to use
+$S/model status --json   # {"v": 1, "state", "model", "backend", "url", "model_url", ...}
+```
+
+`status` asks the gateway's `/health`; it keeps no pid files. `state` is `up`,
+`loading` or `down`. `model_url` is `http://gateway:8090` when the gateway also
+answers on the container network, else null.
 
 ## 3. Check and use Pi
 
@@ -71,8 +70,8 @@ pi-container/run.sh --egress offline --model-url http://gateway:8090 pi -p "list
 ```
 
 Pi still asks for its configured model name; the gateway answers with the
-served model. To make it the default, set `"egress": "offline"` and
-`"model_url": "http://gateway:8090"` in `$PI_CONFIG_DIR/config.json`.
+served model. For a shortcut, use the `opic` alias in
+[docs/playbooks.md](../../docs/playbooks.md).
 
 ## 4. Evals
 
@@ -81,7 +80,7 @@ $S/eval.sh                        # every task in $S/evals/, one at a time
 $S/eval.sh $S/evals/fix-add.json
 ```
 
-Needs `model up --containers`. Each task runs
+Needs `model serve --containers` running. Each task runs
 `pi-container/run.sh --egress offline --model-url http://gateway:8090 --image min --instance eval pi --mode json -p ...`
 in a fresh folder, `~/.local/share/local-model/evals/<time>-<id>/work`, that
 holds only the task's files; then `eval.py` checks the files Pi left. It never
@@ -107,7 +106,7 @@ through a symlink. Checks: `file_equals` (ignores surrounding whitespace),
 - `backend`: `mlx-lm` (Apple silicon). Another backend (llama.cpp, vLLM) is
   another class in `config.py`'s `BACKENDS`.
 - `server_args` go to the backend as they are, after the flags the CLI owns
-  (`--model`, `--host`, `--port`). Edit them here, then `down` and `up`.
+  (`--model`, `--host`, `--port`). Edit them here, then restart `serve`.
 - `parser`: `inkling` translates Inkling's markup; `none` passes replies through.
 
 With more than one model file, pick one in `~/.config/local-model/config.json`:

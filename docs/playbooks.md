@@ -78,8 +78,9 @@ token in the VM.
 
 ```sh
 S=~/src/tan-toolchains/spikes/local-model
-$S/model install && $S/model up --containers && $S/model check
-opic check && opic pi -p "say hi"
+$S/model install                  # once
+$S/model serve --containers       # tab 1: owns the model; Ctrl-C unloads it
+$S/model check && opic check && opic pi -p "say hi"    # tab 2
 ```
 
 For a repo, make a local mirror first; offline turns clone it and keep
@@ -91,8 +92,7 @@ git -C ~/.config/pi-container/mirrors/you/your-repo.git fetch --prune     # refr
 git fetch ~/.fleet/sessions/<sid>/state/repo.bundle 'refs/heads/*:refs/remotes/offline/*'   # take the work out
 ```
 
-For fleet, export the three env vars before `pic serve`. `$S/model down` unloads the
-model.
+For fleet, export the three env vars before `pic serve`.
 
 ## Your own egress profile
 

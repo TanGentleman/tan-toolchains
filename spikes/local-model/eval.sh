@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # eval.sh [TASK.json ...]   Pi does each task (default: evals/*.json) in a fresh
 # folder, one at a time, in pi-container's min image with offline egress; the
-# files it leaves are checked on the host. Needs `model up --containers`.
+# files it leaves are checked on the host. Needs `model serve --containers`.
 # Runs: $LOCAL_MODEL_HOME/evals/<time>-<id>/
 set -euo pipefail
 . "$(dirname "$0")/lib.sh"
@@ -10,7 +10,7 @@ command -v jq >/dev/null || die "needs jq"
 status=$("$spike_dir/model" status --json)
 model_url=$(jq -r '.model_url // empty' <<<"$status")
 [ "$(jq -r .state <<<"$status")" = up ] && [ -n "$model_url" ] ||
-  die "needs the model server on the container network; run: $spike_dir/model up --containers"
+  die "needs the model server on the container network; run in another terminal: $spike_dir/model serve --containers"
 info=$(model_info)
 mkdir -p "$home/evals"
 # Same Pi flags as fleet's turns: JSON events on stdout, prompt on stdin, no
