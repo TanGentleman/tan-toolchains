@@ -24,6 +24,10 @@
 # runs it for a turn a crashed fleetd left running. It succeeds only when it
 # can confirm the container is gone: with the container system not answering,
 # it fails rather than guess.
+#
+# The image, egress and model_url come from $PI_CONFIG_DIR/config.json (the
+# node's defaults), as for run.sh. `pi-ctr --config` prints them: it runs
+# `run.sh config --json`, which fleetd serves in GET /v1/node.
 set -uo pipefail
 
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
@@ -33,6 +37,11 @@ case ${FLEET_SID:-} in
   *[!a-z0-9-]*) echo "pi-ctr: bad FLEET_SID" >&2; exit 2 ;;
   *) name=fleet-$FLEET_SID ;;
 esac
+if [ "${1:-}" = --config ]; then
+  [ $# -eq 1 ] || { echo "pi-ctr: --config takes no arguments" >&2; exit 2; }
+  : "${PI_CTR_HOME:?pi-ctr: PI_CTR_HOME (the real home, where run.sh finds its config) is unset}"
+  HOME=$PI_CTR_HOME exec "$here/run.sh" config --json
+fi
 if [ "${1:-}" = --stop ]; then
   [ -n "$name" ] || { echo "pi-ctr: --stop needs FLEET_SID" >&2; exit 2; }
   cli=${CONTAINER_CLI:-container}

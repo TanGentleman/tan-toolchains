@@ -248,8 +248,8 @@ stage_verify() {
   nfail=$((nfail + $(grep -c '^fail' "$results")))
   grep -q '^mac-e2e.sh: [0-9]* passed' "$log" || rec fail "mac-e2e.sh ran to the end" "see $log"
   digest() { container image inspect "$1" 2>/dev/null | jq -r '.[0].configuration.descriptor.digest // empty' 2>/dev/null; }
-  save "$(jq -n --arg d "$(digest pi-agent:local)" --arg z "$(digest pi-agent-zig:local)" --arg r "${repo%%/*}/<throwaway>" \
-    '{images: {"pi-agent:local": $d, "pi-agent-zig:local": $z}, repo: $r}')"
+  save "$(jq -n --arg d "$(digest pi-full:local)" --arg z "$(digest pi-zig:local)" --arg r "${repo%%/*}/<throwaway>" \
+    '{images: {"pi-full:local": $d, "pi-zig:local": $z}, repo: $r}')"
 }
 
 ask() {

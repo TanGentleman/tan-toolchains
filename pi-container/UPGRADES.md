@@ -22,7 +22,7 @@ binaries run on macOS and do not use its network.
 - Separate keys work by running with a different `PI_CONFIG_DIR`: the proxy,
   network, subnet, proxy image, agent volumes, and clone volumes are derived
   from it. The active agent image and builder cache remain shared, so `nuke all`
-  in one profile still deletes the active `PI_IMAGE` for every profile. Other
+  in one profile still deletes the active image for every profile. Other
   pack tags are left behind.
 
 ## Enforcer
@@ -75,7 +75,7 @@ binaries run on macOS and do not use its network.
   JSON. Exact expectations are inline, so re-recording does not rewrite them,
   and a changed shape should fail a smoke test instead of a run.
 - Image packs are built manually with `./build.sh PACK`; CI does not build
-  Dockerfile targets. The `agent-min`, `agent` and `editor` packs deliberately omit `gh`, so
+  Dockerfile targets. The `min`, `tools` and `editor` packs deliberately omit `gh`, so
   a `check` with `GITHUB_TOKEN` set fails on those images instead of silently
   skipping GitHub.
 - Add a shellcheck step once the existing warnings are triaged; it is not
@@ -119,8 +119,8 @@ behavior or test value justifies the churn.
 - `test/record-fixtures.sh` is syntax-checked but not behavior-tested. It is a
   local Mac tool; add tests only if it starts changing often or grows more
   logic.
-- Instances are not bound to images. `PI_IMAGE` is a per-run choice, and `run.sh
-  announce_run` prints the pair but nothing records it, so `clear.sh list`
+- Instances are not bound to images. The image is a per-run choice (`--image` or
+  `config.json`), and `run.sh announce_run` prints the pair but nothing records it, so `clear.sh list`
   cannot show which image last wrote a volume. If that provenance matters, add a
   marker file per agent volume rather than a `pi.image` label: labels are fixed
   at `volume create` and would go stale on the first image switch.

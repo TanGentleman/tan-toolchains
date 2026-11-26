@@ -35,7 +35,7 @@ algebra: focused tests first, per the review follow-up.
 
 ## Candidate 3: profile isolation fixes
 
-- `nuke all` in one profile still deletes the shared active `PI_IMAGE`. Scope
+- `nuke all` in one profile still deletes the shared active image. Scope
   image deletion per profile or refuse when other profiles exist.
 - Instance-to-image provenance: a marker file in each agent volume recording
   the image that last wrote it, so `clear.sh list` can show it.

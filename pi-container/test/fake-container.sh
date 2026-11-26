@@ -29,8 +29,8 @@
 # fake-vm-bin/ comes next on PATH: stubs for the image's iptables-legacy,
 # ip6tables-legacy and setpriv, so run.sh's egress lock runs and passes.
 #
-# Sanitising an image name replaces / and : with _ (pi-agent:local ->
-# pi-agent_local). Unknown commands exit 1 so a new CLI call cannot silently
+# Sanitising an image name replaces / and : with _ (pi-full:local ->
+# pi-full_local). Unknown commands exit 1 so a new CLI call cannot silently
 # pass tests.
 set -uo pipefail
 

@@ -6,7 +6,7 @@
 #   clear.sh nuke agent [--instance NAME] [--yes]
 #   clear.sh nuke clones [--instance NAME] [--yes]
 #   clear.sh nuke profile [--yes]
-#   clear.sh nuke all [--instance NAME] [--yes]
+#   clear.sh nuke all [--instance NAME] [--image PACK] [--yes]
 #   clear.sh help
 set -euo pipefail
 
@@ -15,8 +15,9 @@ here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 . "$here/images.sh"
 . "$here/lib/inspect.sh"
 . "$here/lib/lock.sh"
+. "$here/lib/validate.sh"
+. "$here/lib/config.sh"
 cli="${CONTAINER_CLI:-container}"
-pi_image="${PI_IMAGE:-pi-agent:local}"
 cfg="${PI_CONFIG_DIR:-$(pi_default_config_dir)}"
 proxy_name="${PI_PROXY_NAME:-$(pi_proxy_name "$cfg")}"
 proxy_image="${PI_PROXY_IMAGE:-$(pi_proxy_image "$cfg")}"
@@ -32,6 +33,7 @@ say() { printf '%s\n' "$*"; }
 
 instance=${PI_INSTANCE:-$pi_default_instance}
 instance_given=0
+flag_image=""
 args=()
 while [ $# -gt 0 ]; do
   case $1 in
@@ -46,6 +48,15 @@ while [ $# -gt 0 ]; do
       instance_given=1
       shift
       ;;
+    --image)
+      [ $# -ge 2 ] || die '--image needs a pack'
+      flag_image=$2
+      shift 2
+      ;;
+    --image=*)
+      flag_image=${1#*=}
+      shift
+      ;;
     *)
       args+=("$1")
       shift
@@ -54,6 +65,15 @@ while [ $# -gt 0 ]; do
 done
 set -- "${args[@]}"
 pi_instance_valid "$instance" || die "invalid instance '$instance'"
+if [ -n "$flag_image" ]; then
+  pi_pack_tag "$flag_image" >/dev/null || die "--image must be one of: $pi_pack_names"
+fi
+# The agent image: --image, then config.json, then full; as run.sh picks it.
+command -v jq >/dev/null 2>&1 || die "jq not found; install it (brew install jq)"
+config_raw=$(pi_config_read "$cfg/config.json") || die "$cfg/config.json $config_raw"
+IFS=$'\037' read -r file_image _ <<<"$config_raw"
+read -r pi_pack _ <<<"$(pi_config_pick "$flag_image" "$file_image" "$pi_config_default_image")"
+pi_image=$(pi_pack_tag "$pi_pack")
 agent_volume="${PI_AGENT_VOLUME:-$(pi_agent_volume "$instance" "$cfg")}"
 
 usage() {
@@ -87,10 +107,11 @@ save and nuke accept --instance NAME or PI_INSTANCE=NAME; the default is
       PI_CONFIG_DIR to target a profile even after its directory is gone. It
       takes no --instance: every instance goes.
 
-  clear.sh nuke all [--instance NAME] [--yes]
+  clear.sh nuke all [--instance NAME] [--image PACK] [--yes]
       Save sessions, then delete the selected instance's agent volume, this
       profile's proxy ($proxy_name) and network ($network_name), this profile's
-      proxy image, the shared agent image, and the builder cache. Other
+      proxy image, the agent image ($pi_image: --image, else config.json's
+      image, else full), and the builder cache. Other
       profiles' proxy/network, other agent volumes, and all clone volumes stay.
       The agent image is global, so other profiles still need to rebuild it.
 
@@ -125,8 +146,7 @@ acquire_lock() { pi_acquire_lock "$lock_dir" clear.sh; }
 release_lock() { pi_release_lock "$lock_dir"; }
 
 build_hint() {
-  # The image compiles ../zigpeek, so the context is the repo root.
-  pi_build_hint "$cli" "$pi_image" "$here"
+  pi_pack_build_hint "$pi_pack" "$here"
 }
 
 require_image() {

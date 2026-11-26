@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build an image pack from the repo root context.
-#   build.sh [PACK] [container build options...]
-# PACK is one of: tools editor agent-min agent full zig all (default: full).
+#   build.sh PACK|all [container build options...]
+# PACK is one of: min full zig tools editor.
 #   build.sh fleet
 # runs fleet's go vet and tests, then cross-compiles fleetd for macOS
 # (arm64), all in a pinned Go image, so the Mac needs no Go. A failing check
@@ -19,21 +19,20 @@ usage() {
   cat <<'EOF'
 Build a pi-container image pack from the repo root context.
 
-  build.sh [PACK] [container build options...]
+  build.sh PACK|all [container build options...]
 
-Packs:
-  agent-min  Pi, jq, git, ripgrep, fd; no enforcer, gh or Zig build stage
-  agent      Pi, enforcer, jq, git, ripgrep, fd; no gh
-  full       agent + gh (default); no Zig, Neovim or ZLS
-  zig        full + Zig, zigpeek, Neovim, ZLS
-  tools      Zig, zigpeek, enforcer, jq, git, ripgrep, fd; no Pi
-  editor     tools + Neovim + ZLS
-  all        build every pack
-  fleet      not an image: cross-compile fleetd for macOS arm64 into
-             fleet/bin/fleetd, inside a pinned Go image
+Pi packs (pick one with config.json "image" or run.sh --image):
+  min     pi-min:local     Pi, git, jq, ripgrep, fd; no enforcer, gh or Zig stage
+  full    pi-full:local    min + gh + enforcer (the default)
+  zig     pi-zig:local     full + Zig, zigpeek, Neovim, ZLS
+Other packs (run.sh --manual --image PACK):
+  tools   pi-tools:local   Zig, zigpeek, enforcer, git, jq, ripgrep, fd; no Pi
+  editor  pi-editor:local  tools + Neovim + ZLS
+  all     build every pack
+  fleet   not an image: cross-compile fleetd for macOS arm64 into
+          fleet/bin/fleetd, inside a pinned Go image
 
-Tags: pi-agent-min:local, pi-agent-lite:local, pi-agent:local,
-      pi-agent-zig:local, pi-tools:local, pi-editor:local.
+run.sh images lists the packs and which are built.
 EOF
 }
 
@@ -46,8 +45,9 @@ command -v "$cli" >/dev/null 2>&1 || {
   exit 1
 }
 
-pack=${1:-full}
-shift || true
+[ $# -gt 0 ] || { usage >&2; exit 2; }
+pack=$1
+shift
 
 if [ "$pack" = fleet ]; then
   [ $# -eq 0 ] || { echo "build.sh: fleet takes no options" >&2; exit 2; }
@@ -80,7 +80,7 @@ fi
 build_pack() { # pack, [container build options...]
   local pack=$1 target tag
   shift
-  target=$(pi_pack_target "$pack") || { echo "build.sh: unknown pack '$pack'" >&2; exit 2; }
+  target=$(pi_pack_target "$pack") || { echo "build.sh: unknown pack '$pack' (try --help)" >&2; exit 2; }
   tag=$(pi_pack_tag "$pack")
   printf 'build.sh: %s -> %s (target %s)\n' "$pack" "$tag" "$target" >&2
   "$cli" build "$@" -t "$tag" --target "$target" -f "$here/Dockerfile" "$here/.."

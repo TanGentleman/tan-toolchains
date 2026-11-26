@@ -39,12 +39,40 @@ pi_repo_valid() { # owner/repo
   return 0
 }
 
-# PI_EGRESS: the proxy's egress profile. Empty means normal.
-pi_egress_valid() { # mode
+# Egress profile: standard (GitHub and the model route) or offline (the
+# model route only).
+pi_egress_valid() { # profile
   case ${1:-} in
-    normal|offline) return 0 ;;
+    standard|offline) return 0 ;;
   esac
   return 1
+}
+
+# A Pi image pack, as config.json and run.sh --image name it.
+pi_pi_pack_valid() { # pack
+  case ${1:-} in
+    min|full|zig) return 0 ;;
+  esac
+  return 1
+}
+
+# model_url: "openrouter", or http://HOST:PORT with no path, where HOST is
+# `gateway`, a dotted-quad IPv4 address, or a DNS name. For http prints
+# "HOST PORT".
+pi_model_url_split() { # url
+  local url=${1:-} rest host port
+  [ "$url" != openrouter ] || return 0
+  case $url in
+    http://*) rest=${url#http://} ;;
+    *) return 1 ;;
+  esac
+  host=${rest%:*}
+  port=${rest##*:}
+  [ "$host" != "$rest" ] || return 1
+  [[ $host =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ ]] || return 1
+  pi_port_valid "$port" || return 1
+  [ "${port#0}" = "$port" ] || return 1
+  printf '%s %s\n' "$host" "$port"
 }
 
 # The only upstream offline mode allows: a dotted-quad IPv4 address in

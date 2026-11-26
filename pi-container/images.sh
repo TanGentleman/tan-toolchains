@@ -1,53 +1,40 @@
-# Image pack catalog. Sourced by build.sh and documented in
-# docs/configuration.md. The default tag is the full image so existing commands
-# keep working; other packs are opt-in through PI_IMAGE.
+# Image pack catalog. Sourced by build.sh, run.sh and clear.sh, and
+# documented in docs/configuration.md. min, full and zig run Pi; tools and
+# editor do not. The config file picks one of the Pi packs (default full).
 
-pi_pack_names="tools editor agent-min agent full zig"
+pi_pack_names="min full zig tools editor"
+pi_pi_pack_names="min full zig"
 
 pi_pack_target() { # pack
   case ${1:-} in
-    tools) printf 'tools\n' ;;
-    editor) printf 'editor\n' ;;
-    agent-min) printf 'agent-min\n' ;;
-    agent) printf 'agent\n' ;;
+    min) printf 'min\n' ;;
     full) printf 'full\n' ;;
     zig) printf 'full-zig\n' ;;
+    tools) printf 'tools\n' ;;
+    editor) printf 'editor\n' ;;
     *) return 1 ;;
   esac
 }
 
 pi_pack_tag() { # pack
   case ${1:-} in
-    tools) printf 'pi-tools:local\n' ;;
-    editor) printf 'pi-editor:local\n' ;;
-    agent-min) printf 'pi-agent-min:local\n' ;;
-    agent) printf 'pi-agent-lite:local\n' ;;
-    full) printf 'pi-agent:local\n' ;;
-    zig) printf 'pi-agent-zig:local\n' ;;
+    min|full|zig|tools|editor) printf 'pi-%s:local\n' "$1" ;;
     *) return 1 ;;
   esac
 }
 
-pi_pack_for_tag() { # tag
+# What the pack's Dockerfile stage records in PI_CONTAINER_CAPABILITIES.
+pi_pack_caps() { # pack
   case ${1:-} in
-    pi-tools:local) printf 'tools\n' ;;
-    pi-editor:local) printf 'editor\n' ;;
-    pi-agent-min:local) printf 'agent-min\n' ;;
-    pi-agent-lite:local) printf 'agent\n' ;;
-    pi-agent:local) printf 'full\n' ;;
-    pi-agent-zig:local) printf 'zig\n' ;;
+    min) printf 'netlock,pi\n' ;;
+    full) printf 'enforcer,netlock,pi,gh\n' ;;
+    zig) printf 'zig,zigpeek,enforcer,netlock,pi,gh,nvim,zls\n' ;;
+    tools) printf 'zig,zigpeek,enforcer,netlock\n' ;;
+    editor) printf 'zig,zigpeek,enforcer,netlock,nvim,zls\n' ;;
     *) return 1 ;;
   esac
 }
 
-# Rebuild hint for a tag, preserving its pack target when it is in the catalog.
-pi_build_hint() { # cli, image, here
-  local cli=$1 image=$2 here=$3 pack target
-  if pack=$(pi_pack_for_tag "$image"); then
-    target=$(pi_pack_target "$pack")
-    printf '%s build -t %s --target %s -f %s/Dockerfile %s/..' \
-      "$cli" "$image" "$target" "$here" "$here"
-  else
-    printf '%s build -t %s -f %s/Dockerfile %s/..' "$cli" "$image" "$here" "$here"
-  fi
+pi_pack_build_hint() { # pack, here
+  printf '%s/build.sh %s' "$2" "$1"
 }

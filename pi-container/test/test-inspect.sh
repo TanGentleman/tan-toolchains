@@ -135,4 +135,11 @@ neq "" "$(pi_volume_label_from_json pi.profile < "$fixtures/volume/labelled.json
 neq "" "$(pi_volume_label_from_json pi.settings < "$fixtures/volume/escaped-labels.json")" "fixture escaped settings"
 eq work "$(pi_volume_label_from_json pi.instance < "$fixtures/volume/escaped-labels.json")" "fixture escaped instance"
 
+# Network gateway: the default network's is the Mac at the bridge.
+eq 192.168.64.1 "$(pi_network_gateway_from_json < "$fixtures/network/nat.json")" "fixture default network gateway"
+eq 172.30.240.1 "$(pi_network_gateway_from_json < "$fixtures/network/host-only.json")" "fixture host-only gateway"
+eq "" "$(printf '[{"status":{}}]' | pi_network_gateway_from_json)" "absent gateway is empty"
+eq "" "$(printf '[{"status":{"ipv4Gateway":7}}]' | pi_network_gateway_from_json)" "non-string gateway is empty"
+eq "" "$(printf 'nope' | pi_network_gateway_from_json)" "bad JSON gives no gateway"
+
 finish

@@ -18,7 +18,7 @@ root=$(CDPATH= cd -- "$here/.." && pwd -P)
 cli=${CONTAINER_CLI:-container}
 cfg="${PI_CONFIG_DIR:-$(pi_default_config_dir)}"
 net="${PI_NETWORK_NAME:-$(pi_network_name "$cfg")}"
-image=${PI_IMAGE:-pi-agent:local}
+image=$(bash "$root/run.sh" config --json | jq -r .tag)
 for c in "$cli" jq tailscale; do
   command -v "$c" >/dev/null 2>&1 || { echo "vm-net-diag.sh: $c not found" >&2; exit 2; }
 done

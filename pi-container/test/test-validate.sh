@@ -29,11 +29,29 @@ for r in '' owner owner/ /repo 'owner//repo' owner/repo/extra owner/. owner/.. o
 done
 
 # Egress profiles.
-for m in normal offline; do
+for m in standard offline; do
   rc 0 "egress [$m] should be valid" pi_egress_valid "$m"
 done
-for m in '' Offline online 'offline ' none; do
+for m in '' normal Offline online 'offline ' none; do
   rc 1 "egress [$m] should be invalid" pi_egress_valid "$m"
+done
+
+# Pi packs: the config file and run.sh --image.
+for p in min full zig; do
+  rc 0 "pack [$p] should be valid" pi_pi_pack_valid "$p"
+done
+for p in '' agent agent-min tools editor Full; do
+  rc 1 "pack [$p] should be invalid" pi_pi_pack_valid "$p"
+done
+
+# model_url: openrouter or http://HOST:PORT.
+eq "" "$(pi_model_url_split openrouter)" "openrouter has no host"
+rc 0 "openrouter is a model_url" pi_model_url_split openrouter
+eq "gateway 8090" "$(pi_model_url_split http://gateway:8090)" "gateway split"
+eq "192.168.64.1 1" "$(pi_model_url_split http://192.168.64.1:1)" "IPv4 split"
+eq "models.lan 65535" "$(pi_model_url_split http://models.lan:65535)" "name split"
+for u in '' OpenRouter https://gateway:8090 http://gateway http://gateway: http://:8090 http://gateway:8090/          http://gateway:8090/v1 http://gateway:0 http://gateway:65536 http://gateway:080 'http://gate way:1'          http://-x:1 http://x-:1 'http://user@x:1' 'http://[::1]:8090' gateway:8090; do
+  rc 1 "model_url [$u] should be invalid" pi_model_url_split "$u"
 done
 
 # Offline upstream: a private IPv4 literal only, never a name.

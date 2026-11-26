@@ -46,7 +46,7 @@ re-recording cannot rewrite expectations.
 | `network/host-only-escaped.json` | hand-built | older capture with slashes escaped as `\/` in the subnet |
 | `network/nat.json` | hand-built | a non-host-only `mode` |
 | `network/no-mode.json` | hand-built | no `mode` |
-| `image/inspect.json` | `container image inspect pi-agent:local` | the observed raw image shape (`variants[0].config.config`) |
+| `image/inspect.json` | `container image inspect pi-full:local` (the config's image) | the observed raw image shape (`variants[0].config.config`) |
 | `image/env-version.json` | hand-built | version in `variants[0].config.config.Env` |
 | `image/label-version.json` | hand-built | version in `variants[0].config.config.Labels` |
 | `image/history-version.json` | hand-built | version only in `variants[0].config.history[].created_by` |

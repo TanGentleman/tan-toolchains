@@ -4,7 +4,7 @@ Run [Pi](https://pi.dev) on OpenRouter in an Apple [`container`](https://github.
 
 `pi-proxy` tunnels GitHub, adds your OpenRouter key, and refuses everything else. Pi shares only a host-only `pi-locked` network with it, and the egress lock inside Pi's VM lets it send only to the proxy ([network boundary](../README.md#network-boundary)). The default profile uses one proxy for every instance; a non-default `PI_CONFIG_DIR` is a separate profile with its own proxy, network, and subnet.
 
-The default `full` image has Pi, git, gh, ripgrep, fd, jq, and enforcer. The `agent-min` pack drops gh and enforcer, so its build skips Zig. The `zig` pack adds Zig 0.17.0, zigpeek, Neovim 0.12.6, and ZLS 0.17.0, with Zig's cache prewarmed; see [Image packs](docs/configuration.md#image-packs). Images are aarch64-only and fail early on other architectures.
+Three settings decide a run: the image (`min`, `full`, `zig`), the egress profile (`standard`, `offline`) and the model URL (`openrouter` or a local `http://HOST:PORT`). Set them in `~/.config/pi-container/config.json` or per run with `--image`, `--egress`, `--model-url`; see [Configuration](docs/configuration.md#config-file). Images are aarch64-only and fail early on other architectures.
 
 ## Setup
 
@@ -26,7 +26,7 @@ mkdir -p ~/.config/pi-container
 cat > ~/.config/pi-container/env <<'EOF'
 OPENROUTER_API_KEY=
 
-# Optional: GitHub and commit identity. The agent-min/agent/editor packs do not need these.
+# Optional: GitHub and commit identity. The min image and offline egress do not use the token.
 # Token scope: docs/configuration.md#host-env-file
 # GITHUB_TOKEN=
 # GIT_AUTHOR_NAME=
@@ -40,25 +40,25 @@ open -e ~/.config/pi-container/env
 ```
 
 `build.sh` builds from the repo root (`..`), not `pi-container/`, because the
-image compiles `../enforcer` (except `agent-min`) and, for the Zig packs, `../zigpeek` from source. `run.sh` does not
+image compiles `../enforcer` (except `min`) and, for the Zig packs, `../zigpeek` from source. `run.sh` does not
 build the agent image for you; it only rebuilds the profile's proxy image
 (`pi-proxy:local` in the default profile), and it cannot tell that the image
 predates an edit to the `Dockerfile`, `zigpeek/`, or `enforcer/`, so re-run
 `build.sh` after changing any of them.
 
-The default pack is `full` (`pi-agent:local`). Build another pack and select it
-with `PI_IMAGE`:
+Build another pack and pick it per run, or for every run in `config.json`:
 
 ```bash
-./build.sh agent
-PI_IMAGE=pi-agent-lite:local ./run.sh check you/your-repo
-./build.sh zig
-PI_IMAGE=pi-agent-zig:local ./run.sh
+./build.sh min
+./run.sh --image min check you/your-repo
+echo '{"v": 1, "image": "min"}' > ~/.config/pi-container/config.json
+./run.sh config          # image min, from the file
+./run.sh images          # every pack, its tag, built or not
 ```
 
-`agent` is `full` without `gh`. It works without `GITHUB_TOKEN`; `check` skips
-the GitHub checks when the token is absent. `agent-min` (`pi-agent-min:local`)
-is `agent` without enforcer; `check` reports enforcer as not in this pack.
+`min` has Pi, git, jq, ripgrep and fd; no `gh` or enforcer, and its build
+skips Zig. `check` skips GitHub without a token and reports enforcer as not in
+the pack. `zig` adds Zig, zigpeek, Neovim and ZLS.
 
 The first `check` in a profile builds that profile's proxy image and spends no OpenRouter credits.
 
@@ -103,20 +103,19 @@ the editor mounts and the default network instead.
 the default network with no proxy, and the container receives the real
 OpenRouter key, so use it only for trusted repos. See [Egress mode](docs/egress.md).
 
-The image is a per-run choice, not a property of the instance: `PI_IMAGE` picks a
-pack for that run, and nothing records the pairing afterwards. `run.sh` prints
-the instance, image, pack, and capabilities before Pi starts. Build a pack once
-with `./build.sh PACK`; see [configuration](docs/configuration.md#image-packs)
-for contents and tags.
+The image is a per-run choice, not a property of the instance, and nothing
+records the pairing afterwards. `run.sh` prints the instance, image, pack,
+capabilities, egress and model_url before Pi starts.
 
 | Want | Command |
 | --- | --- |
 | Pi with `gh` | `pic --clone you/your-repo` |
-| Pi with Zig, zigpeek, Neovim and ZLS | `PI_IMAGE=pi-agent-zig:local pic --clone you/your-repo` |
-| No `gh`, tokenless | `PI_IMAGE=pi-agent-lite:local pic --clone you/your-repo` |
-| Smallest Pi image: no `gh`, enforcer or Zig build | `PI_IMAGE=pi-agent-min:local pic --clone you/your-repo` |
-| Neovim and ZLS only | `PI_IMAGE=pi-editor:local pic --manual` |
-| Separate state for a project | `PI_INSTANCE=work PI_IMAGE=pi-agent-lite:local pic --clone you/your-repo` |
+| Pi with Zig, zigpeek, Neovim and ZLS | `pic --image zig --clone you/your-repo` |
+| Smallest Pi image: no `gh`, enforcer or Zig build | `pic --image min --clone you/your-repo` |
+| A local model on this Mac, no internet | `pic --egress offline --model-url http://gateway:8090` |
+| Neovim and ZLS only | `pic --manual --image editor` |
+| Separate state for a project | `pic --instance work --clone you/your-repo` |
+| What a run would use, and why | `pic config` |
 
 In the Zig packs, Pi uses [zigpeek](../zigpeek/README.md) for Zig API questions. The
 [enforcer](../enforcer/README.md) prompt hook ships off; its README shows how to
@@ -130,7 +129,7 @@ The default mode mounts the current folder. Use it only for repos you trust; use
 
 ## Docs
 
-- [Configuration](docs/configuration.md): env file, settings, flags, environment variables, and build arguments.
+- [Configuration](docs/configuration.md): `config.json`, packs, egress, env file, settings, flags, environment variables, and build arguments.
 - [Operations](docs/operations.md): profiles, instances, and cleanup.
 - [Manual mode](docs/manual.md): local Neovim/ZLS, clone mode, and caches.
 - [Egress mode](docs/egress.md): Pi on the default network with the real key, and its limits.
@@ -141,7 +140,7 @@ The default mode mounts the current folder. Use it only for repos you trust; use
 
 ## Limits
 
-- Normal Pi mode allows GitHub hosts, `openrouter.ai`, and its subdomains. Everything else is refused. The `agent-min`, `agent` and `editor` packs omit `gh`; the proxy still allows GitHub.
+- Normal Pi mode allows GitHub hosts and model calls (`openrouter.ai`, or `model_url`); egress `offline` allows model calls to `model_url` only. Everything else is refused. The `min`, `tools` and `editor` packs omit `gh`; the proxy still allows GitHub in `standard`.
 - `--allow-egress` runs Pi on the default network and passes the real OpenRouter key into the VM. Any host and protocol is reachable, including the Mac's services and Tailscale's resolver, and anything the agent runs can read the key and the agent volume. See [Egress mode](docs/egress.md).
 - `--manual` uses the default container network, not a profile network or `pi-proxy`, so it reaches any host, including the Mac's services and Tailscale's resolver. When cloning, it refreshes `pi.env` from the host env file if that file exists; without a token only public clones work.
 - Normal mode, `check`, and `--fleet-state` run behind the egress lock; `--manual` and `--allow-egress` do not. See the [network boundary](../README.md#network-boundary). An image without the `netlock` capability is refused; rebuild it with `./build.sh`.

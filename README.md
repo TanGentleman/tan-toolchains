@@ -29,16 +29,19 @@ Working on the repo: [AGENTS.md](AGENTS.md).
 Pi's VM runs behind the egress lock in pi-container's normal mode, `run.sh
 check`, and fleet turns.
 
-- **Allowed:** `pi-proxy` only. It tunnels GitHub, adds the OpenRouter key
-  for `openrouter.ai`, and refuses every other host. With
-  `PI_PROXY_OPENROUTER_HOST` set (`spikes/inkling-2-mini/pi.sh`), it sends
-  those model calls to that host instead, such as a model server on this Mac;
-  Pi still cannot reach the Mac directly.
-- **Offline:** `PI_EGRESS=offline` (what `spikes/inkling-2-mini/pi.sh` sets)
-  only removes routes: `pi-proxy` refuses GitHub and `openrouter.ai`'s own
-  servers, sends model calls only to `PI_PROXY_OPENROUTER_HOST` (a private
-  IPv4 address, required) without the real key, and Pi gets no GitHub token.
-  The egress lock is unchanged.
+- **Allowed:** `pi-proxy` only, with one of two egress profiles set in
+  `pi-container`'s `config.json` or `--egress`
+  ([configuration](pi-container/docs/configuration.md#config-file)):
+  - `standard` (default): it tunnels GitHub and sends model calls (Pi's
+    `openrouter.ai` requests) to openrouter.ai with the real key, or, with an
+    http `model_url` such as `http://gateway:8090`, to that server (e.g. a
+    local model on this Mac) with a placeholder key. Every other host is
+    refused.
+  - `offline`: it refuses GitHub and openrouter.ai, sends model calls only to
+    `model_url` (on `gateway` or a private IPv4 address, required), and Pi
+    gets no GitHub token.
+
+  Either way Pi cannot reach the Mac directly; the egress lock is the same.
 - **Blocked:** the Mac and its services (for example Continuity's
   `rapportd`), Tailscale's DNS resolver at `100.100.100.100` and with it your
   tailnet names, the tailnet, and the internet, over IPv4 and IPv6.

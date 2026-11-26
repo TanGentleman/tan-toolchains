@@ -25,9 +25,8 @@ chmod +x "$fake" "$run_sh" "$clear_sh"
 unset PI_INSTANCE PI_CLONE PI_PROXY_PORT PI_PROXY_NAME PI_NETWORK_NAME \
   PI_PROXY_IMAGE PI_LOCKED_SUBNET PI_AGENT_VOLUME PI_SETTINGS_FILE \
   PI_SKIP_HOST_SETUP PI_SKIP_PROXY_IP PI_BACKUP_DIR PI_CONFIG_DIR PI_ENV_FILE \
-  PI_IMAGE PI_NVIM_CONFIG PI_NVIM_DATA PI_NVIM_STATE PI_NVIM_CACHE \
-  PI_CPUS PI_MEMORY PI_PROXY_WAIT PI_LOCK_WAIT PI_SOURCE_ONLY TZ COLORTERM \
-  PI_EGRESS PI_PROXY_OPENROUTER_HOST PI_PROXY_OPENROUTER_PORT PI_PROXY_OPENROUTER_TLS
+  PI_NVIM_CONFIG PI_NVIM_DATA PI_NVIM_STATE PI_NVIM_CACHE \
+  PI_CPUS PI_MEMORY PI_PROXY_WAIT PI_LOCK_WAIT PI_SOURCE_ONLY TZ COLORTERM
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -120,7 +119,7 @@ image_json() { # version [capabilities]
   else
     env="[\"PI_CONTAINER_PI_VERSION=$1\"]"
   fi
-  printf '[{"id":"sha256:test","configuration":{"descriptor":{"digest":"sha256:test"},"name":"pi-agent:local"},"variants":[{"config":{"config":{"Env":%s},"history":[]}}]}]' "$env"
+  printf '[{"id":"sha256:test","configuration":{"descriptor":{"digest":"sha256:test"},"name":"pi-full:local"},"variants":[{"config":{"config":{"Env":%s},"history":[]}}]}]' "$env"
 }
 
 network_json() { # subnet [mode]
@@ -146,7 +145,7 @@ pi() { # script, args...
 # ---------------------------------------------------------------- normal run
 case_normal_run() {
   new_case normal
-  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  image_json 1.4.0 > "$world/images/pi-full_local.json"
   image_json 1.4.0 > "$world/images/pi-proxy_local.json"
   network_json "172.30.240.0/24" > "$world/networks/pi-locked.json"
   printf 'pi-locked\n' > "$world/networks.list"
@@ -158,7 +157,7 @@ case_normal_run() {
   )
   expect_status 0 "normal run succeeds"
   log_has "run --rm -i --init --network pi-locked" "final run uses the locked network"
-  log_has "pi-agent:local" "agent image named"
+  log_has "pi-full:local" "agent image named"
   log_has "volume create" "agent volume created"
   log_has "build -t pi-proxy:local" "proxy image built on first run"
   log_has "delete --force pi-proxy" "stale proxy deleted before rebuild"
@@ -187,7 +186,7 @@ case_normal_run() {
 # --------------------------------------------------- check includes enforcer
 case_check_enforcer() {
   new_case checkenforcer
-  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  image_json 1.4.0 > "$world/images/pi-full_local.json"
   image_json 1.4.0 > "$world/images/pi-proxy_local.json"
   network_json "172.30.240.0/24" > "$world/networks/pi-locked.json"
   printf 'pi-locked\n' > "$world/networks.list"
@@ -208,7 +207,7 @@ case_check_enforcer() {
 # ------------------------------------------------------- tokenless agent pack
 case_tokenless_run() {
   new_case tokenless
-  image_json 1.4.0 "enforcer,netlock,pi" > "$world/images/pi-agent-lite_local.json"
+  image_json 1.4.0 "netlock,pi" > "$world/images/pi-min_local.json"
   image_json 1.4.0 > "$world/images/pi-proxy_local.json"
   network_json "172.30.240.0/24" > "$world/networks/pi-locked.json"
   printf 'pi-locked\n' > "$world/networks.list"
@@ -220,20 +219,20 @@ case_tokenless_run() {
   chmod 600 "$cfg/pi.env"
   (
     cd "$t/project" || exit 1
-    run_it env HOME="$home" PI_ENV_FILE="$cfg/env" PI_IMAGE=pi-agent-lite:local \
+    run_it env HOME="$home" PI_ENV_FILE="$cfg/env" \
       CONTAINER_CLI="$fake" FAKE_CONTAINER_WORLD="$world" FAKE_CONTAINER_LOG="$logfile" \
-      bash "$run_sh" pi
+      bash "$run_sh" --image min pi
   )
   expect_status 0 "tokenless agent pack runs"
-  contains 'instance=default image=pi-agent-lite:local pack=agent' "$(e)" "normal run names the instance and pack"
-  contains 'capabilities=enforcer,netlock,pi' "$(e)" "normal run names the capabilities"
+  contains 'instance=default image=pi-min:local pack=min' "$(e)" "normal run names the instance and pack"
+  contains 'capabilities=netlock,pi egress=standard model_url=openrouter' "$(e)" "normal run names the capabilities and route"
   log_lacks "--env-file" "tokenless run does not mount pi.env"
   [ -e "$cfg/pi.env" ] && fail "stale pi.env was not removed" || pass
 }
 
 case_tokenless_check() {
   new_case tokenlesscheck
-  image_json 1.4.0 "enforcer,netlock,pi" > "$world/images/pi-agent-lite_local.json"
+  image_json 1.4.0 "netlock,pi" > "$world/images/pi-min_local.json"
   image_json 1.4.0 > "$world/images/pi-proxy_local.json"
   network_json "172.30.240.0/24" > "$world/networks/pi-locked.json"
   printf 'pi-locked\n' > "$world/networks.list"
@@ -243,14 +242,15 @@ case_tokenless_check() {
   chmod 600 "$cfg/env"
   (
     cd "$t/project" || exit 1
-    run_it env HOME="$home" PI_ENV_FILE="$cfg/env" PI_IMAGE=pi-agent-lite:local \
+    run_it env HOME="$home" PI_ENV_FILE="$cfg/env" \
       CONTAINER_CLI="$fake" FAKE_CONTAINER_WORLD="$world" FAKE_CONTAINER_LOG="$logfile" \
-      bash "$run_sh" check owner/repo
+      bash "$run_sh" --image min check owner/repo
   )
   expect_status 0 "tokenless check succeeds without gh or zig"
-  contains 'image=pi-agent-lite:local pack=agent' "$(e)" "check names the image it verifies"
+  contains 'image=pi-min:local pack=min' "$(e)" "check names the image it verifies"
   log_lacks "--env-file" "tokenless check does not mount pi.env"
-  log_has 'enforcer' "tokenless check still probes enforcer"
+  contains 'image      min (pi-min:local)' "$(o)" "check starts with the config summary"
+  contains 'flag' "$(o)" "check names the image's source"
 }
 
 case_pack_missing_pi() {
@@ -260,9 +260,9 @@ case_pack_missing_pi() {
   chmod 600 "$cfg/env"
   (
     cd "$t/project" || exit 1
-    run_it env HOME="$home" PI_ENV_FILE="$cfg/env" PI_IMAGE=pi-editor:local \
+    run_it env HOME="$home" PI_ENV_FILE="$cfg/env" \
       CONTAINER_CLI="$fake" FAKE_CONTAINER_WORLD="$world" FAKE_CONTAINER_LOG="$logfile" \
-      bash "$run_sh" pi
+      bash "$run_sh" --image editor pi
   )
   expect_status 1 "normal mode refuses an image without Pi"
   contains "lacks capability 'pi'" "$(e)" "missing capability is named"
@@ -275,7 +275,7 @@ case_pack_missing_pi() {
 # create a network, build a proxy, or leak the key into argv.
 case_egress_run() {
   new_case egress
-  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  image_json 1.4.0 > "$world/images/pi-full_local.json"
   (
     cd "$t/project" || exit 1
     pi "$run_sh" --allow-egress pi
@@ -289,7 +289,7 @@ case_egress_run() {
   log_lacks "HTTP_PROXY=" "egress sets no proxy variables"
   log_lacks "/etc/pi-proxy-ca" "egress mounts no CA"
   log_has "private/egress.env" "egress passes its private env file"
-  contains 'mode=egress' "$(e)" "egress announces the mode"
+  contains 'mode=allow-egress' "$(e)" "egress announces the mode"
   contains 'the container gets the real OpenRouter key' "$(e)" "egress warns about the key"
   [ -f "$cfg/private/egress.env" ] && pass || fail "egress.env was not written"
   local mode
@@ -303,7 +303,7 @@ case_egress_run() {
 
 case_egress_clone() {
   new_case egressclone
-  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  image_json 1.4.0 > "$world/images/pi-full_local.json"
   (
     cd "$t/project" || exit 1
     pi "$run_sh" --allow-egress --clone owner/repo true
@@ -317,7 +317,7 @@ case_egress_clone() {
 
 case_egress_refusals() {
   new_case egressrefuse
-  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  image_json 1.4.0 > "$world/images/pi-full_local.json"
   for cmd in check proxy proxy-stop; do
     (
       cd "$t/project" || exit 1
@@ -338,7 +338,7 @@ case_egress_refusals() {
 
 case_egress_requires_key() {
   new_case egresskey
-  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  image_json 1.4.0 > "$world/images/pi-full_local.json"
   printf 'GITHUB_TOKEN=ghp_test\n' > "$cfg/env"
   chmod 600 "$cfg/env"
   (
@@ -354,7 +354,7 @@ case_egress_requires_key() {
 # ------------------------------------------------------ network shape guards
 case_network_nat_refused() {
   new_case nat
-  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  image_json 1.4.0 > "$world/images/pi-full_local.json"
   network_json "192.168.64.0/24" nat > "$world/networks/pi-locked.json"
   printf 'pi-locked\n' > "$world/networks.list"
   (
@@ -368,7 +368,7 @@ case_network_nat_refused() {
 
 case_network_escaped_subnet() {
   new_case escaped
-  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  image_json 1.4.0 > "$world/images/pi-full_local.json"
   image_json 1.4.0 > "$world/images/pi-proxy_local.json"
   network_json "172.30.240.0\/24" > "$world/networks/pi-locked.json"
   printf 'pi-locked\n' > "$world/networks.list"
@@ -386,14 +386,14 @@ case_network_escaped_subnet() {
 # ------------------------------------------------------------- manual + clone
 case_manual_clone() {
   new_case manual
-  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  image_json 1.4.0 > "$world/images/pi-full_local.json"
   rm -f "$cfg/env"
   (
     cd "$t/project" || exit 1
     pi "$run_sh" --manual --clone owner/repo true
   )
   expect_status 0 "manual clone succeeds"
-  contains 'image=pi-agent:local pack=full capabilities=-' "$(e)" "manual run announces a legacy image without capabilities"
+  contains 'image=pi-full:local pack=full capabilities=-' "$(e)" "manual run announces a legacy image without capabilities"
   log_has "pi-clone_default_owner-repo-" "clone volume named"
   log_has "PI_CLONE=owner/repo" "clone target passed"
   log_has "-w /work" "clone workdir set"
@@ -405,7 +405,7 @@ case_manual_clone() {
 
 case_manual_clone_env() {
   new_case manualenv
-  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  image_json 1.4.0 > "$world/images/pi-full_local.json"
   (
     cd "$t/project" || exit 1
     pi "$run_sh" --manual --clone owner/repo true
@@ -417,7 +417,7 @@ case_manual_clone_env() {
 
 case_manual_clone_env_mode() {
   new_case manualenvmode
-  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  image_json 1.4.0 > "$world/images/pi-full_local.json"
   chmod 644 "$cfg/env"
   (
     cd "$t/project" || exit 1
@@ -431,7 +431,7 @@ case_manual_clone_env_mode() {
 # ------------------------------------------------------------ clear.sh list
 case_clear_list() {
   new_case list
-  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  image_json 1.4.0 > "$world/images/pi-full_local.json"
   printf 'pi-agent-home\npi-agent-work\npi-clone_work_owner-repo-abcdef12\n' > "$world/volumes.list"
   vol_json pi-agent-home agent default "$cfg" "$cfg/settings.json" \
     > "$world/volumes/pi-agent-home.json"
@@ -487,7 +487,7 @@ case_clear_list_legacy_volume() {
 # ---------------------------------------------------- clear.sh save + nuke agent
 case_nuke_agent() {
   new_case nukeagent
-  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  image_json 1.4.0 > "$world/images/pi-full_local.json"
   printf 'pi-agent-home\n' > "$world/volumes.list"
   vol_json pi-agent-home agent default "$cfg" "$cfg/settings.json" \
     > "$world/volumes/pi-agent-home.json"
@@ -551,7 +551,7 @@ case_clear_list_dead_profile() {
   new_case listdead
   deadcfg="$t/deadcfg"
   id=$(. "$root/names.sh"; pi_profile_id "$deadcfg")
-  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  image_json 1.4.0 > "$world/images/pi-full_local.json"
   printf 'pi-agent-home\npi-agent-%s-work\n' "$id" > "$world/volumes.list"
   vol_json pi-agent-home agent default "$cfg" "$cfg/settings.json" \
     > "$world/volumes/pi-agent-home.json"
@@ -575,7 +575,7 @@ case_nuke_profile() {
   new_case nukeprofile
   deadcfg="$t/deadcfg"
   id=$(. "$root/names.sh"; pi_profile_id "$deadcfg")
-  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  image_json 1.4.0 > "$world/images/pi-full_local.json"
   image_json 1.4.0 > "$world/images/pi-proxy-${id}_local.json"
   network_json "172.30.240.0/24" > "$world/networks/pi-locked-$id.json"
   printf 'pi-locked-%s\n' "$id" > "$world/networks.list"
@@ -607,7 +607,7 @@ case_nuke_profile() {
   log_lacks "volume delete pi-agent-home" "another profile's agent volume kept"
   log_lacks_line "CALL delete --force pi-proxy" "the default profile's proxy kept"
   log_lacks_line "CALL network delete pi-locked" "the default profile's network kept"
-  log_lacks "image delete pi-agent:local" "the shared agent image kept"
+  log_lacks "image delete pi-full:local" "the shared agent image kept"
   log_lacks "builder delete" "the builder cache kept"
   contains "kept: $deadcfg" "$(o)" "config dir reported as kept"
   [ -d "$deadcfg" ] && fail "nuke profile must not create the config dir" || pass
@@ -718,7 +718,7 @@ expect_locked() { # label
   lock_at=${line%%netlock 172.30.240.2*}
   prep_at=${line%% prep *}
   [ "${#lock_at}" -lt "${#prep_at}" ] && pass || fail "$1: lock is outside prep"
-  contains "pi-agent:local bash -c " "$line" "$1: the image's command is the lock script"
+  contains "pi-full:local bash -c " "$line" "$1: the image's command is the lock script"
 }
 expect_unlocked() { # label
   local line
@@ -765,7 +765,7 @@ case_netlock_modes() {
 case_netlock_capability() {
   new_case netlockcap
   fleet_world
-  image_json 1.4.0 "zig,zigpeek,enforcer,pi,gh" > "$world/images/pi-agent_local.json"
+  image_json 1.4.0 "zig,zigpeek,enforcer,pi,gh" > "$world/images/pi-full_local.json"
   local st cmd
   mkdir -p "$home/.fleet/sessions/s1/state"
   st=$(cd "$home/.fleet/sessions/s1/state" && pwd -P)
@@ -787,7 +787,7 @@ case_netlock_capability() {
 
 # -------------------------------------------------------------- fleet state
 fleet_world() {
-  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  image_json 1.4.0 > "$world/images/pi-full_local.json"
   image_json 1.4.0 > "$world/images/pi-proxy_local.json"
   network_json "172.30.240.0/24" > "$world/networks/pi-locked.json"
   printf 'pi-locked\n' > "$world/networks.list"
@@ -895,7 +895,7 @@ case_pi_ctr_stop() {
 # --------------------------------------------- proxy container unknown state
 case_proxy_unknown_state() {
   new_case proxyunknown
-  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  image_json 1.4.0 > "$world/images/pi-full_local.json"
   image_json 1.4.0 > "$world/images/pi-proxy_local.json"
   network_json "172.30.240.0/24" > "$world/networks/pi-locked.json"
   printf 'pi-locked\n' > "$world/networks.list"
@@ -948,14 +948,15 @@ case_option_guards() {
   expect_status 0 "help works before validation"
   contains 'Run Pi inside' "$(o)" "help text shown"
   contains '[COMMAND [ARG...]]' "$(o)" "help documents normal-mode commands"
-  contains 'PI_IMAGE=IMAGE' "$(o)" "help documents the image override"
+  contains '--image PACK' "$(o)" "help documents the image flag"
+  contains 'config.json' "$(o)" "help documents the config file"
   log_lacks "network create" "help has no side effects"
 }
 
 # ---------------------------------------- nuke all with a failed builder delete
 case_nuke_all_builder_failure() {
   new_case nukeall
-  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  image_json 1.4.0 > "$world/images/pi-full_local.json"
   image_json 1.4.0 > "$world/images/pi-proxy_local.json"
   network_json "172.30.240.0/24" > "$world/networks/pi-locked.json"
   printf 'pi-locked\n' > "$world/networks.list"
@@ -977,62 +978,155 @@ case_nuke_all_builder_failure() {
   log_has "volume delete pi-agent-home" "agent volume deleted"
 }
 
-# ------------------------------------------- proxy upstream override (local model)
-case_proxy_upstream() {
-  new_case upstream
-  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+# ------------------------------------------------ model_url (local model)
+# Host side of the default container network, which model_url's gateway names.
+default_network_json() {
+  printf '[{"configuration":{"name":"default","mode":"nat"},"id":"default","status":{"ipv4Gateway":"192.168.64.1","ipv4Subnet":"192.168.64.0/24"}}]'
+}
+
+case_model_url() {
+  new_case modelurl
+  image_json 1.4.0 > "$world/images/pi-full_local.json"
   image_json 1.4.0 > "$world/images/pi-proxy_local.json"
   network_json "172.30.240.0/24" > "$world/networks/pi-locked.json"
+  default_network_json > "$world/networks/default.json"
   printf 'pi-locked\n' > "$world/networks.list"
   proxy_running_json > "$world/containers/pi-proxy.json"
   printf '172.30.240.2\n' > "$cfg/private/proxy.addr"
-  (
-    cd "$t/project" || exit 1
-    pi "$run_sh" pi
-  )
-  expect_status 0 "run without an upstream override"
+  (cd "$t/project" && pi "$run_sh" pi)
+  expect_status 0 "run with the default model_url"
+  contains 'egress=standard model_url=openrouter' "$(e)" "default route announced"
   : > "$logfile"
-  (
-    cd "$t/project" || exit 1
-    export PI_PROXY_OPENROUTER_HOST=192.168.64.1 PI_PROXY_OPENROUTER_PORT=8090 PI_PROXY_OPENROUTER_TLS=0
-    pi "$run_sh" pi
-  )
-  expect_status 0 "run with an upstream override"
-  log_has "delete --force pi-proxy" "changing the upstream recreates the proxy"
-  log_lacks "build -t pi-proxy" "changing the upstream does not rebuild the image"
+  printf '{"v":1,"model_url":"http://gateway:8090"}\n' > "$cfg/config.json"
+  (cd "$t/project" && pi "$run_sh" pi)
+  expect_status 0 "run with model_url from config.json"
+  contains 'egress=standard model_url=http://gateway:8090' "$(e)" "file model_url announced"
+  log_has "network inspect default" "gateway is read from the default network"
+  log_has "delete --force pi-proxy" "changing model_url recreates the proxy"
+  log_lacks "build -t pi-proxy" "changing model_url does not rebuild the image"
   log_has "run --rm -i --init --network pi-locked" "Pi still runs on the locked network"
-  # Absent proxy: the new one gets the override. The fake publishes no
+  : > "$logfile"
+  (cd "$t/project" && pi "$run_sh" pi)
+  log_lacks "delete --force pi-proxy" "same model_url keeps the proxy"
+  : > "$logfile"
+  (cd "$t/project" && pi "$run_sh" --model-url openrouter pi)
+  expect_status 0 "flag overrides the file"
+  contains 'model_url=openrouter' "$(e)" "flag model_url announced"
+  log_has "delete --force pi-proxy" "flag model_url recreates the proxy"
+  # Absent proxy: the new one gets the route. The fake publishes no
   # address, so the run then fails on the address wait.
   rm -f "$world/containers/pi-proxy.json"
   : > "$logfile"
-  (
-    cd "$t/project" || exit 1
-    export PI_PROXY_OPENROUTER_HOST=192.168.64.1 PI_PROXY_OPENROUTER_PORT=8090 PI_PROXY_OPENROUTER_TLS=0 PI_PROXY_WAIT=0
-    pi "$run_sh" pi
-  )
-  log_has "-e PI_PROXY_OPENROUTER_HOST=192.168.64.1 -e PI_PROXY_OPENROUTER_PORT=8090 -e PI_PROXY_OPENROUTER_TLS=0" "override reaches the proxy"
+  (cd "$t/project" && export PI_PROXY_WAIT=0 && pi "$run_sh" --model-url http://10.0.0.5:8000 pi)
+  log_has "-e PI_PROXY_MODEL_HOST=10.0.0.5 -e PI_PROXY_MODEL_PORT=8000 -v" "an IPv4 model_url reaches the proxy"
+  log_lacks "PI_PROXY_EGRESS" "standard egress passes no profile"
+  : > "$logfile"
+  (cd "$t/project" && export PI_PROXY_WAIT=0 && pi "$run_sh" pi)
+  log_has "-e PI_PROXY_MODEL_HOST=192.168.64.1 -e PI_PROXY_MODEL_PORT=8090 -v" "gateway resolves to the default network's gateway"
+  rm -f "$world/networks/default.json"
+  : > "$logfile"
+  (cd "$t/project" && pi "$run_sh" pi)
+  expect_status 1 "gateway without a default network refused"
+  contains "cannot resolve gateway in http://gateway:8090" "$(e)" "unresolved gateway named"
+  log_lacks "CALL run" "unresolved gateway starts nothing"
+  : > "$logfile"
+  (cd "$t/project" && pi "$run_sh" --allow-egress pi)
+  expect_status 2 "--allow-egress refuses an http model_url"
+  contains "needs pi-proxy (pass --model-url openrouter)" "$(e)" "--allow-egress model_url message"
+  log_lacks "CALL run" "--allow-egress with model_url starts nothing"
 }
 
-# ------------------------------------------------- agent-min: no enforcer
-# agent-min records netlock and pi but not enforcer. Every locked mode still
+# ------------------------------------------------- config file and commands
+case_config_command() {
+  new_case configcmd
+  local json
+  run_it env HOME="$home" CONTAINER_CLI=/nonexistent bash "$run_sh" config
+  expect_status 0 "config needs no container runtime"
+  contains "config     $cfg/config.json (absent)" "$(o)" "config names the file"
+  contains "image      full (pi-full:local)" "$(o)" "default image"
+  contains "egress     standard" "$(o)" "default egress"
+  contains "model_url  openrouter" "$(o)" "default model_url"
+  contains "default" "$(o)" "default source"
+  printf '{"v":1,"image":"min","egress":"offline","model_url":"http://gateway:8090"}\n' > "$cfg/config.json"
+  run_it env HOME="$home" CONTAINER_CLI=/nonexistent bash "$run_sh" --image zig config --json
+  expect_status 0 "config --json"
+  json=$(o)
+  eq 1 "$(jq -r .v <<<"$json")" "json v"
+  eq "zig pi-zig:local flag" "$(jq -r '"\(.image) \(.tag) \(.source.image)"' <<<"$json")" "flag image in json"
+  eq "offline file http://gateway:8090 file" "$(jq -r '"\(.egress) \(.source.egress) \(.model_url) \(.source.model_url)"' <<<"$json")" "file egress and model_url in json"
+  eq "$cfg/config.json" "$(jq -r .config <<<"$json")" "json names the file"
+  run_it env HOME="$home" PI_CONFIG_DIR="$t/other" bash "$run_sh" config --json
+  eq "$t/other/config.json full default" "$(o | jq -r '"\(.config) \(.image) \(.source.image)"')" "PI_CONFIG_DIR picks the file"
+  run_it env HOME="$home" bash "$run_sh" config --yaml
+  expect_status 2 "config refuses other arguments"
+  run_it env HOME="$home" bash "$run_sh" --manual config
+  expect_status 2 "config refuses run modes"
+  local bad
+  for bad in '{"v":2}' '{"v":1,"image":"agent"}' '{"v":1,"proxy":1}' 'nope' '{"v":1,"egress":"offline"}'; do
+    printf '%s' "$bad" > "$cfg/config.json"
+    run_it env HOME="$home" CONTAINER_CLI="$fake" FAKE_CONTAINER_WORLD="$world" FAKE_CONTAINER_LOG="$logfile" bash "$run_sh" config
+    expect_status 2 "config refuses [$bad]"
+    contains "run.sh: " "$(e)" "config refusal is named [$bad]"
+    : > "$logfile"
+    (cd "$t/project" && pi "$run_sh" pi)
+    expect_status 2 "a run refuses [$bad]"
+    log_lacks "CALL" "a bad config [$bad] touches no container"
+  done
+  contains "openrouter is refused offline" "$(e)" "offline with the default model_url names why"
+  rm -f "$cfg/config.json"
+  for bad in "--image agent" "--image agent-min" "--egress normal" "--model-url https://gateway:8090" "--model-url http://gateway"; do
+    # shellcheck disable=SC2086
+    run_it env HOME="$home" bash "$run_sh" $bad config
+    expect_status 2 "flag refused [$bad]"
+  done
+  run_it env HOME="$home" bash "$run_sh" --image
+  expect_status 2 "--image needs a value"
+}
+
+case_images_command() {
+  new_case imagescmd
+  image_json 1.4.0 "netlock,pi" > "$world/images/pi-min_local.json"
+  printf '{"v":1,"image":"min"}\n' > "$cfg/config.json"
+  pi "$run_sh" images
+  expect_status 0 "images"
+  local out
+  out=$(o)
+  contains "* min     pi-min:local     yes    netlock,pi" "$out" "min is built and effective"
+  contains "  full    pi-full:local    no     enforcer,netlock,pi,gh" "$out" "full is not built"
+  contains "  zig     pi-zig:local     no     zig,zigpeek,enforcer,netlock,pi,gh,nvim,zls" "$out" "zig listed"
+  contains "  tools   pi-tools:local" "$out" "tools listed"
+  contains "  editor  pi-editor:local" "$out" "editor listed"
+  not_contains "agent" "$out" "no agent pack"
+  contains "the effective image (file)" "$out" "the effective image's source"
+  mkdir -p "$world/fail"
+  : > "$world/fail/system"
+  pi "$run_sh" images
+  expect_status 0 "images with the runtime down"
+  contains "pi-min:local     ?" "$(o)" "built is unknown when the runtime is down"
+  contains "not answering" "$(e)" "runtime down is named"
+}
+
+# ------------------------------------------------------- min: no enforcer
+# min records netlock and pi but not enforcer. Every locked mode still
 # runs it; check gates its enforcer probe on the capability instead of
 # refusing the image.
-case_agent_min() {
-  new_case agentmin
+case_min() {
+  new_case min
   fleet_world
-  image_json 1.4.0 "netlock,pi" > "$world/images/pi-agent-min_local.json"
+  image_json 1.4.0 "netlock,pi" > "$world/images/pi-min_local.json"
   local st cmd
   mkdir -p "$home/.fleet/sessions/s1/state"
   st=$(cd "$home/.fleet/sessions/s1/state" && pwd -P)
+  printf '{"v":1,"image":"min"}\n' > "$cfg/config.json"
   for cmd in "pi" "check owner/repo" "--fleet-state $st --clone owner/repo pi --mode json"; do
     : > "$logfile"
     # shellcheck disable=SC2086
-    (cd "$t/project" && run_it env HOME="$home" PI_ENV_FILE="$cfg/env" PI_IMAGE=pi-agent-min:local \
+    (cd "$t/project" && run_it env HOME="$home" PI_ENV_FILE="$cfg/env" \
       CONTAINER_CLI="$fake" FAKE_CONTAINER_WORLD="$world" FAKE_CONTAINER_LOG="$logfile" bash "$run_sh" $cmd)
-    expect_status 0 "agent-min: $cmd runs"
-    contains 'image=pi-agent-min:local pack=agent-min capabilities=netlock,pi' "$(e)" "agent-min: $cmd announces the pack"
-    not_contains "lacks capability" "$(e)" "agent-min: $cmd refuses nothing"
-    log_has "--cap-add NET_ADMIN" "agent-min: $cmd runs behind the egress lock"
+    expect_status 0 "min: $cmd runs"
+    contains 'image=pi-min:local pack=min capabilities=netlock,pi' "$(e)" "min: $cmd announces the pack"
+    not_contains "lacks capability" "$(e)" "min: $cmd refuses nothing"
+    log_has "--cap-add NET_ADMIN" "min: $cmd runs behind the egress lock"
   done
 }
 
@@ -1077,39 +1171,33 @@ exit \$s" 2>&1) || code=$?
 # ----------------------------------------------------------- offline egress
 offline_world() { # name
   new_case "$1"
-  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  image_json 1.4.0 > "$world/images/pi-full_local.json"
   image_json 1.4.0 > "$world/images/pi-proxy_local.json"
   network_json "172.30.240.0/24" > "$world/networks/pi-locked.json"
+  default_network_json > "$world/networks/default.json"
   printf 'pi-locked\n' > "$world/networks.list"
   proxy_running_json > "$world/containers/pi-proxy.json"
   printf '172.30.240.2\n' > "$cfg/private/proxy.addr"
   printf 'GH_TOKEN=ghp_other\nGITHUB_PAT=ghp_pat\n' >> "$cfg/env"
+  printf '{"v":1,"model_url":"http://gateway:8090"}\n' > "$cfg/config.json"
 }
 
 offline_pi() { # args...
-  (
-    cd "$t/project" || exit 1
-    export PI_EGRESS=offline PI_PROXY_OPENROUTER_HOST=192.168.64.1 PI_PROXY_OPENROUTER_PORT=8090 PI_PROXY_OPENROUTER_TLS=0
-    pi "$run_sh" "$@"
-  )
+  (cd "$t/project" && pi "$run_sh" --egress offline "$@")
 }
 
 case_offline_run() {
   offline_world offline
-  (
-    cd "$t/project" || exit 1
-    export PI_PROXY_OPENROUTER_HOST=192.168.64.1 PI_PROXY_OPENROUTER_PORT=8090 PI_PROXY_OPENROUTER_TLS=0
-    pi "$run_sh" pi
-  )
-  expect_status 0 "local upstream run without offline"
-  contains "GITHUB_TOKEN=ghp_test" "$(cat "$cfg/pi.env")" "normal pi.env has the GitHub token"
+  (cd "$t/project" && pi "$run_sh" pi)
+  expect_status 0 "local model_url run without offline"
+  contains "GITHUB_TOKEN=ghp_test" "$(cat "$cfg/pi.env")" "standard pi.env has the GitHub token"
   : > "$logfile"
   offline_pi pi
   expect_status 0 "offline run succeeds"
-  contains 'mode=offline' "$(e)" "offline run announces the mode"
+  contains 'egress=offline model_url=http://gateway:8090' "$(e)" "offline run announces the route"
   log_has "delete --force pi-proxy" "turning offline on recreates the proxy"
   log_lacks "build -t pi-proxy" "turning offline on does not rebuild the proxy image"
-  log_lacks "build -t pi-agent" "turning offline on does not build the agent image"
+  log_lacks "build -t pi-full" "turning offline on does not build the agent image"
   log_has "run --rm -i --init --network pi-locked" "offline Pi runs on the locked network"
   log_has "--cap-add NET_ADMIN" "offline Pi still sets up the egress lock"
   log_has "OPENROUTER_API_KEY=sk-or-v1-placeholder" "offline Pi gets the placeholder key"
@@ -1121,71 +1209,61 @@ case_offline_run() {
   not_contains "TOKEN" "$(cat "$cfg/pi.env")" "offline pi.env has no token variable"
   contains "GIT_AUTHOR_NAME=Test" "$(cat "$cfg/pi.env")" "offline pi.env keeps the commit identity"
   : > "$logfile"
-  offline_pi pi
-  expect_status 0 "second offline run succeeds"
+  printf '{"v":1,"egress":"offline","model_url":"http://gateway:8090"}\n' > "$cfg/config.json"
+  (cd "$t/project" && pi "$run_sh" pi)
+  expect_status 0 "offline from config.json"
+  contains 'egress=offline' "$(e)" "file egress announced"
   log_lacks "delete --force pi-proxy" "same offline settings keep the proxy"
-  # Absent proxy: the new one gets the mode and the upstream. The fake
+  # Absent proxy: the new one gets the profile and the route. The fake
   # publishes no address, so the run then fails on the address wait.
   rm -f "$world/containers/pi-proxy.json"
   : > "$logfile"
-  (
-    cd "$t/project" || exit 1
-    export PI_EGRESS=offline PI_PROXY_OPENROUTER_HOST=192.168.64.1 PI_PROXY_OPENROUTER_PORT=8090 PI_PROXY_OPENROUTER_TLS=0 PI_PROXY_WAIT=0
-    pi "$run_sh" pi
-  )
-  log_has "-e PI_PROXY_OPENROUTER_HOST=192.168.64.1 -e PI_PROXY_OPENROUTER_PORT=8090 -e PI_PROXY_OPENROUTER_TLS=0 -e PI_PROXY_EGRESS=offline" "offline mode reaches the proxy"
+  (cd "$t/project" && export PI_PROXY_WAIT=0 && pi "$run_sh" pi)
+  log_has "-e PI_PROXY_MODEL_HOST=192.168.64.1 -e PI_PROXY_MODEL_PORT=8090 -e PI_PROXY_EGRESS=offline" "offline reaches the proxy"
   log_lacks "build -t pi-proxy" "a new offline proxy reuses the image"
-  # Back to normal: the proxy is recreated without the mode, the token returns.
+  # Back to standard: the proxy is recreated without the profile, the token returns.
   proxy_running_json > "$world/containers/pi-proxy.json"
   : > "$logfile"
-  (
-    cd "$t/project" || exit 1
-    export PI_PROXY_WAIT=0
-    pi "$run_sh" pi
-  )
+  (cd "$t/project" && export PI_PROXY_WAIT=0 && pi "$run_sh" --egress standard pi)
   log_has "delete --force pi-proxy" "turning offline off recreates the proxy"
-  log_lacks "PI_PROXY_EGRESS" "normal proxy gets no offline mode"
+  log_lacks "PI_PROXY_EGRESS" "standard proxy gets no offline profile"
   log_lacks "build -t pi-proxy" "turning offline off does not rebuild the proxy image"
-  contains "GITHUB_TOKEN=ghp_test" "$(cat "$cfg/pi.env")" "normal pi.env has the GitHub token again"
+  contains "GITHUB_TOKEN=ghp_test" "$(cat "$cfg/pi.env")" "standard pi.env has the GitHub token again"
 }
 
 case_offline_refusals() {
   offline_world offlinerefuse
-  local h
-  for h in '' openrouter.ai github.com 1.1.1.1 127.0.0.1 localhost; do
+  local u flag
+  for u in openrouter http://1.1.1.1:8090 http://127.0.0.1:8090 http://models.lan:8090; do
     : > "$logfile"
-    (
-      cd "$t/project" || exit 1
-      export PI_EGRESS=offline PI_PROXY_OPENROUTER_HOST=$h
-      pi "$run_sh" pi
-    )
-    expect_status 2 "offline refuses upstream [$h]"
-    contains 'PI_EGRESS=offline needs PI_PROXY_OPENROUTER_HOST' "$(e)" "offline names the missing upstream [$h]"
-    log_lacks "CALL run" "offline [$h] starts nothing"
+    offline_pi --model-url "$u" pi
+    expect_status 2 "offline refuses model_url [$u]"
+    contains 'egress offline needs model_url' "$(e)" "offline names the model_url [$u]"
+    log_lacks "CALL" "offline [$u] starts nothing"
   done
-  : > "$logfile"
-  (
-    cd "$t/project" || exit 1
-    export PI_EGRESS=Offline PI_PROXY_OPENROUTER_HOST=192.168.64.1
-    pi "$run_sh" pi
-  )
-  expect_status 2 "unknown PI_EGRESS refused"
-  contains 'PI_EGRESS must be normal or offline' "$(e)" "unknown PI_EGRESS named"
   for flag in --allow-egress --manual; do
     : > "$logfile"
     offline_pi "$flag"
     expect_status 2 "offline refuses $flag"
-    contains 'PI_EGRESS=offline needs pi-proxy' "$(e)" "offline $flag message"
+    contains 'egress offline needs pi-proxy' "$(e)" "offline $flag message"
     log_lacks "CALL run" "offline $flag starts nothing"
   done
   : > "$logfile"
-  (
-    cd "$t/project" || exit 1
-    export PI_EGRESS=normal
-    pi "$run_sh" pi
-  )
-  expect_status 0 "PI_EGRESS=normal is the default mode"
-  log_lacks "PI_PROXY_EGRESS" "PI_EGRESS=normal passes no mode"
+  offline_pi --clone owner/repo
+  expect_status 2 "offline refuses --clone"
+  contains 'no GitHub route, so --clone cannot clone' "$(e)" "offline --clone message"
+  log_lacks "CALL run" "offline --clone starts nothing"
+  : > "$logfile"
+  (cd "$t/project" && pi "$run_sh" --egress Offline pi)
+  expect_status 2 "unknown egress refused"
+  contains '--egress must be standard or offline' "$(e)" "unknown egress named"
+  # The pre-config variables are gone: setting them changes nothing.
+  : > "$logfile"
+  (cd "$t/project" && export PI_EGRESS=offline PI_IMAGE=pi-min:local PI_PROXY_OPENROUTER_HOST=10.0.0.9 && pi "$run_sh" pi)
+  expect_status 0 "removed variables are ignored"
+  contains 'image=pi-full:local' "$(e)" "PI_IMAGE is ignored"
+  contains 'egress=standard' "$(e)" "PI_EGRESS is ignored"
+  log_lacks "10.0.0.9" "PI_PROXY_OPENROUTER_HOST is ignored"
 }
 
 # A fake VM curl for check. The VM environment is only what run.sh passes, so
@@ -1221,13 +1299,13 @@ case_offline_check() {
   mkdir -p "$t/disk"
   offline_pi check
   log_has "check '' offline" "check passes the mode to the VM"
+  contains 'egress     offline' "$(o)" "offline check starts with the config summary"
   log_lacks "ghp_test" "offline check mounts no token"
   : > "$logfile"
   (
     cd "$t/project" || exit 1
-    export PI_EGRESS=offline PI_PROXY_OPENROUTER_HOST=192.168.64.1 PI_PROXY_OPENROUTER_PORT=8090 PI_PROXY_OPENROUTER_TLS=0
     export FAKE_CONTAINER_EXEC="$t/disk" FAKE_CONTAINER_PATH="$t/vmbin"
-    pi "$run_sh" check
+    pi "$run_sh" --egress offline check
   )
   local out
   out=$(o)
@@ -1246,9 +1324,8 @@ case_offline_check() {
   printf 200 > "$t/vmbin/connect"
   (
     cd "$t/project" || exit 1
-    export PI_EGRESS=offline PI_PROXY_OPENROUTER_HOST=192.168.64.1 PI_PROXY_OPENROUTER_PORT=8090 PI_PROXY_OPENROUTER_TLS=0
     export FAKE_CONTAINER_EXEC="$t/disk" FAKE_CONTAINER_PATH="$t/vmbin"
-    pi "$run_sh" check
+    pi "$run_sh" --egress offline check
   )
   out=$(o)
   contains "FAIL: pi-proxy reports egress 'normal', not offline" "$out" "check fails when the proxy is not offline"
@@ -1266,8 +1343,9 @@ for c in case_normal_run case_check_enforcer case_tokenless_run case_tokenless_c
          case_nuke_agent case_nuke_agent_without_image case_nuke_clones_scoped \
          case_nuke_profile case_nuke_profile_rejects_instance \
          case_option_guards case_nuke_all_builder_failure case_mount_guards case_fleet_state case_pi_ctr_stop \
-         case_netlock_modes case_netlock_capability case_proxy_running_no_addr case_proxy_upstream \
-         case_agent_min case_enforcer_check_script case_offline_run case_offline_refusals case_offline_check; do
+         case_netlock_modes case_netlock_capability case_proxy_running_no_addr case_model_url \
+         case_config_command case_images_command \
+         case_min case_enforcer_check_script case_offline_run case_offline_refusals case_offline_check; do
   "$c"
 done
 

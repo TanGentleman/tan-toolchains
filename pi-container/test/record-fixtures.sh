@@ -21,7 +21,7 @@ root=$(CDPATH= cd -- "$here/.." && pwd -P)
 cli=${CONTAINER_CLI:-container}
 cfg=${PI_CONFIG_DIR:-$(pi_default_config_dir)}
 out="$here/fixtures/container"
-image=${PI_IMAGE:-pi-agent:local}
+image=$(bash "$root/run.sh" config --json | jq -r .tag)
 network=${PI_NETWORK_NAME:-$(pi_network_name "$cfg")}
 proxy=${PI_PROXY_NAME:-$(pi_proxy_name "$cfg")}
 provenance="$out/provenance.txt"

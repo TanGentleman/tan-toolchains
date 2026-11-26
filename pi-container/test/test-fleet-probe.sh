@@ -118,7 +118,7 @@ iso() { # expected-exit, label, gateway
   printf 'OPENROUTER_API_KEY=sk-or-v1-real\nGITHUB_TOKEN=t\n' > "$h/home/.config/pi-container/env"
   chmod 600 "$h/home/.config/pi-container/env"
   img='[{"id":"sha256:t","configuration":{"descriptor":{"digest":"sha256:t"},"name":"pi-agent:local"},"variants":[{"config":{"config":{"Env":["PI_CONTAINER_PI_VERSION=1.6.0","PI_CONTAINER_CAPABILITIES=pi,netlock"]},"history":[]}}]}]'
-  printf '%s' "$img" > "$w/images/pi-agent_local.json"
+  printf '%s' "$img" > "$w/images/pi-full_local.json"
   printf '%s' "$img" > "$w/images/pi-proxy_local.json"
   printf '[{"configuration":{"name":"pi-locked","mode":"hostOnly","ipv4Subnet":"172.30.240.0/24"},"id":"pi-locked","status":{"ipv4Gateway":"%s","ipv4Subnet":"172.30.240.0/24"}}]' "$3" > "$w/networks/pi-locked.json"
   printf 'pi-locked\n' > "$w/networks.list"
@@ -129,7 +129,7 @@ iso() { # expected-exit, label, gateway
   printf '#!/bin/sh\necho "COMMAND PID USER FD TYPE DEVICE SIZE NODE NAME"\necho "web 1 u 3u IPv4 0 0t0 TCP *:%s (LISTEN)"\necho "fleetd 2 u 3u IPv4 0 0t0 TCP 127.0.0.1:7433 (LISTEN)"\n' "$open" > "$bin/lsof"
   printf '#!/usr/bin/env bash\nexport FAKE_CONTAINER_WORLD=%q FAKE_CONTAINER_EXEC=%q\nexec %q "$@"\n' "$w" "$h/disk" "$here/fake-container.sh" > "$bin/container"
   chmod +x "$bin"/*
-  env -u PI_CONFIG_DIR -u PI_ENV_FILE -u PI_INSTANCE -u PI_CLONE -u PI_IMAGE HOME="$h/home" PATH="$bin:$PATH" \
+  env -u PI_CONFIG_DIR -u PI_ENV_FILE -u PI_INSTANCE -u PI_CLONE HOME="$h/home" PATH="$bin:$PATH" \
     PI_PROXY_PORT="$proxy" FLEET_PORT="$fleetd_port" PROBE_TIMEOUT=1 PROBE_INTERNET=$blackhole PROBE_RESOLVER=$blackhole \
     bash "$here/fleet-isolation.sh" s1 > "$tmp/out" 2>&1
   eq "$1" "$?" "$2: exit"

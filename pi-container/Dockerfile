@@ -1,7 +1,8 @@
 # Build targets are capability packs. The last stage is the default full image
-# (Pi, gh, enforcer); `full-zig` adds Zig, zigpeek, Neovim and ZLS; `agent-min`
-# is Pi without enforcer, so it skips the Zig build. `build.sh`
-# maps pack names to targets and tags. Keep the common pins here.
+# (Pi, gh, enforcer); `full-zig` (pack zig) adds Zig, zigpeek, Neovim and ZLS;
+# `min` is Pi without enforcer or gh, so it skips the Zig build. `agent` and
+# `agent-gh` are intermediate stages, not packs. images.sh maps pack names to
+# targets and tags. Keep the common pins here.
 ARG PI_VERSION=1.6.0
 ARG ZIG_VERSION=0.17.0
 ARG ZIG_PUBKEY=RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U
@@ -117,8 +118,8 @@ RUN name="zls-$(uname -m)-linux" && cd /tmp \
 RUN [ "$(zls --version)" = "$ZLS_VERSION" ] \
     || (echo "zls version mismatch: expected ${ZLS_VERSION}, got $(zls --version)" >&2; exit 1)
 
-# enforcer is built with Zig but runs without it, so every pack but agent-min
-# has it.
+# enforcer is built with Zig but runs without it, so every pack but min has
+# it.
 FROM base AS core
 COPY --from=zig /usr/local/bin/enforcer /usr/local/bin/enforcer
 ENV PI_CONTAINER_CAPABILITIES="enforcer,netlock"
@@ -142,7 +143,7 @@ CMD ["pi"]
 
 # No enforcer, so nothing here waits for the zig stage. base has iptables, so
 # the egress lock still works.
-FROM base AS agent-min
+FROM base AS min
 ARG PI_VERSION
 RUN npm install -g --ignore-scripts "@earendil-works/pi-coding-agent@${PI_VERSION}"
 ENV PI_CONTAINER_PI_VERSION="${PI_VERSION}" \

@@ -1,29 +1,58 @@
 # Configuration
 
 Source of truth for user-facing `pi-container` configuration. When adding a
-flag, environment variable, generated file, pack, or build argument, update this
-file, `run.sh --help` / `clear.sh help`, and the tests in the same change.
+flag, config key, environment variable, generated file, pack, or build
+argument, update this file, `run.sh --help` / `clear.sh help`, and the tests
+in the same change. Commands run from `pi-container/`.
 
-Flags override environment variables; environment variables override defaults.
-Commands run from `pi-container/` unless noted.
+## Config file
+
+Three settings decide what a run is: the image, the egress profile, and where
+model calls go. Each comes from a flag, then `$PI_CONFIG_DIR/config.json`,
+then the default:
+
+| Key | Flag | Values | Default |
+| --- | --- | --- | --- |
+| `image` | `--image PACK` | `min`, `full`, `zig` ([packs](#image-packs)); the flag also takes `tools` and `editor` for `--manual` | `full` |
+| `egress` | `--egress PROFILE` | `standard`, `offline` ([egress](#egress-profiles)) | `standard` |
+| `model_url` | `--model-url URL` | `openrouter`, or `http://HOST:PORT` with no path | `openrouter` |
+
+```json
+{"v": 1, "image": "min", "egress": "offline", "model_url": "http://gateway:8090"}
+```
+
+- `"v": 1` is required. Every other key is optional. Unknown keys, other
+  versions, non-string values and bad values are refused before anything
+  starts, by every command.
+- `HOST` may be `gateway`: `run.sh` resolves it to the default container
+  network's IPv4 gateway, the Mac's side of the bridge (e.g. `192.168.64.1`).
+  A local model server for containers listens there on port 8090 and serves
+  OpenAI-compatible `/v1` and `/health`.
+- Secrets never go here; they stay in the [env file](#host-env-file).
+- `run.sh config` prints the effective values, the source of each (`flag`,
+  `file`, `default`) and the file's path; `run.sh config --json` prints
+  `{"v":1,"config","image","tag","egress","model_url","source":{...}}`.
+  `run.sh check` starts with the same summary.
+- `pi-ctr` and `pic serve` read the same file: it is the fleet node's
+  defaults, and `GET /v1/node` reports them.
 
 ## Design decisions
 
 | Decision | Default | Why |
 | --- | --- | --- |
-| Image | `pi-agent:local` = `full` pack: Pi, `gh`, enforcer | Zig, zigpeek, Neovim and ZLS are opt-in (`zig` pack); most repos do not need them. |
-| OpenRouter key | Required for normal Pi and `proxy` | The proxy needs the real key for the agent. |
-| GitHub token | Optional | Pi can work on a mounted repo, and the `agent-min`, `agent` and `editor` packs have no `gh`. |
+| Image | `full`: Pi, `gh`, enforcer | Zig, zigpeek, Neovim and ZLS are opt-in (`zig`); `min` is the smallest Pi image. |
+| OpenRouter key | Required for normal Pi and `proxy` | The proxy holds the real key; it goes only to openrouter.ai. |
+| GitHub token | Optional | Pi can work on a mounted repo; `min` has no `gh`; `offline` never passes it. |
 | Pi hook | Installed but disabled | `enforcer on` is per instance; no prompt is blocked by surprise. |
 | Agent state | Per instance, in a volume | Sessions and extensions survive restarts and stay isolated. |
 | Settings | Shared per profile, read-only | Pi cannot persist preference or install changes. |
 | Manual mode | Default network, no proxy | Editor work is separate from the locked Pi path. |
-| Offline egress | Off; `PI_EGRESS=offline` | Local models with no internet route: GitHub and openrouter.ai are refused, Pi gets no GitHub token. |
-| Egress mode | Off; `--allow-egress` | Runs Pi on the default network when the allowlist is too narrow; the real key enters the VM. |
+| Egress | `standard` | `offline` is for local models with no internet route. |
+| `--allow-egress` | Off | Runs Pi on the default network when the allowlist is too narrow; the real key enters the VM. |
 | Pack capability check | Refuse missing `pi` in normal mode | A clear error beats a container that cannot start its command. |
 | Egress lock | On in normal mode, `check`, and `--fleet-state` | `pi-locked` alone reaches the Mac and Tailscale's resolver. See the [network boundary](../../README.md#network-boundary). |
-| `nuke all` image scope | The active `PI_IMAGE` only | Other pack tags are not deleted implicitly. |
-| Build context | Repo root | Every pack but `agent-min` compiles `../enforcer`; the Zig packs also `../zigpeek`. |
+| `nuke all` image scope | The effective image only | Other pack tags are not deleted implicitly. |
+| Build context | Repo root | Every pack but `min` compiles `../enforcer`; the Zig packs also `../zigpeek`. |
 
 ## Host env file
 
@@ -45,7 +74,7 @@ requires it for the OpenRouter key; manual mode does not require it.
 - `$PI_CONFIG_DIR/private/egress.env`: the OpenRouter key plus the `pi.env`
   values, passed only to `--allow-egress`. See [Egress mode](egress.md).
 - `$PI_CONFIG_DIR/pi.env`: the GitHub token and commit identity, passed only to
-  Pi. With `PI_EGRESS=offline` it holds the commit identity only. It is created only when at least one value is present; removing a token
+  Pi. With egress `offline` it holds the commit identity only. It is created only when at least one value is present; removing a token
   from the host file removes the generated file on the next normal run or
   manual clone.
 
@@ -87,23 +116,20 @@ pic pi --model openrouter/<model>:high
 
 ## Image packs
 
-One Dockerfile builds capability packs. `./build.sh PACK` builds the pack from
-the repo root context and tags it. `PI_IMAGE` selects the image at runtime.
+One Dockerfile builds every pack. `./build.sh PACK` builds one from the repo
+root context and tags it; `./build.sh all` builds all five. `run.sh images`
+lists them, marks the effective one, and says which are built.
 
-| Pack | Tag | Contents |
-| --- | --- | --- |
-| `agent-min` | `pi-agent-min:local` | Pi, git, jq, ripgrep, fd; no enforcer, no `gh` |
-| `agent` | `pi-agent-lite:local` | Pi, enforcer, git, jq, ripgrep, fd; no `gh` |
-| `full` | `pi-agent:local` | agent + `gh`; default |
-| `zig` | `pi-agent-zig:local` | full + Zig, zigpeek and its Pi skill, Neovim, ZLS |
-| `tools` | `pi-tools:local` | Zig, zigpeek, enforcer, git, jq, ripgrep, fd; no Pi |
-| `editor` | `pi-editor:local` | tools + Neovim + ZLS |
+| Pack | Tag | Contents | Capabilities |
+| --- | --- | --- | --- |
+| `min` | `pi-min:local` | Pi, git, jq, ripgrep, fd; no enforcer, `gh` or Zig build stage | `netlock,pi` |
+| `full` | `pi-full:local` | min + `gh` + enforcer; the default | `enforcer,netlock,pi,gh` |
+| `zig` | `pi-zig:local` | full + Zig, zigpeek and its Pi skill, Neovim, ZLS | `zig,zigpeek,enforcer,netlock,pi,gh,nvim,zls` |
+| `tools` | `pi-tools:local` | Zig, zigpeek, enforcer, git, jq, ripgrep, fd; no Pi | `zig,zigpeek,enforcer,netlock` |
+| `editor` | `pi-editor:local` | tools + Neovim + ZLS; no Pi | `zig,zigpeek,enforcer,netlock,nvim,zls` |
 
-Only `zig`, `tools` and `editor` contain Zig, Neovim or ZLS. Every pack but
-`agent-min` has enforcer; the build compiles it in the Zig builder stage, so
-`agent-min` is the only pack whose build never waits for Zig.
-
-`./build.sh` alone builds `full`; `./build.sh all` builds every pack.
+`min` is the only pack whose build never waits for the Zig stage. `tools`
+and `editor` run only with `--manual --image PACK`.
 
 `./build.sh fleet` is not a pack: it runs `fleet`'s `go vet` and tests, then
 cross-compiles `fleetd` for macOS arm64 into `fleet/bin/fleetd`, all in a
@@ -111,21 +137,12 @@ cross-compiles `fleetd` for macOS arm64 into `fleet/bin/fleetd`, all in a
 If a check fails, nothing is built. `pic serve` runs that binary.
 
 Pass extra `container build` options after the pack, for example
-`./build.sh agent --build-arg PI_VERSION=1.6.0`.
+`./build.sh min --build-arg PI_VERSION=1.6.0`. Rebuilding replaces the tag
+and reuses the layer cache; `--no-cache` forces a clean build.
 
-Rebuilding a pack replaces its tag and reuses the layer cache, so a Dockerfile
-change only rebuilds from the first changed stage. Run `./build.sh PACK
---no-cache` for a clean build; deleting the image first is not required.
-
-`run.sh` prints the instance, image, pack, and capabilities to stderr before it
-starts. An instance is not bound to an image: `PI_IMAGE` selects the pack for
-that run only. `capabilities=-` means the image was built before the pack
-metadata existed, so `./build.sh full` (or the pack's target) again; the gate
-treats such an image as a legacy full image.
-
-Images record `PI_CONTAINER_CAPABILITIES` in their environment. Each mode
-refuses an image that lacks what it needs (`check` reports a missing `gh` as
-a FAIL instead):
+`run.sh` prints the instance, image, pack, capabilities, egress and model_url
+to stderr before it starts. Images record `PI_CONTAINER_CAPABILITIES`; each
+mode refuses an image that lacks what it needs:
 
 | Mode | Needs |
 | --- | --- |
@@ -134,56 +151,50 @@ a FAIL instead):
 | `pic serve --check` | `pi`, `netlock`, and capability metadata |
 
 `check` tests Zig and zigpeek only in an image that lists `zig`, and enforcer
-only in an image that lists `enforcer`. An image with no metadata is a legacy
-full image: it has no iptables, so the lock fails in the VM and says to
-rebuild. `agent` is for tokenless runs; `agent-min` also drops enforcer.
-`pi-ctr` scans staged changes with enforcer when the image has it, and always
-with its own GitHub token patterns, which include enforcer's `ghp_`.
+only in one that lists `enforcer`. An image with no metadata predates the
+egress lock; rebuild it. `pi-ctr` scans staged changes with enforcer when the
+image has it, and always with its own GitHub token patterns.
 
 ## Flags
 
 ### `run.sh`
 
-| Flag | Effect |
+| Flag or command | Effect |
 | --- | --- |
+| `--image PACK`, `--egress PROFILE`, `--model-url URL` | Override `config.json` for this run. See [Config file](#config-file). |
 | `--instance NAME` | Isolate sessions and the agent volume. Defaults to `PI_INSTANCE` or `default`. |
-| `--clone O/R` | Use a clone kept in a volume instead of the current folder. Defaults to `PI_CLONE` when set. |
+| `--clone O/R` | Use a clone kept in a volume instead of the current folder. Defaults to `PI_CLONE`. Refused offline. |
 | `--manual [CMD]` | Open a shell without Pi or the proxy. See [Manual mode](manual.md). |
-| `--allow-egress` | Run Pi or `COMMAND` on the default network with the real OpenRouter key. See [Egress mode](egress.md). |
+| `--allow-egress` | Run Pi or `COMMAND` on the default network with the real OpenRouter key. Needs model_url `openrouter` and egress `standard`. See [Egress mode](egress.md). |
 | `COMMAND [ARG...]` | Run inside the normal Pi container instead of `pi`; for example, `run.sh bash`. |
-| `check [O/R]` | Check the egress mode, keys, the proxy, GitHub when a token is present, the egress lock, and enforcer when the image lists it. Offline, it checks that the token is absent and GitHub is refused instead. |
-| `proxy` | Follow the profile's proxy logs. |
-| `proxy-stop` | Stop the profile's proxy. |
+| `check [O/R]` | Print the config summary, then check the egress profile, keys, the proxy, GitHub (or, offline, that it is refused and the token absent), the egress lock, and enforcer when the image lists it. |
+| `config [--json]` | Print the effective image, egress and model_url and their sources. Needs no container. |
+| `images` | List the packs: tag, built or not, capabilities. |
+| `proxy` / `proxy-stop` | Follow / stop the profile's proxy. |
 | `--help` | Print usage. |
 
 A trailing command uses normal mode: it has the proxy, settings, and agent
 volume mounted, unlike `--manual`. `run.sh bash` is therefore the way to run
 `enforcer on` in a persistent agent volume.
 
-`--allow-egress` applies to normal mode's Pi and command path only: it uses the
-default network, passes the real OpenRouter key, and refuses the proxy, `check`,
-and `--manual`.
+### Egress profiles
 
-### Offline egress
+Both profiles run behind `pi-proxy` and the egress lock; `offline` only
+removes routes:
 
-`PI_EGRESS=offline` narrows normal mode, `check`, and `--fleet-state`; it never
-adds a route:
-
-| Route | Normal | Offline |
+| Route | `standard` | `offline` |
 | --- | --- | --- |
-| GitHub (`github.com`, `api.github.com`, ...) | Tunneled | Refused (403) |
-| `openrouter.ai` | Key added, sent to openrouter.ai or `PI_PROXY_OPENROUTER_HOST` | Sent only to `PI_PROXY_OPENROUTER_HOST`, with the placeholder key |
+| GitHub (`github.com`, `api.github.com`, ...) | Tunnelled | Refused (403) |
+| Model calls (`openrouter.ai`) | To openrouter.ai with the real key, or to an http `model_url` with the placeholder | Only to `model_url`, with the placeholder |
 | Every other host, direct IPs, DNS | Refused | Refused |
 | `GITHUB_TOKEN` in `pi.env` | When set | Never |
 
-Offline needs `PI_PROXY_OPENROUTER_HOST` set to a private IPv4 address
-(10/8, 172.16/12, 192.168/16, 169.254/16), such as the container network's
-gateway; a name, loopback, or a public address is refused before anything
-starts, and `pi-proxy` refuses to start without one. It cannot be combined
-with `--manual` or `--allow-egress`, which have no proxy. Switching the mode
-recreates `pi-proxy` from the same image, like changing the upstream. `check`
-prints `mode offline`, asks `pi-proxy` which mode it enforces, and fails if
-the token is present or GitHub answers. `spikes/inkling-2-mini/pi.sh` sets it.
+`offline` needs an http `model_url` on `gateway` or a private IPv4 address
+(10/8, 172.16/12, 192.168/16, 169.254/16); `openrouter`, a name, loopback or
+a public address is refused before anything starts, and `pi-proxy` refuses
+to start without one. It refuses `--manual`, `--allow-egress` and `--clone`.
+Changing the egress or model_url recreates `pi-proxy` from the same image.
+`check` asks `pi-proxy` which profile it enforces and fails on a mismatch.
 
 ### `clear.sh`
 
@@ -194,7 +205,8 @@ the token is present or GitHub answers. `spikes/inkling-2-mini/pi.sh` sets it.
 | `nuke agent` | Save sessions, then delete the selected instance's agent volume. Without the agent image the backup is skipped, not fatal. |
 | `nuke clones` | Delete the selected instance's clone volumes in this profile. |
 | `nuke profile` | Delete this profile: every instance's agent volume, its clone volumes, proxy, network, and proxy image. The shared image and builder cache stay. |
-| `nuke all` | Delete the selected instance's agent volume plus the active image and profile resources. See [Operations](operations.md). |
+| `nuke all` | Delete the selected instance's agent volume plus the effective image and profile resources. See [Operations](operations.md). |
+| `--image PACK` | The image `nuke all` deletes and `save` reads with. Defaults to `config.json`'s, else `full`. |
 | `--instance NAME` | Scope `save` or `nuke`. Defaults to `PI_INSTANCE` or `default`. |
 | `--yes` | Skip the `nuke` confirmation. |
 | `help` | Print usage. |
@@ -205,7 +217,7 @@ the token is present or GitHub answers. `spikes/inkling-2-mini/pi.sh` sets it.
 
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `PI_CONFIG_DIR` | `~/.config/pi-container` | Profile directory. A different path gets its own proxy, network, subnet, settings, env file, and volumes. |
+| `PI_CONFIG_DIR` | `~/.config/pi-container` | Profile directory. A different path gets its own `config.json`, proxy, network, subnet, settings, env file, and volumes. |
 | `PI_ENV_FILE` | `$PI_CONFIG_DIR/env` | Host env file. |
 | `PI_SETTINGS_FILE` | `$PI_CONFIG_DIR/settings.json` | Host settings file. |
 | `PI_AGENT_VOLUME` | Profile/instance-derived | Override the agent volume name. |
@@ -213,20 +225,15 @@ the token is present or GitHub answers. `spikes/inkling-2-mini/pi.sh` sets it.
 | `PI_INSTANCE` | `default` | Default for `--instance`. |
 | `PI_CLONE` | Unset | Default for `--clone`. |
 
-### Images, names, and network
+### Names and network
 
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `PI_IMAGE` | `pi-agent:local` | Image pack used by `run.sh` and `clear.sh`. |
 | `PI_PROXY_IMAGE` | Profile-derived | Proxy image for this profile. |
 | `PI_PROXY_NAME` | Profile-derived | Proxy container name. |
 | `PI_NETWORK_NAME` | Profile-derived | Host-only network name. |
 | `PI_LOCKED_SUBNET` | Profile-derived | Host-only subnet. Must match an existing profile network. |
 | `PI_PROXY_PORT` | `8888` | Proxy port. Must be 1–65535. |
-| `PI_PROXY_OPENROUTER_HOST` | unset (`openrouter.ai`) | Where `pi-proxy` forwards OpenRouter requests, e.g. a model server on this Mac. Changing it recreates the proxy. |
-| `PI_PROXY_OPENROUTER_PORT` | `443` | Port for that upstream. |
-| `PI_PROXY_OPENROUTER_TLS` | `1` | `0` uses plain HTTP to that upstream. |
-| `PI_EGRESS` | `normal` | `offline` refuses GitHub and openrouter.ai and drops the GitHub token. See [Offline egress](#offline-egress). Changing it recreates the proxy. |
 
 ### Runtime and editor
 

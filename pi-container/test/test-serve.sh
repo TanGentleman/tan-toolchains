@@ -5,7 +5,7 @@ set -uo pipefail
 
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 . "$here/lib.sh"
-unset PI_INSTANCE PI_CLONE PI_CONFIG_DIR PI_ENV_FILE PI_IMAGE OPENROUTER_API_KEY FLEETD FLEET_PORT
+unset PI_INSTANCE PI_CLONE PI_CONFIG_DIR PI_ENV_FILE OPENROUTER_API_KEY FLEETD FLEET_PORT
 
 tmp=$(mktemp -d)
 bg=""
@@ -15,7 +15,7 @@ mkdir -p "$cfg" "$world/images" "$bin"
 image() { # capabilities (empty: none recorded)
   local env='[]'
   [ -z "$1" ] || env="[\"PI_CONTAINER_CAPABILITIES=$1\"]"
-  printf '[{"id":"sha256:t","variants":[{"config":{"config":{"Env":%s}}}]}]' "$env" > "$world/images/pi-agent_local.json"
+  printf '[{"id":"sha256:t","variants":[{"config":{"config":{"Env":%s}}}]}]' "$env" > "$world/images/pi-full_local.json"
 }
 image zig,zigpeek,enforcer,netlock,pi
 cat > "$bin/tailscale" <<'SH'
@@ -41,6 +41,7 @@ reset() {
   chmod 600 "$cfg/env"
   cp "$here/fixtures/tailscale/status.json" "$tmp/status.json"
   rm -rf "$world/fail"
+  rm -f "$cfg/config.json" "$world/images/pi-min_local.json"
   image zig,zigpeek,enforcer,netlock,pi
   : > "$tmp/calls"
 }
@@ -82,8 +83,8 @@ reset; rm "$tmp/status.json"; serve --check
 refuses "tailscale down" "tailscale status failed"
 reset; mkdir -p "$world/fail"; : > "$world/fail/system"; serve --check
 refuses "container stopped" "container system is not running"
-reset; rm "$world/images/pi-agent_local.json"; serve --check
-refuses "image missing" "image pi-agent:local is missing"
+reset; rm "$world/images/pi-full_local.json"; serve --check
+refuses "image missing" "image pi-full:local is missing"
 reset; image zig,zigpeek,enforcer,pi,gh; serve --check
 refuses "image without the egress lock" "lacks capability 'netlock' (has: zig,zigpeek,enforcer,pi,gh)"
 reset; image ""; serve --check
@@ -91,7 +92,22 @@ refuses "image without capability metadata" "predates the egress lock"
 reset; image netlock; serve --check
 refuses "image without Pi" "lacks capability 'pi'"
 reset; image netlock,pi; serve --check
-eq 0 "$(st)" "an image without enforcer (agent-min) passes: $(out)"
+eq 0 "$(st)" "an image without enforcer (min) passes: $(out)"
+contains "config: image full, egress standard, model_url openrouter ($cfg/config.json)" "$(out)" "the node's config is shown"
+reset; printf '{"v":1,"image":"min"}' > "$cfg/config.json"; serve --check
+refuses "config image not built" "image pi-min:local is missing; run: $root/build.sh min"
+reset; printf '{"v":1,"image":"min"}' > "$cfg/config.json"
+printf '[{"id":"sha256:t","variants":[{"config":{"config":{"Env":["PI_CONTAINER_CAPABILITIES=netlock,pi"]}}}]}]' > "$world/images/pi-min_local.json"
+serve --check
+eq 0 "$(st)" "config.json picks the min image: $(out)"
+contains "image pi-min:local is built" "$(out)" "the config's image is checked"
+reset; printf '{"v":2}' > "$cfg/config.json"; serve --check
+refuses "bad config" 'config: '"$cfg"'/config.json needs "v": 1, not 2'
+reset; printf '{"v":1,"egress":"offline","model_url":"http://gateway:8090"}' > "$cfg/config.json"
+printf 'OPENROUTER_API_KEY=sk-or-v1-real\n' > "$cfg/env"; serve --check
+eq 0 "$(st)" "offline needs no GitHub token: $(out)"
+contains "egress offline: turns get no GitHub token" "$(out)" "offline token check"
+contains "egress offline, model_url http://gateway:8090" "$(out)" "offline config shown"
 reset; printf 'OPENROUTER_API_KEY=sk-or-v1-placeholder\nGITHUB_TOKEN=x\n' > "$cfg/env"; serve --check
 refuses "placeholder key" "set OPENROUTER_API_KEY in $cfg/env"
 reset; printf 'OPENROUTER_API_KEY=sk-or-v1-real\n' > "$cfg/env"; serve --check
@@ -106,12 +122,14 @@ reset; extra="OPENROUTER_API_KEY=sk-or-v1-real"; serve --check; extra=""
 refuses "real key in the shell" "OPENROUTER_API_KEY is set in this shell"
 reset; extra="FLEETD=$tmp/missing"; serve --check; extra=""
 refuses "no fleetd" "build.sh fleet"
-reset; ts '.Self.Tags = ["tag:x"]'; rm "$world/images/pi-agent_local.json"; serve --check
+reset; ts '.Self.Tags = ["tag:x"]'; rm "$world/images/pi-full_local.json"; serve --check
 contains "tagged device" "$(out)" "every failure is listed"
-contains "image pi-agent:local is missing" "$(out)" "every failure is listed"
+contains "image pi-full:local is missing" "$(out)" "every failure is listed"
 reset; serve -listen 127.0.0.1:1
 eq 2 "$(st)" "-listen refused"
 rc 2 "serve with run options" env HOME="$home" bash "$root/run.sh" --clone o/r serve
+rc 2 "serve with --image" env HOME="$home" bash "$root/run.sh" --image min serve
+rc 2 "serve with --egress" env HOME="$home" bash "$root/run.sh" --egress offline serve
 
 # A real start: fleetd gets the Tailscale defaults, pi-ctr, no key; serve runs
 # in the foreground, and TERM stops both.

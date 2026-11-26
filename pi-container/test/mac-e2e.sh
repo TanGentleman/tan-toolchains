@@ -5,10 +5,10 @@
 #
 # Phases, in the order to run them:
 #   ci       the CI checks from AGENTS.md; no container
-#   build    build.sh full, agent, agent-min, zig and editor; a ZLS/Zig mismatch must fail
+#   build    build.sh full, min, zig and editor; a ZLS/Zig mismatch must fail
 #   auto     E2E.md checks that need no TUI, in an isolated "e2e" profile
 #   cleanup  E2E.md's Cleanup section. Needs --destroy: it deletes the
-#            shared pi-agent:local image and the builder cache, then rebuilds
+#            shared pi-full:local image and the builder cache, then rebuilds
 #
 # --repo is a private throwaway repo that the token in --env can push to.
 # The profile is PI_CONFIG_DIR, or E2E_ROOT/cfg when unset. --env defaults
@@ -46,7 +46,7 @@ case " $phases " in
     ;;
 esac
 case " $phases " in
-  *' cleanup '*) [ "$destroy" = 1 ] || die "cleanup deletes pi-agent:local and the builder cache; pass --destroy" ;;
+  *' cleanup '*) [ "$destroy" = 1 ] || die "cleanup deletes pi-full:local and the builder cache; pass --destroy" ;;
 esac
 
 root=${E2E_ROOT:-$HOME/.cache/pi-e2e}
@@ -66,7 +66,7 @@ repo_name=${repo#*/}
 
 # Same isolation as E2E.md's setup.
 export PI_CONFIG_DIR=$cfg PI_ENV_FILE=$cfg/env PI_BACKUP_DIR=$root/backups PI_INSTANCE=e2e
-unset PI_AGENT_VOLUME PI_SETTINGS_FILE PI_CLONE PI_IMAGE OPENROUTER_API_KEY
+unset PI_AGENT_VOLUME PI_SETTINGS_FILE PI_CLONE OPENROUTER_API_KEY
 unset PI_NVIM_CONFIG PI_NVIM_DATA PI_NVIM_STATE PI_NVIM_CACHE
 unset PI_PROXY_NAME PI_NETWORK_NAME PI_PROXY_IMAGE PI_LOCKED_SUBNET
 if [ -n "$repo" ] && [ "$src_env" != "$PI_ENV_FILE" ]; then
@@ -161,7 +161,7 @@ phase_ci() {
 phase_build() {
   section "Build"
   local p
-  for p in full agent agent-min zig editor; do
+  for p in full min zig editor; do
     step "build-$p" in_dir "$pc" ./build.sh "$p"
     check "./build.sh $p" is "$code" 0
   done
@@ -176,7 +176,7 @@ phase_auto() {
   name=$(envval GIT_AUTHOR_NAME)
   email=$(envval GIT_AUTHOR_EMAIL)
   [ -n "$key" ] || die "$src_env has no OPENROUTER_API_KEY"
-  image_exists pi-agent:local || die "pi-agent:local is missing; run the build phase"
+  image_exists pi-full:local || die "pi-full:local is missing; run the build phase"
   default_started=$(started "$(pi_proxy_name "$(pi_default_config_dir)")")
   proj=$work/project
   rm -rf "$proj" && mkdir -p "$proj"
@@ -202,50 +202,52 @@ phase_auto() {
   check "pi.env has no OpenRouter key" sh -c '! grep -q OPENROUTER "$1" && ! grep -qF -- "$2" "$1"' sh "$cfg/pi.env" "$key"
   check "default profile's proxy untouched" is "$(started "$(pi_proxy_name "$(pi_default_config_dir)")")" "$default_started"
 
-  section "Lite image and a key-only env"
-  if image_exists pi-agent-lite:local; then
+  section "Config and images"
+  rm -f "$cfg/config.json"
+  step config in_dir "$proj" "$run" config
+  check "config shows the defaults" sh -c 'printf "%s\n" "$1" | grep -q "^image      full (pi-full:local) *default" &&
+    printf "%s\n" "$1" | grep -q "^egress     standard" && printf "%s\n" "$1" | grep -q "^model_url  openrouter"' sh "$out"
+  step images in_dir "$proj" "$run" images
+  check "images marks full built and effective" has "* full    pi-full:local    yes"
+
+  section "Min image and a key-only env"
+  if image_exists pi-min:local; then
     (umask 077 && printf 'OPENROUTER_API_KEY=%s\n' "$key" >"$cfg/env-keyonly")
-    step lite-check in_dir "$proj" env PI_IMAGE=pi-agent-lite:local PI_ENV_FILE="$cfg/env-keyonly" "$run" check "$repo"
-    check "lite check with key only exits 0" is "$code" 0
-    check "lite check skips GitHub" has "GITHUB_TOKEN is not set; skipping GitHub checks"
+    step min-check in_dir "$proj" env PI_ENV_FILE="$cfg/env-keyonly" "$run" --image min check "$repo"
+    check "min check with key only exits 0" is "$code" 0
+    check "min check skips GitHub" has "GITHUB_TOKEN is not set; skipping GitHub checks"
+    check "min check skips enforcer" has "not in this pack (build.sh full has it)"
     rm -f "$cfg/env-keyonly"
-    step lite-tools in_dir "$proj" env PI_IMAGE=pi-agent-lite:local "$run" bash -c 'command -v enforcer && pi --version && ! command -v gh && ! command -v zig'
-    check "lite has enforcer and pi, no gh or zig" is "$code" 0
+    step min-tools in_dir "$proj" "$run" --image min bash -c 'pi --version && git --version && jq --version && rg --version && fd --version && ! command -v enforcer && ! command -v gh && ! command -v zig'
+    check "min has pi, git, jq, rg, fd; no enforcer, gh or zig" is "$code" 0
+    printf '{"v":1,"image":"min"}\n' >"$cfg/config.json"
+    step min-config in_dir "$proj" "$run" true
+    check "config.json selects min" has "image=pi-min:local pack=min"
+    rm -f "$cfg/config.json"
   else
-    skip "lite checks: pi-agent-lite:local missing (run the build phase)"
-  fi
-  if image_exists pi-agent-min:local; then
-    (umask 077 && printf 'OPENROUTER_API_KEY=%s\n' "$key" >"$cfg/env-keyonly")
-    step min-check in_dir "$proj" env PI_IMAGE=pi-agent-min:local PI_ENV_FILE="$cfg/env-keyonly" "$run" check "$repo"
-    check "agent-min check with key only exits 0" is "$code" 0
-    check "agent-min check skips enforcer" has "not in this pack (build.sh agent or full has it)"
-    rm -f "$cfg/env-keyonly"
-    step min-tools in_dir "$proj" env PI_IMAGE=pi-agent-min:local "$run" bash -c 'pi --version && git --version && jq --version && rg --version && fd --version && ! command -v enforcer && ! command -v gh && ! command -v zig'
-    check "agent-min has pi, git, jq, rg, fd; no enforcer, gh or zig" is "$code" 0
-  else
-    skip "agent-min checks: pi-agent-min:local missing (run the build phase)"
+    skip "min checks: pi-min:local missing (run the build phase)"
   fi
   step full-tools in_dir "$proj" "$run" bash -c 'command -v enforcer && command -v gh && ! command -v zig && ! command -v zigpeek && ! command -v nvim && ! command -v zls'
   check "the default image has enforcer and gh; no zig, zigpeek, nvim or zls" is "$code" 0
 
   section "Zig image"
-  if image_exists pi-agent-zig:local; then
-    step zig-check in_dir "$proj" env PI_IMAGE=pi-agent-zig:local "$run" check "$repo"
+  if image_exists pi-zig:local; then
+    step zig-check in_dir "$proj" "$run" --image zig check "$repo"
     check "zig image check exits 0" is "$code" 0
     check "zig image reports the Zig toolchain" has "zig $(pin ZIG_VERSION)"
     check "zigpeek reads local docs" has "zigpeek reads the local langref and stdlib"
   else
-    skip "zig checks: pi-agent-zig:local missing (run the build phase)"
+    skip "zig checks: pi-zig:local missing (run the build phase)"
   fi
 
   section "Editor image and manual mode"
   if image_exists pi-editor:local; then
-    step editor-tools in_dir "$proj" env PI_IMAGE=pi-editor:local "$run" --manual sh -c 'nvim --version | head -n 1; zls --version; command -v enforcer; ! command -v pi; ! command -v gh'
+    step editor-tools in_dir "$proj" "$run" --image editor --manual sh -c 'nvim --version | head -n 1; zls --version; command -v enforcer; ! command -v pi; ! command -v gh'
     check "editor has nvim, zls, enforcer; no pi or gh" is "$code" 0
   else
     skip "editor checks: pi-editor:local missing (run the build phase)"
   fi
-  step manual-versions in_dir "$proj" env PI_IMAGE=pi-agent-zig:local "$run" --manual sh -c 'nvim --version | head -n 1; zls --version'
+  step manual-versions in_dir "$proj" "$run" --image zig --manual sh -c 'nvim --version | head -n 1; zls --version'
   check "Neovim $(pin NVIM_VERSION)" has "NVIM v$(pin NVIM_VERSION)"
   check "ZLS $(pin ZLS_VERSION)" has "$(pin ZLS_VERSION)"
   check "manual mode seeds init.lua" test -f "$cfg/nvim/init.lua"
@@ -434,7 +436,7 @@ phase_cleanup() {
   check "nuke clones deletes the e2e clone volume" sh -c '! "${CONTAINER_CLI:-container}" volume list -q | grep -qx "$1"' sh "$cvol"
   step nuke-all "$clear" nuke all --yes
   check "nuke all exits 0" is "$code" 0
-  check "nuke all deletes pi-agent:local" sh -c '! "${CONTAINER_CLI:-container}" image inspect pi-agent:local >/dev/null 2>&1'
+  check "nuke all deletes pi-full:local" sh -c '! "${CONTAINER_CLI:-container}" image inspect pi-full:local >/dev/null 2>&1'
   check "nuke all deletes this profile's proxy" sh -c '! "${CONTAINER_CLI:-container}" inspect "$1" >/dev/null 2>&1' sh "$(pi_proxy_name "$cfg")"
   check "other profile's agent volume stays" vol_exists "$vol2"
   check "default profile's proxy stays" is "$(proxy_state "$(pi_proxy_name "$(pi_default_config_dir)")")" running
@@ -448,15 +450,15 @@ phase_cleanup() {
   check "nuke profile reaps the gone profile's volumes" sh -c '! "${CONTAINER_CLI:-container}" volume list -q | grep -qx "$1"' sh "$vol2x"
   check "nuke profile reaps the gone profile's proxy" sh -c '! "${CONTAINER_CLI:-container}" inspect "$1" >/dev/null 2>&1' sh "$(pi_proxy_name "$cfg2")"
   step missing-image in_dir "$proj" "$run" true
-  check "run.sh reports the missing image" has "cannot inspect image pi-agent:local"
-  check "run.sh did not pull from Docker Hub" sh -c '! "${CONTAINER_CLI:-container}" image inspect pi-agent:local >/dev/null 2>&1'
+  check "run.sh reports the missing image" has "cannot inspect image pi-full:local"
+  check "run.sh did not pull from Docker Hub" sh -c '! "${CONTAINER_CLI:-container}" image inspect pi-full:local >/dev/null 2>&1'
   step rebuild in_dir "$pc" ./build.sh full
   check "./build.sh full rebuilds" is "$code" 0
   step recheck in_dir "$proj" "$run" check "$repo"
   check "run.sh check passes after the rebuild" sh -c '[ "$1" = 0 ] && ! grep -q FAIL "$2"' sh "$code" "$log"
   step nuke-profile "$clear" nuke profile --yes
   check "nuke profile deletes the e2e proxy" sh -c '! "${CONTAINER_CLI:-container}" inspect "$1" >/dev/null 2>&1' sh "$(pi_proxy_name "$cfg")"
-  check "the shared image stays" image_exists pi-agent:local
+  check "the shared image stays" image_exists pi-full:local
   check "default profile's proxy stays" is "$(proxy_state "$(pi_proxy_name "$(pi_default_config_dir)")")" running
   check "host env file unchanged" is "$(hash_of "$(pi_default_config_dir)/env")" "$host_env"
   check "host settings.json unchanged" is "$(hash_of "$(pi_default_config_dir)/settings.json")" "$host_settings"

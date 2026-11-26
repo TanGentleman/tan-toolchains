@@ -24,8 +24,7 @@ def load(**env: str):
     return mod
 
 
-OFFLINE = {"PI_PROXY_EGRESS": "offline", "PI_PROXY_OPENROUTER_HOST": "192.168.64.1",
-           "PI_PROXY_OPENROUTER_PORT": "8090", "PI_PROXY_OPENROUTER_TLS": "0"}
+OFFLINE = {"PI_PROXY_EGRESS": "offline", "PI_PROXY_MODEL_HOST": "192.168.64.1", "PI_PROXY_MODEL_PORT": "8090"}
 
 
 class Writer:
@@ -91,12 +90,38 @@ class Normal(unittest.TestCase):
             self.assertTrue(resp.startswith(b"HTTP/1.1 403"), host)
             self.assertEqual(routes, [], host)
 
-    def test_egress_reports_normal(self) -> None:
+    def test_egress_reports_standard(self) -> None:
         resp, _ = request(self.mod, b"GET /egress HTTP/1.1\r\n\r\n")
-        self.assertTrue(resp.endswith(b"\r\n\r\nnormal\n"))
+        self.assertTrue(resp.endswith(b"\r\n\r\nstandard\n"))
 
-    def test_check_egress_accepts_normal(self) -> None:
+    def test_check_egress_accepts_standard(self) -> None:
         self.mod.check_egress()
+
+    def test_model_host_is_plain_http(self) -> None:
+        mod = load(PI_PROXY_MODEL_HOST="192.168.64.1", PI_PROXY_MODEL_PORT="8090")
+        self.assertEqual((mod.UPSTREAM_HOST, mod.UPSTREAM_PORT, mod.UPSTREAM_TLS), ("192.168.64.1", 8090, False))
+        self.assertIsNone(mod.upstream_context())
+        self.assertEqual((self.mod.UPSTREAM_PORT, self.mod.UPSTREAM_TLS), (443, True))
+
+    def test_model_host_never_gets_the_key(self) -> None:
+        mod = load(PI_PROXY_MODEL_HOST="192.168.64.1", PI_PROXY_MODEL_PORT="8090")
+        mod.openrouter_key = lambda: REAL_KEY
+        sent = Writer()
+
+        async def open_connection(host, port, ssl=None):
+            reader = asyncio.StreamReader()
+            reader.feed_data(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+            reader.feed_eof()
+            return reader, sent
+
+        async def run() -> None:
+            with mock.patch.object(asyncio, "open_connection", open_connection):
+                await mod.forward_openrouter("openrouter.ai", "GET", "/api/v1/key", [], b"", Writer())
+
+        asyncio.run(run())
+        self.assertIn(b"Host: 192.168.64.1:8090\r\n", sent.data)
+        self.assertIn(b"Bearer sk-or-v1-placeholder", sent.data)
+        self.assertNotIn(REAL_KEY.encode(), sent.data)
 
 
 class Offline(unittest.TestCase):
@@ -160,12 +185,12 @@ class Offline(unittest.TestCase):
         self.mod.check_egress()
         for host in ["", "openrouter.ai", "api.openrouter.ai", "localhost", "127.0.0.1", "1.1.1.1",
                      "100.100.100.100", "fd00::1", "192.168.64.1 "]:
-            mod = load(**{**OFFLINE, "PI_PROXY_OPENROUTER_HOST": host})
+            mod = load(**{**OFFLINE, "PI_PROXY_MODEL_HOST": host})
             with self.assertRaises(RuntimeError, msg=host):
                 mod.check_egress()
 
     def test_check_egress_rejects_unknown_mode(self) -> None:
-        for mode in ["", "Offline", "online"]:
+        for mode in ["", "normal", "Offline", "online"]:
             with self.assertRaises(RuntimeError, msg=mode):
                 load(PI_PROXY_EGRESS=mode).check_egress()
 
@@ -176,7 +201,7 @@ class Offline(unittest.TestCase):
             mod.openrouter_key = mock.Mock(side_effect=AssertionError("key read before the egress check"))
             with self.assertRaises(SystemExit) as cm:
                 mod.main()
-            self.assertIn("offline egress needs PI_PROXY_OPENROUTER_HOST", str(cm.exception))
+            self.assertIn("offline egress needs PI_PROXY_MODEL_HOST", str(cm.exception))
 
 
 if __name__ == "__main__":

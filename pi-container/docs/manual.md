@@ -19,8 +19,9 @@ when it exists, so a removed token does not linger. `PI_CLONE=O/R` makes clone
 the default. A cloned shell starts in `/work/<repo>` and shares its volume with
 normal `--clone` in the same profile.
 
-Use `PI_IMAGE=pi-editor:local` for the editor pack. Manual mode does not require
-the image to contain Pi.
+Use `--image editor` (or `tools`, `zig`) to pick the pack. Manual mode does not
+require the image to contain Pi. Manual mode refuses egress `offline`; pass
+`--egress standard` when `config.json` sets it.
 
 Neovim paths:
 

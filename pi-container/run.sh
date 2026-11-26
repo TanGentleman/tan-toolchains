@@ -1,22 +1,6 @@
 #!/usr/bin/env bash
-# Run Pi inside Apple's container, on a host-only network.
-#   run.sh [--instance NAME]                Pi on the current folder (trusted repos only)
-#   run.sh [--instance NAME] --clone O/R    Pi on a clone kept in a volume
-#   run.sh [--instance NAME] [--clone O/R] --manual [CMD]
-#                                              shell without Pi or proxy
-#   run.sh [--instance NAME] [--allow-egress] [--clone O/R] [COMMAND [ARG...]]
-#   run.sh --fleet-state DIR [--fleet-name NAME] [--clone O/R] COMMAND [ARG...]
-#                                           one headless fleet turn (pi-ctr)
-#                                              Pi or COMMAND with full egress
-#   run.sh [--instance NAME] check [O/R]    keys, GitHub, and the network lock
-#   run.sh serve [--check] [FLEETD FLAGS] fleetd with pi-ctr behind tailscale serve
-#   run.sh proxy                            follow the proxy container's logs
-#   run.sh proxy-stop                       stop the proxy container
-#   run.sh --help                           show this text
-#   PI_INSTANCE=NAME                        default for --instance
-#   PI_CLONE=O/R                            default for --clone
-#   PI_IMAGE=IMAGE                          image to run; packs: build.sh --help
-#   PI_EGRESS=offline                       no GitHub; model calls only to PI_PROXY_OPENROUTER_HOST
+# Run Pi inside Apple's container, on a host-only network. run.sh --help
+# lists the commands; docs/configuration.md is the reference.
 set -euo pipefail
 
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
@@ -25,6 +9,7 @@ here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 . "$here/lib/paths.sh"
 . "$here/lib/inspect.sh"
 . "$here/lib/validate.sh"
+. "$here/lib/config.sh"
 . "$here/lib/lock.sh"
 . "$here/lib/netlock.sh"
 cfg="${PI_CONFIG_DIR:-$(pi_default_config_dir)}"
@@ -45,23 +30,18 @@ network_name="${PI_NETWORK_NAME:-$(pi_network_name "$cfg")}"
 locked_subnet="${PI_LOCKED_SUBNET:-$(pi_locked_subnet "$cfg")}"
 proxy_image="${PI_PROXY_IMAGE:-$(pi_proxy_image "$cfg")}"
 lock_dir="$(pi_lock_dir)"
-# Where pi-proxy forwards openrouter.ai requests (default: openrouter.ai).
-# spikes/inkling-2-mini/pi.sh points it at a model server on this Mac.
+config_file="$cfg/config.json"
+# pi-proxy's model route and egress profile; set_model_upstream fills it.
 upstream_env=()
-for v in PI_PROXY_OPENROUTER_HOST PI_PROXY_OPENROUTER_PORT PI_PROXY_OPENROUTER_TLS; do
-  if [ -n "${!v:-}" ]; then upstream_env+=(-e "$v=${!v}"); fi
-done
 
 usage() {
   cat <<'EOF'
 Run Pi inside Apple's container, on a host-only network.
-  run.sh [--instance NAME]                Pi on the current folder (trusted repos only)
-  run.sh [--instance NAME] --clone O/R    Pi on a clone kept in a volume
-  run.sh [--instance NAME] [--clone O/R] [COMMAND [ARG...]]
-                                             Pi, or COMMAND, in the locked container
-  run.sh [--instance NAME] [--clone O/R] --manual [CMD]
-                                             shell without Pi or proxy
-  run.sh [--instance NAME] [--allow-egress] [--clone O/R] [COMMAND [ARG...]]
+  run.sh [RUN OPTIONS]                    Pi on the current folder (trusted repos only)
+  run.sh [RUN OPTIONS] --clone O/R        Pi on a clone kept in a volume
+  run.sh [RUN OPTIONS] [COMMAND [ARG...]] Pi, or COMMAND, in the locked container
+  run.sh [RUN OPTIONS] --manual [CMD]     shell without Pi or proxy (any pack)
+  run.sh [RUN OPTIONS] --allow-egress [COMMAND [ARG...]]
                                              Pi or COMMAND with full network egress
   run.sh --fleet-state DIR [--fleet-name NAME] [--clone O/R] COMMAND [ARG...]
                                              one headless fleet turn: DIR, a session
@@ -71,16 +51,26 @@ Run Pi inside Apple's container, on a host-only network.
                                              container's own disk. NAME (fleet-...)
                                              names the container; a leftover
                                              container of that name is removed first
-  run.sh [--instance NAME] check [O/R]    keys, GitHub, the network lock, and enforcer
+  run.sh [RUN OPTIONS] check [O/R]        config, keys, GitHub, the network lock, enforcer
+  run.sh [--image P --egress E --model-url U] config [--json]
+                                             effective image, egress and model_url,
+                                             and where each came from
+  run.sh images                           packs, their tags, which are built, capabilities
   run.sh serve [--check] [FLEETD FLAGS]   run fleetd (harness pi-ctr) behind tailscale serve
   run.sh proxy                            follow the proxy container's logs
   run.sh proxy-stop                       stop the proxy container
   run.sh --help                           show this text
-  PI_INSTANCE=NAME                        default for --instance
-  PI_CLONE=O/R                            default for --clone
-  PI_IMAGE=IMAGE                          image to run; packs: build.sh --help
-  PI_EGRESS=offline                       no GitHub route or token; model calls go only to
-                                             PI_PROXY_OPENROUTER_HOST, a private IPv4 address
+
+Run options:
+  --instance NAME     separate sessions and agent state (default: $PI_INSTANCE or default)
+  --image PACK        min, full or zig; tools or editor with --manual
+  --egress PROFILE    standard (GitHub and the model route) or offline (model route only)
+  --model-url URL     openrouter, or http://HOST:PORT; HOST may be gateway (this Mac)
+  --clone O/R         default: $PI_CLONE
+
+--image, --egress and --model-url override $PI_CONFIG_DIR/config.json for one
+run, which overrides the defaults (full, standard, openrouter):
+  {"v": 1, "image": "min", "egress": "offline", "model_url": "http://gateway:8090"}
 EOF
 }
 
@@ -90,8 +80,18 @@ egress=0
 clone="${PI_CLONE:-}"
 fleet_state=""
 fleet_name=""
+flag_image="" flag_egress="" flag_model_url=""
+flag_value() { # option, remaining argument count
+  [ "$2" -ge 2 ] || { echo "run.sh: $1 needs a value" >&2; exit 2; }
+}
 while [ $# -gt 0 ]; do
   case $1 in
+    --image) flag_value "$1" $#; flag_image=$2; shift 2 ;;
+    --image=*) flag_image=${1#*=}; shift ;;
+    --egress) flag_value "$1" $#; flag_egress=$2; shift 2 ;;
+    --egress=*) flag_egress=${1#*=}; shift ;;
+    --model-url) flag_value "$1" $#; flag_model_url=$2; shift 2 ;;
+    --model-url=*) flag_model_url=${1#*=}; shift ;;
     --fleet-state)
       [ $# -ge 2 ] || { echo "run.sh: --fleet-state needs a directory" >&2; exit 2; }
       fleet_state=$2
@@ -139,12 +139,94 @@ case "${1:-}" in
   --help|-h|help) usage; exit 0 ;;
   -*) echo "run.sh: unknown option '$1' (try --help)" >&2; exit 2 ;;
   serve)
-    if [ "$manual$egress" != 00 ] || [ -n "$clone$fleet_state" ] || [ "$instance" != "${PI_INSTANCE:-$pi_default_instance}" ]; then
-      echo "run.sh: serve takes no run options" >&2
+    if [ "$manual$egress" != 00 ] || [ -n "$clone$fleet_state$flag_image$flag_egress$flag_model_url" ] || [ "$instance" != "${PI_INSTANCE:-$pi_default_instance}" ]; then
+      echo "run.sh: serve takes no run options; it uses $config_file" >&2
       exit 2
     fi
     shift
     exec "$here/serve.sh" "$@"
+    ;;
+esac
+
+if [ -n "$flag_image" ] && ! pi_pack_tag "$flag_image" >/dev/null; then
+  echo "run.sh: --image must be one of: $pi_pack_names" >&2
+  exit 2
+fi
+if [ -n "$flag_egress" ] && ! pi_egress_valid "$flag_egress"; then
+  echo "run.sh: --egress must be standard or offline" >&2
+  exit 2
+fi
+if [ -n "$flag_model_url" ] && ! pi_model_url_split "$flag_model_url" >/dev/null; then
+  echo "run.sh: --model-url must be openrouter or http://HOST:PORT" >&2
+  exit 2
+fi
+command -v jq >/dev/null 2>&1 || { echo "run.sh: jq not found; install it (brew install jq)" >&2; exit 1; }
+if ! config_raw=$(pi_config_read "$config_file"); then
+  echo "run.sh: $config_file $config_raw" >&2
+  exit 2
+fi
+IFS=$'\037' read -r file_image file_egress file_model_url <<<"$config_raw"
+read -r pack pack_source <<<"$(pi_config_pick "$flag_image" "$file_image" "$pi_config_default_image")"
+read -r egress_mode egress_source <<<"$(pi_config_pick "$flag_egress" "$file_egress" "$pi_config_default_egress")"
+read -r model_url model_url_source <<<"$(pi_config_pick "$flag_model_url" "$file_model_url" "$pi_config_default_model_url")"
+image=$(pi_pack_tag "$pack")
+if ! why=$(pi_config_combo_check "$egress_mode" "$model_url"); then
+  echo "run.sh: $why" >&2
+  exit 2
+fi
+
+config_summary() {
+  local state=absent
+  [ ! -e "$config_file" ] || state=present
+  printf 'config     %s (%s)\n' "$config_file" "$state"
+  printf 'image      %-26s %s\n' "$pack ($image)" "$pack_source"
+  printf 'egress     %-26s %s\n' "$egress_mode" "$egress_source"
+  printf 'model_url  %-26s %s\n' "$model_url" "$model_url_source"
+}
+
+case "${1:-}" in
+  config|images)
+    if [ "$manual$egress" != 00 ] || [ -n "$fleet_state" ]; then
+      echo "run.sh: $1 takes only --image, --egress and --model-url" >&2
+      exit 2
+    fi
+    ;;
+esac
+case "${1:-}" in
+  config)
+    case "${2:-}" in
+      '') [ $# -eq 1 ] || { echo "run.sh: config takes only --json" >&2; exit 2; }
+          config_summary ;;
+      --json) [ $# -eq 2 ] || { echo "run.sh: config takes only --json" >&2; exit 2; }
+          pi_config_json "$config_file" "$pack" "$pack_source" "$egress_mode" "$egress_source" \
+            "$model_url" "$model_url_source" "$image" ;;
+      *) echo "run.sh: config takes only --json" >&2; exit 2 ;;
+    esac
+    exit 0
+    ;;
+  images)
+    [ $# -eq 1 ] || { echo "run.sh: images takes no arguments" >&2; exit 2; }
+    runtime=1
+    command -v "$cli" >/dev/null 2>&1 && "$cli" system status >/dev/null 2>&1 || runtime=0
+    printf '  %-7s %-16s %-6s %s\n' PACK TAG BUILT CAPABILITIES
+    for p in $pi_pack_names; do
+      tag=$(pi_pack_tag "$p")
+      caps=$(pi_pack_caps "$p")
+      built=no
+      if [ "$runtime" = 0 ]; then
+        built='?'
+      elif json=$("$cli" image inspect "$tag" 2>/dev/null); then
+        built=yes
+        c=$(printf '%s\n' "$json" | pi_image_capabilities_from_json)
+        [ -z "$c" ] || caps=$c
+      fi
+      mark=' '
+      [ "$p" != "$pack" ] || mark='*'
+      printf '%s %-7s %-16s %-6s %s\n' "$mark" "$p" "$tag" "$built" "$caps"
+    done
+    printf '* the effective image (%s); build one with: %s/build.sh PACK\n' "$pack_source" "$here"
+    [ "$runtime" = 1 ] || echo "run.sh: '$cli' is not answering, so BUILT is unknown; run 'container system start'" >&2
+    exit 0
     ;;
 esac
 if [ "$egress" = 1 ]; then
@@ -197,22 +279,20 @@ if ! pi_port_valid "$port"; then
 fi
 
 # Offline egress only removes routes: the proxy refuses GitHub, sends model
-# calls only to the local upstream, and Pi gets no GitHub token.
-egress_mode=${PI_EGRESS:-normal}
-if ! pi_egress_valid "$egress_mode"; then
-  echo "run.sh: PI_EGRESS must be normal or offline" >&2
-  exit 2
-fi
+# calls only to model_url, and Pi gets no GitHub token.
 if [ "$egress_mode" = offline ]; then
   if [ "$manual" = 1 ] || [ "$egress" = 1 ]; then
-    echo "run.sh: PI_EGRESS=offline needs pi-proxy; --manual and --allow-egress have none" >&2
+    echo "run.sh: egress offline needs pi-proxy; --manual and --allow-egress have none (pass --egress standard)" >&2
     exit 2
   fi
-  if ! pi_offline_upstream_valid "${PI_PROXY_OPENROUTER_HOST:-}"; then
-    echo "run.sh: PI_EGRESS=offline needs PI_PROXY_OPENROUTER_HOST set to the local model server's private IPv4 address (spikes/inkling-2-mini/pi.sh sets it)" >&2
+  if [ -n "$clone" ]; then
+    echo "run.sh: egress offline has no GitHub route, so --clone cannot clone; mount a folder or pass --egress standard" >&2
     exit 2
   fi
-  upstream_env+=(-e PI_PROXY_EGRESS=offline)
+fi
+if [ "$egress" = 1 ] && [ "$model_url" != openrouter ]; then
+  echo "run.sh: --allow-egress calls openrouter.ai directly; model_url $model_url needs pi-proxy (pass --model-url openrouter)" >&2
+  exit 2
 fi
 
 # Path and permission helpers live in lib/paths.sh so the mount guard can be
@@ -231,14 +311,12 @@ require_jq() {
 }
 
 require_agent_image() {
-  local image=${PI_IMAGE:-pi-agent:local}
   "$cli" image inspect "$image" >/dev/null 2>&1 && return 0
   # Image inspect fails both when the image is missing and when the container
   # system is not running. Mention both instead of claiming the image is absent.
   echo "run.sh: cannot inspect image $image" >&2
   echo "run.sh: if 'container system start' has not run yet, start it first" >&2
-  echo "run.sh: otherwise build it from the repo root context, because the image compiles ../enforcer:" >&2
-  echo "  $(pi_build_hint "$cli" "$image" "$here")" >&2
+  echo "run.sh: otherwise build it: $(pi_pack_build_hint "$pack" "$here")" >&2
   exit 1
 }
 
@@ -273,8 +351,8 @@ cd "$d" && exec "$@"
 EOF
 }
 
-# check's enforcer probe. Only packs that list enforcer carry it (agent-min
-# does not); an image without capabilities is legacy and had it.
+# check's enforcer probe. Only packs that list enforcer carry it (min does
+# not); an image without capabilities is legacy and had it.
 enforcer_check_script() {
   cat <<'EOF'
 echo "== enforcer"
@@ -293,7 +371,7 @@ case ",${PI_CONTAINER_CAPABILITIES-enforcer}," in
     else
       echo "FAIL: enforcer did not allow a clean prompt"; s=1
     fi ;;
-  *) echo "not in this pack (build.sh agent or full has it)" ;;
+  *) echo "not in this pack (build.sh full has it)" ;;
 esac
 EOF
 }
@@ -473,7 +551,7 @@ ensure_nvim_mounts() {
 # Read the Pi version recorded at image build time. The sources and precedence
 # live in lib/inspect.sh and are pinned by fixtures.
 image_pi_version() {
-  local image=${PI_IMAGE:-pi-agent:local} json
+  local json
   json=$("$cli" image inspect "$image" 2>/dev/null) || return 1
   printf '%s\n' "$json" | pi_image_version_from_json
 }
@@ -481,7 +559,7 @@ image_pi_version() {
 # Capabilities let a pack fail clearly when it lacks the command a mode needs.
 # Legacy images have no metadata; treat them as full so they keep working.
 image_capabilities() {
-  local image=${PI_IMAGE:-pi-agent:local} json
+  local json
   json=$("$cli" image inspect "$image" 2>/dev/null) || return 1
   printf '%s\n' "$json" | pi_image_capabilities_from_json
 }
@@ -492,19 +570,18 @@ require_image_capability() { # capabilities, name
   case ",$caps," in
     *",$name,"*) return 0 ;;
   esac
-  echo "run.sh: image ${PI_IMAGE:-pi-agent:local} lacks capability '$name' (has: $caps)" >&2
+  echo "run.sh: image $image lacks capability '$name' (has: $caps)" >&2
   exit 1
 }
 
-# Instances are not bound to images: PI_IMAGE is a per-run choice and nothing
-# records it afterwards. Print the pairing before Pi takes the terminal, so the
-# pack in use is visible in the scrollback.
-announce_run() { # capabilities [mode]
-  local image=${PI_IMAGE:-pi-agent:local} pack mode=""
-  pack=$(pi_pack_for_tag "$image" 2>/dev/null || true)
-  [ -z "${2:-}" ] || mode=" mode=$2"
+# Instances are not bound to images: the image is a per-run choice and
+# nothing records it afterwards. Print the pairing before Pi takes the
+# terminal, so it is visible in the scrollback.
+announce_run() { # capabilities [route]
+  local route=""
+  [ -z "${2:-}" ] || route=" $2"
   printf 'run.sh: instance=%s image=%s pack=%s capabilities=%s%s\n' \
-    "$instance" "$image" "${pack:--}" "${1:--}" "$mode" >&2
+    "$instance" "$image" "$pack" "${1:--}" "$route" >&2
 }
 
 # Pi reads this file directly; edits on the Mac apply on the next launch.
@@ -607,6 +684,32 @@ add_zig_cache_args() { # project path
   key=$(printf '%s' "$source" | pi_sha256 | cut -c1-16)
   args+=(-e "ZIG_GLOBAL_CACHE_DIR=/root/.cache/zig"
     -e "ZIG_LOCAL_CACHE_DIR=/root/.cache/zig-local/$key")
+}
+
+# pi-proxy's model route from model_url, and the egress profile. gateway is
+# the default network's gateway: the Mac side of the container bridge.
+set_model_upstream() {
+  local hostport host port gw
+  upstream_env=()
+  if [ "$model_url" != openrouter ]; then
+    hostport=$(pi_model_url_split "$model_url")
+    host=${hostport% *}
+    port=${hostport#* }
+    if [ "$host" = gateway ]; then
+      gw=$("$cli" network inspect default 2>/dev/null | pi_network_gateway_from_json || true)
+      if ! valid_ip "$gw"; then
+        echo "run.sh: cannot resolve gateway in $model_url: the default container network reports no IPv4 gateway; run 'container system start'" >&2
+        exit 1
+      fi
+      host=$gw
+      if [ "$egress_mode" = offline ] && ! pi_offline_upstream_valid "$host"; then
+        echo "run.sh: gateway is $host, not a private IPv4 address; egress offline refuses it" >&2
+        exit 1
+      fi
+    fi
+    upstream_env+=(-e "PI_PROXY_MODEL_HOST=$host" -e "PI_PROXY_MODEL_PORT=$port")
+  fi
+  [ "$egress_mode" != offline ] || upstream_env+=(-e PI_PROXY_EGRESS=offline)
 }
 
 ensure_proxy() {
@@ -786,7 +889,7 @@ if [ "$manual" = 1 ]; then
   if [ -t 0 ] && [ -t 1 ]; then args+=(-t); fi
   announce_run "$(image_capabilities || true)"
   release_host_lock
-  exec "$cli" "${args[@]}" "${PI_IMAGE:-pi-agent:local}" "$@"
+  exec "$cli" "${args[@]}" "$image" "$@"
 fi
 
 require_jq
@@ -821,6 +924,7 @@ else
     proxy_ip_value="${proxy_ip_value%.*}.2"
   else
     ensure_network
+    set_model_upstream
     ensure_proxy
     if [ "${1:-}" = proxy ]; then
       release_host_lock
@@ -877,13 +981,14 @@ if [ -z "$fleet_state" ] && [ -t 0 ] && [ -t 1 ]; then args+=(-t); fi
 [ $# -gt 0 ] || set -- pi
 
 if [ "$1" = check ]; then
+  config_summary
   check_repo=${2:-$clone}
   case $check_repo in
     *.git) check_repo=${check_repo%.git} ;;
   esac
   read -r -d '' script <<'EOF' || true
 s=0
-mode=${2:-normal}
+mode=${2:-standard}
 echo "== egress"
 echo "mode $mode"
 # Ask pi-proxy itself, so check reports the profile it enforces.
@@ -1009,7 +1114,7 @@ set -- bash -c "$prep" prep "$@"
 if [ "$egress" != 1 ]; then
   set -- bash -c "$(pi_netlock_script)" netlock "$proxy_ip_value" "$port" "$@"
 fi
-mode=""
-if [ "$egress" = 1 ]; then mode=egress; elif [ "$egress_mode" = offline ]; then mode=offline; fi
-announce_run "$image_caps" "$mode"
-exec "$cli" "${args[@]}" "${PI_IMAGE:-pi-agent:local}" "$@"
+if [ "$egress" = 1 ]; then route="mode=allow-egress"
+else route="egress=$egress_mode model_url=$model_url"; fi
+announce_run "$image_caps" "$route"
+exec "$cli" "${args[@]}" "$image" "$@"

@@ -4,14 +4,14 @@ Run on macOS before calling a branch stable. A failure is a blocker; fix it on
 the branch, not `main`.
 
 **This test deletes** the E2E agent volume, the E2E profile's proxy and network,
-the E2E proxy image, the active `PI_IMAGE`, and the builder cache, plus E2E
+the E2E proxy image, `pi-full:local`, and the builder cache, plus E2E
 clone volumes during the scoped clone cleanup below. Other profiles'
 proxy/network resources, other instances' agent volumes, and other pack tags
 stay. Quit all Pi processes first and save sessions (`./clear.sh save --instance
 e2e`). The agent volume holds Pi's `auth.json`, models store, and user-installed
 skills/extensions; save custom skills too. Host config, the Neovim paths under
 `$PI_CONFIG_DIR`, and project files stay. Everything else rebuilds except the
-active image, which you rebuild by hand in Build and keys.
+agent image, which you rebuild by hand in Build and keys.
 
 ## Setup
 
@@ -31,12 +31,13 @@ unset PI_AGENT_VOLUME PI_SETTINGS_FILE PI_CLONE
 unset PI_NVIM_CONFIG PI_NVIM_DATA PI_NVIM_STATE PI_NVIM_CACHE
 unset PI_PROXY_NAME PI_NETWORK_NAME PI_PROXY_IMAGE PI_LOCKED_SUBNET
 cp ~/.config/pi-container/env "$PI_ENV_FILE"
+# no config.json: the profile starts on the defaults (full, standard, openrouter)
 # edit "$PI_ENV_FILE": set GITHUB_TOKEN to the test token
 chmod 600 "$PI_ENV_FILE"
 ```
 
 From the repo root, record: `git rev-parse HEAD`, `date`, and
-`container image inspect pi-agent:local | jq -r '.[0].configuration.descriptor.digest'`.
+`container image inspect pi-full:local | jq -r '.[0].configuration.descriptor.digest'`.
 
 ## Checklist
 
@@ -45,41 +46,43 @@ Run these from `pi-container/` unless noted.
 `test/mac-e2e.sh --repo "$owner/tan-toolchains-e2e" ci build auto` runs every
 check that needs no Pi TUI, in the profile that `PI_CONFIG_DIR` names. It
 prints one line per check and keeps a log for each. Run
-`cleanup --destroy` last: it deletes and then rebuilds `pi-agent:local`. Do
+`cleanup --destroy` last: it deletes and then rebuilds `pi-full:local`. Do
 the remaining checks by hand; the script lists them at the end.
 
 ### Build and keys
-- [ ] `./build.sh full`
-- [ ] `./build.sh agent`
-- [ ] `./build.sh agent-min` builds no Zig stage (the log has no `zig` or `enforcer` step).
-- [ ] `./build.sh zig`
-- [ ] `./build.sh editor`
-- [ ] `PI_IMAGE=pi-editor:local ./run.sh --manual sh -c 'nvim --version | head -n 1; zls --version; command -v enforcer; ! command -v pi; ! command -v gh'`
+- [ ] `./build.sh full`, `./build.sh min`, `./build.sh zig`, `./build.sh editor`.
+      The `min` build log has no `zig` or `enforcer` step.
+- [ ] `./build.sh` alone and `./build.sh agent` print usage / `unknown pack` and exit 2.
+- [ ] `./run.sh images` lists exactly `min full zig tools editor` with tags
+      `pi-<pack>:local`, `yes` for the four built, and `*` on `full`.
+- [ ] `./run.sh config` prints `image full (pi-full:local) default`,
+      `egress standard default`, `model_url openrouter default` and
+      `$PI_CONFIG_DIR/config.json (absent)`; `./run.sh --image min config --json | jq -c .source`
+      prints `{"image":"flag","egress":"default","model_url":"default"}`.
+- [ ] `echo '{"v":2}' > "$PI_CONFIG_DIR/config.json"; ./run.sh config` exits 2
+      naming the version; same for `{"v":1,"image":"agent"}` and
+      `{"v":1,"token":"x"}`. `rm "$PI_CONFIG_DIR/config.json"` after.
+- [ ] `./run.sh --manual --image editor sh -c 'nvim --version | head -n 1; zls --version; command -v enforcer; ! command -v pi; ! command -v gh'`
       reports the editor tools and confirms Pi/gh are absent.
 - [ ] `$PI_ENV_FILE` is mode 600/400; `private/proxy.env` and `pi.env` are
       filtered; no secret in logs.
-- [ ] `PI_IMAGE=pi-agent-zig:local ./run.sh --manual sh -c 'nvim --version | head -n 1; zls --version'`
+- [ ] `./run.sh --manual --image zig sh -c 'nvim --version | head -n 1; zls --version'`
       reports Neovim 0.12.6 and ZLS 0.17.0.
 - [ ] `./run.sh bash -c '! command -v zig && ! command -v nvim && ! command -v zls'`
       succeeds: the default image has none of them.
 - [ ] With an env file containing only `OPENROUTER_API_KEY`,
-      `PI_IMAGE=pi-agent-lite:local ./run.sh check "$owner/tan-toolchains-e2e"`
-      reports GitHub as skipped rather than failed.
-- [ ] `PI_IMAGE=pi-agent-lite:local ./run.sh bash -c 'command -v enforcer; pi --version; ! command -v gh; ! command -v zig'`
-      succeeds; `enforcer on` still writes into the instance's agent volume.
-- [ ] With the key-only env file,
-      `PI_IMAGE=pi-agent-min:local ./run.sh check "$owner/tan-toolchains-e2e"`
-      reports enforcer as not in this pack and no failure.
-- [ ] `PI_IMAGE=pi-agent-min:local ./run.sh bash -c 'pi --version && git --version && jq --version && rg --version && fd --version && ! command -v enforcer && ! command -v gh && ! command -v zig'`
+      `./run.sh --image min check "$owner/tan-toolchains-e2e"` reports GitHub
+      as skipped and enforcer as not in this pack, and no failure.
+- [ ] `./run.sh --image min bash -c 'pi --version && git --version && jq --version && rg --version && fd --version && ! command -v enforcer && ! command -v gh && ! command -v zig'`
       succeeds.
-- [ ] `container image list` shows `pi-agent-min:local` smaller than
-      `pi-agent-lite:local`.
+- [ ] `container image list` shows `pi-min:local` smaller than `pi-full:local`.
 
 ### First check
 - [ ] `./run.sh check "$owner/tan-toolchains-e2e"` builds the E2E profile's
       proxy and reports no failure.
-- [ ] It reports the Zig toolchain as not in this pack. With
-      `PI_IMAGE=pi-agent-zig:local` it reports Zig and zigpeek's docs source.
+- [ ] It starts with the config summary (`image full`, `egress standard`).
+- [ ] It reports the Zig toolchain as not in this pack. With `--image zig`
+      it reports Zig and zigpeek's docs source.
 - [ ] It reports `lastChangelogVersion` as current.
 - [ ] Direct internet is blocked (IPv4 and IPv6); GitHub and OpenRouter
       reachable; `example.com` refused.
@@ -97,33 +100,38 @@ the remaining checks by hand; the script lists them at the end.
 - [ ] `private/egress.env` is mode 600. The run creates no `pi-proxy` or
       `pi-locked` network and does not require one.
 - [ ] `./run.sh --allow-egress check`, `proxy`, `proxy-stop`, and `--manual`
-      are refused with status 2.
+      are refused with status 2, and so is
+      `./run.sh --allow-egress --model-url http://gateway:8090`.
 - [ ] `./run.sh --allow-egress` starts Pi, reaches OpenRouter, and reads and
       writes the mounted repo.
 - [ ] A session created in egress mode is visible to a normal `./run.sh` for
       the same instance, and `./run.sh check` still reports the placeholder and
       blocked direct egress afterwards.
 
-### Offline egress
-Use the Mac's container gateway as a stand-in upstream; nothing needs to
-listen there for the refusals. `gw` is
-`container network inspect default | jq -r '.[0].status.ipv4Gateway'`.
-- [ ] `PI_EGRESS=offline ./run.sh check` (no `PI_PROXY_OPENROUTER_HOST`) and
-      `PI_EGRESS=offline PI_PROXY_OPENROUTER_HOST=openrouter.ai ./run.sh check`
-      exit 2 before starting anything.
-- [ ] `PI_EGRESS=offline PI_PROXY_OPENROUTER_HOST=$gw PI_PROXY_OPENROUTER_PORT=8090 PI_PROXY_OPENROUTER_TLS=0 ./run.sh check`
-      recreates `pi-proxy` without a build, prints `mode offline`,
-      `pi-proxy enforces offline`, `no GitHub token in the VM`, and
-      `github.com refused by pi-proxy`; only the OpenRouter line fails unless
-      a model server listens on `$gw:8090`.
-- [ ] With the same variables,
-      `./run.sh sh -c 'env | grep -c GITHUB_TOKEN; curl -sS -m 10 -o /dev/null -w "%{http_connect}\n" https://github.com/'`
+### Offline + minimal image
+Needs `./build.sh min`. The refusal and routing checks need nothing on port
+8090; the last two need a local model server for containers on the gateway
+(OpenAI-compatible `/v1` and `/health` on port 8090).
+- [ ] `./run.sh --egress offline check` (model_url `openrouter`) and
+      `./run.sh --egress offline --model-url http://1.1.1.1:8090 check` exit 2
+      before starting anything.
+- [ ] `./run.sh --egress offline --clone "$owner/tan-toolchains-e2e"` and
+      `./run.sh --egress offline --manual` exit 2.
+- [ ] Write `{"v":1,"image":"min","egress":"offline","model_url":"http://gateway:8090"}`
+      to `$PI_CONFIG_DIR/config.json`. `./run.sh config` shows all three as `file`.
+- [ ] `./run.sh check` recreates `pi-proxy` without a build, prints the summary,
+      `mode offline`, `pi-proxy enforces offline`, `no GitHub token in the VM`,
+      `github.com refused by pi-proxy` and enforcer `not in this pack`; only the
+      OpenRouter line fails when nothing listens on the gateway's port 8090.
+- [ ] `./run.sh sh -c 'env | grep -c GITHUB_TOKEN; curl -sS -m 10 -o /dev/null -w "%{http_connect}\n" https://github.com/'`
       prints `0` and `403`, and `./run.sh proxy` shows `deny github.com`.
-- [ ] Plain `./run.sh check` afterwards recreates `pi-proxy` in normal mode
-      and passes the GitHub checks again.
-- [ ] With `spikes/inkling-2-mini/serve.sh pi` running,
-      `spikes/inkling-2-mini/pi.sh check` passes, and
-      `spikes/inkling-2-mini/pi.sh -p "say hi"` answers from the local model.
+      The run's stderr line shows `image=pi-min:local pack=min ... egress=offline model_url=http://gateway:8090`.
+- [ ] With the model server running, `./run.sh check` passes, and
+      `./run.sh pi -p "say hi"` answers from the local model.
+- [ ] `./run.sh proxy` never shows the real key; offline, the model server
+      gets only the placeholder key.
+- [ ] `rm "$PI_CONFIG_DIR/config.json"`; plain `./run.sh check` recreates
+      `pi-proxy` in standard mode and passes the GitHub checks again.
 
 ### Pi and instances
 - [ ] `./run.sh` starts Pi; `/model` works; `/quit` exits.
@@ -168,8 +176,8 @@ listen there for the refusals. `gw` is
 
 ### Neovim and ZLS
 
-Set `PI_IMAGE=pi-agent-zig:local` for this section and the two Zig sections
-below.
+Pass `--image zig` to every `run.sh` in this section and the two Zig
+sections below (or set `"image": "zig"` in `$PI_CONFIG_DIR/config.json`).
 
 - [ ] `./run.sh --manual` seeds `$PI_CONFIG_DIR/nvim/init.lua` and starts a shell.
 - [ ] From a Zig project on the host mount, `nvim src/main.zig`;
@@ -222,13 +230,13 @@ The product path: build in the container, run on the Mac.
 - [ ] Create a throwaway clone, then `./clear.sh nuke clones --instance e2e
       --yes` deletes only that instance's clone volumes.
 - [ ] `./clear.sh nuke all` deletes the E2E agent volume plus the E2E profile's
-      proxy and network, the E2E proxy image, the active `PI_IMAGE`, and builder
-      cache. It keeps other profiles' proxy/network resources, other agent
+      proxy and network, the E2E proxy image, `pi-full:local` (the effective
+      image), and builder cache. It keeps other profiles' proxy/network resources, other agent
       volumes, all clone volumes, and other pack tags.
 - [ ] `./clear.sh list` still shows any retained non-E2E instances.
 - [ ] `PI_CONFIG_DIR=$PI_CONFIG_DIR ./clear.sh nuke profile --yes` deletes the
       E2E profile's agent volumes, clone volumes, proxy, network, and proxy
-      image, and reports the shared `PI_IMAGE`, the builder cache, and other
+      image, and reports the shared agent image, the builder cache, and other
       profiles as kept. Other profiles still run without a rebuild.
 - [ ] After `nuke all`, `./clear.sh nuke agent --yes` still deletes a leftover
       agent volume in another profile and prints that the backup was skipped
@@ -256,8 +264,9 @@ The product path: build in the container, run on the Mac.
 
 ### Fleet node
 
-Not here: fleet (`pic serve`, `pi-ctr`) has its own checklist,
-[fleet/docs/macos.md step 8](../fleet/docs/macos.md#8-verify-before-relying-on-it).
+Fleet (`pic serve`, `pi-ctr`) has its own checklist,
+[fleet/docs/macos.md step 8](../fleet/docs/macos.md#8-verify-before-relying-on-it),
+including a scratch session on `offline` and `min`.
 
 ### Sign-off
 - [ ] All checks pass.

@@ -106,6 +106,11 @@ pi_network_has_subnet() { # subnet
   ' >/dev/null 2>&1
 }
 
+# A network's IPv4 gateway: the Mac's side of it. Empty when absent.
+pi_network_gateway_from_json() {
+  jq -r '.[0]? | .status?.ipv4Gateway? | select(type == "string")' 2>/dev/null
+}
+
 # Value of a label in a volume inspect payload. Empty when the key is absent.
 pi_volume_label_from_json() { # key
   jq -r --arg key "$1" '

@@ -14,8 +14,7 @@ network, port, and OpenRouter key stay shared.
 `PI_CONFIG_DIR` selects a profile. The default is `~/.config/pi-container`;
 another directory gets its own settings, env file, proxy, host-only network,
 subnet, proxy image, agent volumes, and clone volumes. The active image and
-builder cache stay machine-wide; pack tags can be built and selected with
-`PI_IMAGE`.
+builder cache stay machine-wide; each profile's `config.json` picks its image.
 
 ```bash
 alias pic=/path/to/pi-container/run.sh
@@ -69,7 +68,7 @@ another profile may have removed.
 `nuke clones` deletes the selected instance's clone volumes in the current
 profile, scoped by volume labels. `nuke all` deletes the selected instance's
 agent volume plus this profile's proxy and network, this profile's proxy image,
-the active `PI_IMAGE`, and the builder cache. It keeps other profiles'
+the active image (`--image`, else `config.json`, else `pi-full:local`), and the builder cache. It keeps other profiles'
 proxy/network resources, other agent volumes, all clone volumes, and other pack
 tags. The active image is machine-wide, so other profiles using it still need to
 rebuild. It does not delete the Neovim host paths under `$PI_CONFIG_DIR`
@@ -77,7 +76,7 @@ rebuild. It does not delete the Neovim host paths under `$PI_CONFIG_DIR`
 the active pack:
 
 ```bash
-./build.sh full          # or the pack matching PI_IMAGE
+./build.sh full          # or the pack your config.json names
 ```
 
 ## Rebuilding from scratch
@@ -112,14 +111,14 @@ Run from `pi-container/`, with every `pic` and `pic serve` stopped.
    ```bash
    ./clear.sh nuke profile --yes
    ./clear.sh nuke all --yes
-   container image list                         # other pack tags, e.g. pi-agent-lite:local, stay; delete them by hand
+   container image list                         # other pack tags, e.g. pi-min:local, stay; delete them by hand
    ```
 4. Drop the seeded settings so the next start writes them for the new Pi
    version and default model, then rebuild and check:
 
    ```bash
    rm ~/.config/pi-container/settings.json      # only if you have not edited it; otherwise update lastChangelogVersion
-   ./build.sh                                   # or the pack you use
+   ./build.sh full                              # or the pack you use
    ./build.sh fleet                             # if you run pic serve
    ./run.sh check you/your-repo                 # "settings lastChangelogVersion is current"
    ```
