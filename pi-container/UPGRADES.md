@@ -75,7 +75,7 @@ binaries run on macOS and do not use its network.
   JSON. Exact expectations are inline, so re-recording does not rewrite them,
   and a changed shape should fail a smoke test instead of a run.
 - Image packs are built manually with `./build.sh PACK`; CI does not build
-  Dockerfile targets. The `agent` and `editor` packs deliberately omit `gh`, so
+  Dockerfile targets. The `agent-min`, `agent` and `editor` packs deliberately omit `gh`, so
   a `check` with `GITHUB_TOKEN` set fails on those images instead of silently
   skipping GitHub.
 - Add a shellcheck step once the existing warnings are triaged; it is not

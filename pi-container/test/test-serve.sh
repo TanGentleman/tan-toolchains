@@ -90,6 +90,8 @@ reset; image ""; serve --check
 refuses "image without capability metadata" "predates the egress lock"
 reset; image netlock; serve --check
 refuses "image without Pi" "lacks capability 'pi'"
+reset; image netlock,pi; serve --check
+eq 0 "$(st)" "an image without enforcer (agent-min) passes: $(out)"
 reset; printf 'OPENROUTER_API_KEY=sk-or-v1-placeholder\nGITHUB_TOKEN=x\n' > "$cfg/env"; serve --check
 refuses "placeholder key" "set OPENROUTER_API_KEY in $cfg/env"
 reset; printf 'OPENROUTER_API_KEY=sk-or-v1-real\n' > "$cfg/env"; serve --check

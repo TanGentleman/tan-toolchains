@@ -13,7 +13,7 @@ Commands run from `pi-container/` unless noted.
 | --- | --- | --- |
 | Image | `pi-agent:local` = `full` pack: Pi, `gh`, enforcer | Zig, zigpeek, Neovim and ZLS are opt-in (`zig` pack); most repos do not need them. |
 | OpenRouter key | Required for normal Pi and `proxy` | The proxy needs the real key for the agent. |
-| GitHub token | Optional | Pi can work on a mounted repo, and `agent`/`editor` packs have no `gh`. |
+| GitHub token | Optional | Pi can work on a mounted repo, and the `agent-min`, `agent` and `editor` packs have no `gh`. |
 | Pi hook | Installed but disabled | `enforcer on` is per instance; no prompt is blocked by surprise. |
 | Agent state | Per instance, in a volume | Sessions and extensions survive restarts and stay isolated. |
 | Settings | Shared per profile, read-only | Pi cannot persist preference or install changes. |
@@ -22,7 +22,7 @@ Commands run from `pi-container/` unless noted.
 | Pack capability check | Refuse missing `pi` in normal mode | A clear error beats a container that cannot start its command. |
 | Egress lock | On in normal mode, `check`, and `--fleet-state` | `pi-locked` alone reaches the Mac and Tailscale's resolver. See the [network boundary](../../README.md#network-boundary). |
 | `nuke all` image scope | The active `PI_IMAGE` only | Other pack tags are not deleted implicitly. |
-| Build context | Repo root | Every image compiles `../enforcer`; the Zig packs also `../zigpeek`. |
+| Build context | Repo root | Every pack but `agent-min` compiles `../enforcer`; the Zig packs also `../zigpeek`. |
 
 ## Host env file
 
@@ -91,14 +91,16 @@ the repo root context and tags it. `PI_IMAGE` selects the image at runtime.
 
 | Pack | Tag | Contents |
 | --- | --- | --- |
+| `agent-min` | `pi-agent-min:local` | Pi, git, jq, ripgrep, fd; no enforcer, no `gh` |
 | `agent` | `pi-agent-lite:local` | Pi, enforcer, git, jq, ripgrep, fd; no `gh` |
 | `full` | `pi-agent:local` | agent + `gh`; default |
 | `zig` | `pi-agent-zig:local` | full + Zig, zigpeek and its Pi skill, Neovim, ZLS |
 | `tools` | `pi-tools:local` | Zig, zigpeek, enforcer, git, jq, ripgrep, fd; no Pi |
 | `editor` | `pi-editor:local` | tools + Neovim + ZLS |
 
-Only `zig`, `tools` and `editor` contain Zig, Neovim or ZLS. Every pack has
-enforcer; the build compiles it with Zig in a builder stage.
+Only `zig`, `tools` and `editor` contain Zig, Neovim or ZLS. Every pack but
+`agent-min` has enforcer; the build compiles it in the Zig builder stage, so
+`agent-min` is the only pack whose build never waits for Zig.
 
 `./build.sh` alone builds `full`; `./build.sh all` builds every pack.
 
@@ -127,12 +129,15 @@ a FAIL instead):
 | Mode | Needs |
 | --- | --- |
 | normal Pi, `--fleet-state` | `pi`, `netlock` (iptables for the egress lock) |
-| `check` | `pi`, `netlock`, `enforcer`; `gh` when `GITHUB_TOKEN` is set |
+| `check` | `pi`, `netlock`; `gh` when `GITHUB_TOKEN` is set |
 | `pic serve --check` | `pi`, `netlock`, and capability metadata |
 
-`check` tests Zig and zigpeek only in an image that lists `zig`. An image with
-no metadata is a legacy full image: it has no iptables, so the lock fails in
-the VM and says to rebuild. `agent` is for tokenless runs.
+`check` tests Zig and zigpeek only in an image that lists `zig`, and enforcer
+only in an image that lists `enforcer`. An image with no metadata is a legacy
+full image: it has no iptables, so the lock fails in the VM and says to
+rebuild. `agent` is for tokenless runs; `agent-min` also drops enforcer.
+`pi-ctr` scans staged changes with enforcer when the image has it, and always
+with its own GitHub token patterns, which include enforcer's `ghp_`.
 
 ## Flags
 
@@ -145,7 +150,7 @@ the VM and says to rebuild. `agent` is for tokenless runs.
 | `--manual [CMD]` | Open a shell without Pi or the proxy. See [Manual mode](manual.md). |
 | `--allow-egress` | Run Pi or `COMMAND` on the default network with the real OpenRouter key. See [Egress mode](egress.md). |
 | `COMMAND [ARG...]` | Run inside the normal Pi container instead of `pi`; for example, `run.sh bash`. |
-| `check [O/R]` | Check keys, the proxy, GitHub when a token is present, the egress lock, and enforcer. |
+| `check [O/R]` | Check keys, the proxy, GitHub when a token is present, the egress lock, and enforcer when the image lists it. |
 | `proxy` | Follow the profile's proxy logs. |
 | `proxy-stop` | Stop the profile's proxy. |
 | `--help` | Print usage. |

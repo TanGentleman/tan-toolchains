@@ -8,16 +8,19 @@ here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 
 eq tools "$(pi_pack_target tools)" "tools target"
 eq editor "$(pi_pack_target editor)" "editor target"
+eq agent-min "$(pi_pack_target agent-min)" "agent-min target"
 eq agent "$(pi_pack_target agent)" "agent target"
 eq full-zig "$(pi_pack_target zig)" "zig target"
 eq full "$(pi_pack_target full)" "full target"
 eq pi-tools:local "$(pi_pack_tag tools)" "tools tag"
 eq pi-editor:local "$(pi_pack_tag editor)" "editor tag"
+eq pi-agent-min:local "$(pi_pack_tag agent-min)" "agent-min tag"
 eq pi-agent-lite:local "$(pi_pack_tag agent)" "agent tag"
 eq pi-agent-zig:local "$(pi_pack_tag zig)" "zig tag"
 eq pi-agent:local "$(pi_pack_tag full)" "full tag"
-eq "tools editor agent full zig" "$pi_pack_names" "all pack names"
+eq "tools editor agent-min agent full zig" "$pi_pack_names" "all pack names"
 eq tools "$(pi_pack_for_tag pi-tools:local)" "tools tag maps back to pack"
+eq agent-min "$(pi_pack_for_tag pi-agent-min:local)" "agent-min tag maps back to pack"
 eq agent "$(pi_pack_for_tag pi-agent-lite:local)" "agent tag maps back to pack"
 eq full "$(pi_pack_for_tag pi-agent:local)" "full tag maps back to pack"
 eq zig "$(pi_pack_for_tag pi-agent-zig:local)" "zig tag maps back to pack"
@@ -26,6 +29,7 @@ rc 1 "unknown target rejected" pi_pack_target nope
 rc 1 "unknown tag rejected" pi_pack_tag nope
 rc 1 "unknown tag has no pack" pi_pack_for_tag nope:local
 contains '--target agent' "$(pi_build_hint container pi-agent-lite:local /repo)" "build hint preserves pack target"
+contains '--target agent-min' "$(pi_build_hint container pi-agent-min:local /repo)" "build hint preserves the agent-min target"
 not_contains '--target' "$(pi_build_hint container custom:local /repo)" "unknown tag uses the default final stage"
 rc 0 "build help needs no container" env CONTAINER_CLI=missing-container bash "$root/build.sh" --help
 rc 2 "unknown pack rejected" env CONTAINER_CLI=true bash "$root/build.sh" nope
@@ -53,7 +57,52 @@ for t in tools full-zig; do
   contains "skills/zigpeek" "$(stage_body "$t")" "$t stage has the zigpeek skill"
 done
 contains 'PI_CONTAINER_CAPABILITIES="enforcer,netlock,pi,gh"' "$(stage_body agent-gh)" "full capabilities have no zig"
-eq 5 "$(for p in $pi_pack_names; do pi_pack_tag "$p"; done | sort -u | wc -l | tr -d ' ')" "pack tags are unique"
+eq 6 "$(for p in $pi_pack_names; do pi_pack_tag "$p"; done | sort -u | wc -l | tr -d ' ')" "pack tags are unique"
+
+# A target's stage chain: itself, then each FROM parent that is a stage.
+stage_parent() { awk -v t="$1" '/^FROM /{ if ($NF == t) print $2 }' "$root/Dockerfile"; }
+stage_chain() {
+  local t=$1
+  while grep -q "^FROM .* AS $t$" "$root/Dockerfile"; do
+    printf '%s\n' "$t"
+    t=$(stage_parent "$t")
+  done
+}
+chain_body() { local t; for t in $(stage_chain "$1"); do stage_body "$t"; done; }
+# The nearest PI_CONTAINER_CAPABILITIES in the chain is what the image records.
+chain_caps() { chain_body "$1" | sed -n 's/.*PI_CONTAINER_CAPABILITIES="\([^"]*\)".*/\1/p' | head -n 1; }
+
+eq "agent-min base" "$(stage_chain agent-min | tr '\n' ' ' | sed 's/ $//')" "agent-min is built FROM base only"
+min=$(chain_body agent-min)
+not_contains "COPY --from" "$min" "agent-min copies from no other stage, so it never waits for the zig stage"
+not_contains "enforcer" "$min" "agent-min has no enforcer"
+not_contains " gh" "$min" "agent-min has no gh"
+not_contains "/opt/zig" "$min" "agent-min has no Zig"
+contains "pi-coding-agent@" "$min" "agent-min installs Pi"
+for tool in git jq ripgrep fd-find iptables curl; do
+  contains " $tool " "$min" "agent-min has $tool"
+done
+eq "netlock,pi" "$(chain_caps agent-min)" "agent-min capabilities"
+contains "COPY --from=zig /usr/local/bin/enforcer" "$(chain_body agent)" "agent still copies enforcer from the zig stage"
+
+# Capabilities match contents for every pack.
+for p in $pi_pack_names; do
+  t=$(pi_pack_target "$p")
+  body=$(chain_body "$t")
+  caps=",$(chain_caps "$t"),"
+  has_cap() { case $caps in *",$1,"*) return 0 ;; esac; return 1; }
+  has_body() { printf '%s' "$body" | grep -qF -- "$1"; }
+  for pair in "enforcer|/usr/local/bin/enforcer" "pi|pi-coding-agent@" "gh|install -y --no-install-recommends gh" \
+              "zig|/opt/zig /opt/zig" "netlock|iptables" "nvim|/opt/nvim-linux-arm64 /opt/nvim-linux-arm64" "zls|/opt/zls /opt/zls"; do
+    cap=${pair%%|*} needle=${pair#*|}
+    if has_cap "$cap"; then
+      has_body "$needle" && pass || fail "$p lists $cap but does not install it"
+    else
+      has_body "$needle" && fail "$p installs $cap but does not list it" || pass
+    fi
+  done
+done
+
 stages=" $(awk '/^FROM /{for(i=1;i<=NF;i++) if($i=="AS") print $(i+1)}' "$root/Dockerfile" | tr '\n' ' ') "
 for ref in $(sed -n 's/.*COPY --from=\([^ ]*\).*/\1/p' "$root/Dockerfile" | sort -u); do
   case $stages in

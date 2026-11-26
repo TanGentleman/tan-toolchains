@@ -251,6 +251,31 @@ cd "$d" && exec "$@"
 EOF
 }
 
+# check's enforcer probe. Only packs that list enforcer carry it (agent-min
+# does not); an image without capabilities is legacy and had it.
+enforcer_check_script() {
+  cat <<'EOF'
+echo "== enforcer"
+case ",${PI_CONTAINER_CAPABILITIES-enforcer}," in
+  *,enforcer,*)
+    if ! command -v enforcer >/dev/null 2>&1; then
+      echo "FAIL: enforcer is missing from the image"; s=1
+    elif printf '{"prompt":"hello"}' | enforcer hook >/dev/null 2>&1; then
+      code=0
+      printf '{"prompt":"ghp_abc"}' | enforcer hook >/dev/null 2>&1 || code=$?
+      if [ "$code" = 2 ]; then
+        echo "enforcer is installed and blocks ghp_"
+      else
+        echo "FAIL: enforcer did not block a GitHub token (exit $code)"; s=1
+      fi
+    else
+      echo "FAIL: enforcer did not allow a clean prompt"; s=1
+    fi ;;
+  *) echo "not in this pack (build.sh agent or full has it)" ;;
+esac
+EOF
+}
+
 acquire_host_lock() { pi_acquire_lock "$lock_dir" run.sh; }
 release_host_lock() { pi_release_lock "$lock_dir"; }
 
@@ -755,9 +780,6 @@ if [ "${1:-}" != proxy ]; then
   require_image_capability "$image_caps" pi
   # The egress lock needs iptables in the image; egress mode has no lock.
   [ "$egress" = 1 ] || require_image_capability "$image_caps" netlock
-  if [ "${1:-}" = check ]; then
-    require_image_capability "$image_caps" enforcer
-  fi
 fi
 acquire_host_lock
 write_pi_env
@@ -893,20 +915,6 @@ case ",${PI_CONTAINER_CAPABILITIES-zig,zigpeek}," in
     esac ;;
   *) echo "not in this pack (build.sh zig adds it)" ;;
 esac
-echo "== enforcer"
-if ! command -v enforcer >/dev/null 2>&1; then
-  echo "FAIL: enforcer is missing from the image"; s=1
-elif printf '{"prompt":"hello"}' | enforcer hook >/dev/null 2>&1; then
-  code=0
-  printf '{"prompt":"ghp_abc"}' | enforcer hook >/dev/null 2>&1 || code=$?
-  if [ "$code" = 2 ]; then
-    echo "enforcer is installed and blocks ghp_"
-  else
-    echo "FAIL: enforcer did not block a GitHub token (exit $code)"; s=1
-  fi
-else
-  echo "FAIL: enforcer did not allow a clean prompt"; s=1
-fi
 echo "== other sites"
 if curl -fsS -m 15 -o /dev/null https://example.com; then
   echo "FAIL: example.com was reachable"; s=1
@@ -932,6 +940,7 @@ if [ "$code443" != 000 ]; then
   echo "FAIL: the container reached the internet directly (HTTPS $code443)"; s=1
 else echo "direct TLS connection failed"; fi
 EOF
+  script="$script"$'\n'"$(enforcer_check_script)"
   # The lock's own checks (capabilities, DNS) end the script with exit $s.
   script="$script"$'\n'"$(pi_lock_check_script)"
   set -- bash -c "$script" check "$check_repo"
