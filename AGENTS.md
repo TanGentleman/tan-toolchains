@@ -17,8 +17,8 @@ Read `README.md`, `pi-container/README.md` and the docs under
   owners on the tailnet. Protocol rules live in `fleet/core` as pure
   functions; read `fleet/README.md` first.
 
-Do not merge or tag before `pi-container/E2E.md` and `fleet/docs/macos.md` step 8
-pass on macOS.
+Do not merge or tag before `pi-container/E2E.md` (through its Release
+section) and `fleet/docs/macos.md` step 8 pass on macOS.
 
 ## Commands
 

@@ -1,7 +1,7 @@
 # Configuration
 
 Source of truth for user-facing `pi-container` configuration. When adding a
-flag, config key, environment variable, generated file, pack, or build
+flag, environment variable, generated file, pack, or build
 argument, update this file, `run.sh --help` / `clear.sh help`, and the tests
 in the same change. Commands run from `pi-container/`.
 
@@ -284,9 +284,10 @@ to the container when set on the host.
 | `CONTAINER_CLI` | `container` | CLI used by `run.sh`, `clear.sh`, `build.sh`, and `record-fixtures.sh`. |
 
 Internal, not settings: `PI_SOURCE_ONLY`, `PI_SKIP_HOST_SETUP`,
-`PI_SKIP_PROXY_IP` and `PI_CTR_BIN` are test hooks; `PI_PROXY_*` inside the
-proxy container and `PI_CTR_*` inside a fleet turn are set by `run.sh` and
-`pi-ctr`. Do not set them for normal runs.
+`PI_SKIP_PROXY_IP` and fleetd's `FLEET_PI_CTR_BIN` are test hooks;
+`PI_PROXY_*` inside the proxy container, `PI_CLONE_SOURCE` inside an offline
+clone, and `PI_CTR_*` inside a fleet turn are set by `run.sh` and `pi-ctr`. Do
+not set them for normal runs.
 
 ## Image build arguments
 
