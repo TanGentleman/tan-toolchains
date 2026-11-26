@@ -63,9 +63,5 @@ check runs: [fleet/docs/macos.md, step 8](../../fleet/docs/macos.md#8-verify-bef
 through the tailnet URL, checked with git. `fleet/e2e/pi-ctr.sh` runs it in
 CI against a fake Pi and a local bare repo.
 
-`test/release.sh` runs the release gate in [E2E.md](../E2E.md#release) and
-writes `release.json`. `PI_RELEASE_DIR` (default `/Users/Shared/pi-release`)
-moves its records; `test-release.sh` covers the redaction, the gate, the
-proxy-log check, the report, the status line, the fleet, tester and account
-argument checks, and, with fake `dscl`, `id`, `ps` and `sudo`, the refusals
-that keep `tester` from deleting an account it did not make.
+A release follows [E2E.md, Release](../E2E.md#release): `mac-e2e.sh`,
+`fleet-e2e.sh` and the by-hand checks, then a tag.

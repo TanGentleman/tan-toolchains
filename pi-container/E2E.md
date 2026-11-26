@@ -275,34 +275,19 @@ including a scratch session on `offline` and `min`.
 
 ## Release
 
-A release is an annotated tag `vX.Y.Z` on a commit that passed this checklist
-and fleet step 8, with `release.json` attached to its GitHub release.
-`test/release.sh` keeps each stage's redacted record in
-`/Users/Shared/pi-release/<sha>/`; run it with no stage to see what passed and
-what is next.
+A release is an annotated tag `vX.Y.Z` on a commit that passed this
+checklist and fleet step 8 on a Mac. On a clean checkout of that commit:
 
-Push the candidate, wait for CI, run `./build.sh fleet` and restart
-`pic serve`. R is the throwaway repo (Setup above); FILE is a mode-600 env
-file with its token. Run `fleet` with the `PI_CONFIG_DIR` (or `PI_ENV_FILE`)
-`pic serve` uses: it takes that profile's token and proxy, and fails if
-fleetd runs with another.
-
-| Where | Command | By hand |
-|---|---|---|
-| Main account, `pic serve` up | `test/release.sh fleet --repo R` | scratch, kill -9, restart, Ctrl-C |
-| Main account, `pic serve` stopped | `test/release.sh tester NAME --env FILE --repo R` | nothing |
-| Logged in as NAME | `~/tan-toolchains/pi-container/test/release.sh account` | the TUI checks |
-| Main account | `test/release.sh report`, then `publish vX.Y.Z --push` | nothing |
-
-- `tester` replaces NAME only if it made it, NAME is a standard account, and
-  nothing runs as it.
-- `account` skips stages that passed. After a failure outside the code, fix
-  it and rerun; if `fresh` fails after setup, rerun `tester`. A code fix is a
-  new SHA: start again from `fleet`.
-- `publish` uses your own git and `gh` credentials and prints the command
-  that deletes NAME.
-
-The gate stays closed on any FAIL or skip, a missing stage, red CI or another
-SHA. It also needs `fresh`, `verify` and `manual` in that order in one
-standard account made by `tester`, `fleet` from another account, and a
-fleetd built from the SHA.
+1. Push it and wait for CI to pass on that SHA.
+2. `./build.sh fleet`, then restart `pic serve`.
+3. `test/mac-e2e.sh --repo R ci build auto`, then the by-hand checks it
+   lists, then `cleanup --destroy`.
+4. [Fleet step 8](../fleet/docs/macos.md#8-verify-before-relying-on-it):
+   `test/fleet-e2e.sh R` with `pic serve` up, then its by-hand checks.
+5. Create a new standard macOS account and log in as it. Follow the README
+   setup from scratch, then run `test/mac-e2e.sh --repo R ci build auto`
+   there. This catches setup steps that only work in an account that is
+   already set up, such as Homebrew missing from `PATH`. Delete the account
+   afterwards.
+6. `git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`. Note anything
+   skipped and why in the tag message.

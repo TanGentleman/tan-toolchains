@@ -172,7 +172,7 @@ REPO=you/fleet-e2e
 **Scripted.** With `pic serve` up:
 
 ```sh
-./test/fleet-e2e.sh $REPO     # a release runs it as: test/release.sh fleet --repo $REPO
+./test/fleet-e2e.sh $REPO
 ```
 
 Set `PI_CONFIG_DIR` (or `PI_ENV_FILE`) as for `pic serve`: the token comes
@@ -191,9 +191,10 @@ env file's token. Each line is a blocker:
 - refusals: a workflow change and a token-shaped string in a file are `push refused`, branch
   unchanged. If Pi declined to run the command, rerun.
 
-`release.sh fleet` adds: fleetd was built from the commit, the key is not in
-its environment, it listens on loopback only, and during the turns the proxy
-saw only OpenRouter and GitHub and refused nothing.
+Then check by hand that fleetd listens on loopback only
+(`lsof -nP -iTCP -sTCP:LISTEN | grep fleetd` shows `127.0.0.1`), that
+`pic serve` was restarted after `./build.sh fleet` on this commit, and that
+`pic proxy` showed only OpenRouter and GitHub during the turns, with no `deny`.
 
 **By hand.**
 
