@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""OpenAI-compatible gateway in front of mlx_lm.server for Inkling 2 Mini.
+"""OpenAI-compatible gateway in front of a local model server (the backend).
 
-mlx_lm.server returns Inkling's message markup as plain content. This turns it
-into reasoning_content, content and tool_calls, maps reasoning effort to the
-chat template, and logs one JSON line per request (no prompt or reply text).
+It accepts OpenRouter paths (/api/v1/...), drops OpenRouter-only fields, and
+logs one JSON line per request (no prompt or reply text). --parser inkling
+turns Inkling's message markup, which mlx_lm.server returns as plain content,
+into reasoning_content, content and tool_calls, and maps reasoning effort to
+the chat template; --parser none passes replies through.
 Each line carries Pi's session id (x-session-id, which Pi sends to OpenRouter)
 so overlapping runs can tell their requests apart. Stdlib only."""
 import argparse
@@ -100,7 +102,20 @@ class Parser:
         })
 
 
-def rewrite(body):
+class Plain:
+    """--parser none: content passes through as it is."""
+
+    def feed(self, text):
+        return [("content", text)] if text else []
+
+    def flush(self):
+        return []
+
+
+PARSERS = {"inkling": Parser, "none": Plain}
+
+
+def rewrite(body, parser, upstream_model):
     effort = body.pop("reasoning_effort", None)
     reasoning = body.pop("reasoning", None)
     if isinstance(reasoning, dict):
@@ -108,13 +123,20 @@ def rewrite(body):
     for k in DROP:
         body.pop(k, None)
     if effort in EFFORTS:
-        body.setdefault("chat_template_kwargs", {}).setdefault("reasoning_effort", effort)
-    body["model"] = "default_model"
+        if parser == "inkling":
+            body.setdefault("chat_template_kwargs", {}).setdefault("reasoning_effort", effort)
+        else:
+            body["reasoning_effort"] = effort
+    if upstream_model:
+        body["model"] = upstream_model
     return effort
 
 
 class Handler(BaseHTTPRequestHandler):
     upstream = ("127.0.0.1", 8091)
+    upstream_model = None  # the backend's name for the model it serves
+    parser = "none"
+    model_name = "local"
     log_file = None
 
     def log_message(self, *a):
@@ -147,9 +169,9 @@ class Handler(BaseHTTPRequestHandler):
             self._json(200 if ok else 503, {"status": "ok" if ok else "loading"})
         elif path == "/v1/models":
             self._json(200, {"object": "list", "data": [
-                {"id": "thinkingmachines/inkling-2-mini", "object": "model", "owned_by": "local"}]})
+                {"id": self.model_name, "object": "model", "owned_by": "local"}]})
         elif path == "/v1/key":
-            self._json(200, {"data": {"label": "local-inkling-2-mini"}})
+            self._json(200, {"data": {"label": "local-" + self.model_name}})
         else:
             self._json(404, {"error": {"message": f"no route {path}"}})
 
@@ -159,10 +181,10 @@ class Handler(BaseHTTPRequestHandler):
             return self._json(404, {"error": {"message": f"no route {path}"}})
         t0 = time.monotonic()
         body = json.loads(self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}")
-        model = body.get("model") or "thinkingmachines/inkling-2-mini"
+        model = body.get("model") or self.model_name
         stream = bool(body.get("stream"))
         rec = {"ts": time.time(), "model": model, "stream": stream,
-               "effort": rewrite(body), "messages": len(body.get("messages", [])),
+               "effort": rewrite(body, self.parser, self.upstream_model), "messages": len(body.get("messages", [])),
                "tools": len(body.get("tools") or [])}
         session = self.headers.get("x-session-id", "")
         if SESSION.match(session):
@@ -175,7 +197,7 @@ class Handler(BaseHTTPRequestHandler):
         except OSError as e:
             rec.update(status=502, error=str(e))
             self._record(rec)
-            return self._json(502, {"error": {"message": f"mlx_lm.server: {e}"}})
+            return self._json(502, {"error": {"message": f"backend: {e}"}})
         rec["status"] = resp.status
         if resp.status != 200:
             data = resp.read()
@@ -197,6 +219,10 @@ class Handler(BaseHTTPRequestHandler):
         data = json.loads(resp.read())
         data["model"] = model
         for choice in data.get("choices", []):
+            if self.parser == "none":
+                calls = choice.get("message", {}).get("tool_calls") or []
+                rec.update(finish=choice.get("finish_reason"), tool_calls=len(calls))
+                continue
             msg = choice.get("message", {})
             p = Parser()
             events = p.feed(msg.get("content") or "") + p.flush()
@@ -220,7 +246,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Cache-Control", "no-cache")
         self.send_header("Connection", "close")
         self.end_headers()
-        p, n_calls, sent_role = Parser(), 0, False
+        p, n_calls, sent_role = PARSERS[self.parser](), 0, False
         rec.update(reasoning_chars=0, content_chars=0)
         cid, created = "chatcmpl-" + uuid.uuid4().hex[:24], int(time.time())
 
@@ -262,12 +288,12 @@ class Handler(BaseHTTPRequestHandler):
             usage = chunk.get("usage") or usage
             for choice in chunk.get("choices", []):
                 delta = choice.get("delta") or {}
-                # Non-Inkling models: mlx_lm.server parses these itself.
+                # Tool calls and reasoning the backend parsed itself.
                 for tc in delta.get("tool_calls") or []:
                     send({"tool_calls": [{**tc, "index": n_calls + tc.get("index", 0)}]})
                     upstream_calls.add(tc.get("index", 0))
-                if delta.get("reasoning"):
-                    emit([("reasoning", delta["reasoning"])])
+                if delta.get("reasoning_content") or delta.get("reasoning"):
+                    emit([("reasoning", delta.get("reasoning_content") or delta["reasoning"])])
                 emit(p.feed(delta.get("content") or ""))
                 finish = choice.get("finish_reason") or finish
         emit(p.flush())
@@ -278,7 +304,7 @@ class Handler(BaseHTTPRequestHandler):
         rec.update(finish=finish, tool_calls=n_calls, usage=usage)
 
 
-def check(base):
+def check(base, model):
     """Smoke test against a running gateway."""
     def post(body):
         c = http.client.HTTPConnection(base.split("//")[1], timeout=600)
@@ -298,17 +324,17 @@ def check(base):
         except OSError:
             pass
         if time.monotonic() - t > 600:
-            sys.exit("gateway or mlx_lm.server not up after 600s")
+            sys.exit("gateway or backend not up after 600s")
         time.sleep(2)
     print(f"ready      {time.monotonic() - t:5.1f}s")
     t = time.monotonic()
-    r = post({"model": "thinkingmachines/inkling-2-mini", "reasoning_effort": "low", "tools": [tool],
+    r = post({"model": model, "reasoning_effort": "low", "tools": [tool],
               "messages": [{"role": "user", "content": "What's the weather in Paris? Use the tool."}]})
     msg = json.loads(r.read())["choices"][0]["message"]
     calls = msg.get("tool_calls") or []
     print(f"tool call  {time.monotonic() - t:5.1f}s  {'ok' if calls else 'FAIL'}  {[c['function'] for c in calls] or msg}")
     t = time.monotonic()
-    r = post({"model": "thinkingmachines/inkling-2-mini", "stream": True, "reasoning_effort": "none",
+    r = post({"model": model, "stream": True, "reasoning_effort": "none",
               "max_tokens": 512, "messages": [{"role": "user", "content": "Say hello in five words."}]})
     text, reasoning, finish = "", 0, None
     for line in r:
@@ -325,14 +351,18 @@ def check(base):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--listen", action="append", help="HOST:PORT, repeatable (default 127.0.0.1:8090)")
-    ap.add_argument("--upstream", default="127.0.0.1:8091")
+    ap.add_argument("--upstream", default="127.0.0.1:8091", help="the backend, HOST:PORT")
+    ap.add_argument("--upstream-model", help="model name to send the backend")
+    ap.add_argument("--parser", choices=sorted(PARSERS), default="none")
+    ap.add_argument("--model-name", default="local", help="name in /v1/models and replies")
     ap.add_argument("--log")
     ap.add_argument("--check", metavar="URL")
     a = ap.parse_args()
     if a.check:
-        return check(a.check)
+        return check(a.check, a.model_name)
     uh, up = a.upstream.rsplit(":", 1)
     Handler.upstream, Handler.log_file = (uh, int(up)), a.log
+    Handler.upstream_model, Handler.parser, Handler.model_name = a.upstream_model, a.parser, a.model_name
     first, *rest = [(h, int(p)) for h, p in (x.rsplit(":", 1) for x in a.listen or ["127.0.0.1:8090"])]
     for addr in rest:
         threading.Thread(target=serve, args=(addr, a.upstream), daemon=True).start()
@@ -353,7 +383,7 @@ def serve(addr, upstream):
                 print(f"gateway waiting for {addr[0]} (appears when a container starts)", file=sys.stderr, flush=True)
                 waiting = True
             time.sleep(1)
-    print(f"gateway on http://{addr[0]}:{addr[1]}/v1 -> mlx_lm.server {upstream}", file=sys.stderr, flush=True)
+    print(f"gateway on http://{addr[0]}:{addr[1]}/v1 -> backend {upstream}", file=sys.stderr, flush=True)
     srv.serve_forever()
 
 

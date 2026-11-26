@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Offline evals: Pi, behind pi.sh, does a small task in a fresh folder; the
-files it leaves are checked on the host. Model calls go only to the local
-gateway. Stdlib only.
+"""Offline evals: Pi, in pi-container with offline egress, does a small task in
+a fresh folder; the files it leaves are checked on the host. Model calls go
+only to the local gateway. Tasks run one at a time. Stdlib only.
 
 Task file (evals/*.json), "v": 1:
   {"v": 1, "id": "sort-names", "prompt": "...", "timeout_s": 900,
@@ -12,15 +12,10 @@ Checks only read files; nothing Pi writes is run on the host.
 
 Each run writes <out>/<run>/{work/, pi.jsonl, pi.log, result.json}; result.json
 is "v": 1 (see RESULT_KEYS). Its "requests" are the gateway log lines that carry
-the session id from Pi's first pi.jsonl line; a run without one falls back to
-its time window, and only when no other run overlaps it.
+the session id from Pi's first pi.jsonl line, else those in its time window.
 
---jobs N runs up to N tasks at once. "{instance}" in PI_COMMAND becomes the
-worker's slot, eval-1..eval-N, so each running task has its own container.
-
-  eval.py [TASK.json ...] --out DIR --requests-log FILE [--model REPO@REV] [--jobs N] -- PI_COMMAND..."""
+  eval.py [TASK.json ...] --out DIR --requests-log FILE [--model REPO@REV] -- PI_COMMAND..."""
 import argparse
-import concurrent.futures
 import datetime
 import hashlib
 import json
@@ -29,7 +24,6 @@ import re
 import signal
 import subprocess
 import sys
-import threading
 import time
 
 V = 1
@@ -38,8 +32,6 @@ TASK_KEYS = {"v", "id", "prompt", "timeout_s", "files", "checks"}
 RESULT_KEYS = ("v", "task", "task_sha256", "started", "ok", "exit_code", "timed_out",
                "seconds", "model", "requests", "checks")
 ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
-MAX_JOBS = 8
-_running, _lock = set(), threading.Lock()
 
 
 class TaskError(ValueError):
@@ -170,12 +162,10 @@ def pi_session(run):
     return None
 
 
-def run_records(records, since, until, session, exclusive):
-    """This run's requests: by session id, else by time window if no run overlapped."""
+def run_records(records, since, until, session):
+    """This run's requests: by session id, else by time window."""
     if session:
         return [r for r in records if r.get("session") == session and r.get("ts", 0) >= since]
-    if not exclusive:
-        return []
     return [r for r in records if since <= r.get("ts", 0) <= until]
 
 
@@ -202,13 +192,11 @@ def new_run_dir(out_dir, started, task_id):
             run = f"{base}-{n}"
 
 
-def run_task(t, pi_cmd, out_dir, requests_log, model, instance="eval-1", exclusive=lambda: True):
-    """exclusive() tells, after the run, whether no other run overlapped it."""
+def run_task(t, pi_cmd, out_dir, requests_log, model):
     started = datetime.datetime.now(datetime.timezone.utc)
     run = new_run_dir(out_dir, started, t["id"])
     work = os.path.join(run, "work")
     os.makedirs(work)
-    pi_cmd = [a.replace("{instance}", instance) for a in pi_cmd]
     for p, text in t["files"].items():
         os.makedirs(os.path.dirname(os.path.join(work, p)), exist_ok=True)
         with open(os.path.join(work, p), "w") as f:
@@ -218,16 +206,14 @@ def run_task(t, pi_cmd, out_dir, requests_log, model, instance="eval-1", exclusi
     with open(os.path.join(run, "pi.jsonl"), "wb") as so, open(os.path.join(run, "pi.log"), "wb") as se:
         p = subprocess.Popen(pi_cmd, cwd=work, stdin=subprocess.PIPE, stdout=so, stderr=se,
                              start_new_session=True)
-        with _lock:
-            _running.add(p)
         try:
             p.communicate(t["prompt"].encode(), timeout=t["timeout_s"])
         except subprocess.TimeoutExpired:
             timed_out = True
             stop(p)
-        finally:
-            with _lock:
-                _running.discard(p)
+        except KeyboardInterrupt:
+            stop(p)
+            raise
     wall1 = time.time()
     checks = []
     for c in t["checks"]:
@@ -240,7 +226,7 @@ def run_task(t, pi_cmd, out_dir, requests_log, model, instance="eval-1", exclusi
         "exit_code": p.returncode, "timed_out": timed_out,
         "seconds": round(time.monotonic() - t0, 1), "model": model,
         "requests": gateway_requests(run_records(read_log(requests_log), wall0, wall1,
-                                                 pi_session(run), exclusive())),
+                                                 pi_session(run))),
         "checks": checks,
     }
     with open(os.path.join(run, "result.json"), "w") as f:
@@ -250,7 +236,7 @@ def run_task(t, pi_cmd, out_dir, requests_log, model, instance="eval-1", exclusi
 
 
 def stop(p):
-    """SIGTERM the process group (pi.sh, run.sh, container), then SIGKILL after 30 s."""
+    """SIGTERM the process group (run.sh, container), then SIGKILL after 30 s."""
     try:
         os.killpg(p.pid, signal.SIGTERM)
         p.wait(30)
@@ -261,54 +247,14 @@ def stop(p):
         pass
 
 
-def stop_all():
-    with _lock:
-        procs = list(_running)
-    threads = [threading.Thread(target=stop, args=(p,)) for p in procs]
-    for th in threads:
-        th.start()
-    for th in threads:
-        th.join()
-
-
-def run_all(tasks, pi_cmd, out_dir, requests_log, model, jobs=1, done=None):
-    """Run tasks with up to `jobs` at once; done(task, run, result) as each ends.
-    Returns [(run, result)] in task order. Ctrl-C stops every running task."""
-    slots = [f"eval-{i}" for i in range(jobs, 0, -1)]
-    active, overlapped, results = set(), set(), [None] * len(tasks)
-
-    def one(i):
-        with _lock:
-            slot = slots.pop()
-            if active:
-                overlapped.add(i)
-                overlapped.update(active)
-            active.add(i)
-
-        def exclusive():
-            with _lock:
-                active.discard(i)
-                return i not in overlapped
-        try:
-            run, r = run_task(tasks[i], pi_cmd, out_dir, requests_log, model, slot, exclusive)
-        finally:
-            with _lock:
-                active.discard(i)
-                slots.append(slot)
-        results[i] = (run, r)
+def run_all(tasks, pi_cmd, out_dir, requests_log, model, done=None):
+    """Run tasks one at a time; done(task, run, result) as each ends."""
+    results = []
+    for t in tasks:
+        run, r = run_task(t, pi_cmd, out_dir, requests_log, model)
+        results.append((run, r))
         if done:
-            with _lock:
-                done(tasks[i], run, r)
-
-    ex = concurrent.futures.ThreadPoolExecutor(max_workers=jobs)
-    try:
-        for f in [ex.submit(one, i) for i in range(len(tasks))]:
-            f.result()
-    except KeyboardInterrupt:
-        ex.shutdown(wait=False, cancel_futures=True)
-        stop_all()
-        raise
-    ex.shutdown()
+            done(t, run, r)
     return results
 
 
@@ -330,12 +276,7 @@ def parse_args(ap, argv):
     if "--" not in argv or argv.index("--") == len(argv) - 1:
         ap.error("needs -- PI_COMMAND...; the prompt goes on its stdin")
     i = argv.index("--")
-    a, pi = ap.parse_args(argv[:i]), argv[i + 1:]
-    if not 1 <= a.jobs <= MAX_JOBS:
-        ap.error(f"--jobs must be in 1..{MAX_JOBS}")
-    if a.jobs > 1 and not any("{instance}" in x for x in pi):
-        ap.error("--jobs > 1 needs {instance} in PI_COMMAND so each task gets its own container")
-    return a, pi
+    return ap.parse_args(argv[:i]), argv[i + 1:]
 
 
 def load_tasks(paths, here):
@@ -349,18 +290,17 @@ def load_tasks(paths, here):
 
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
-    ap = argparse.ArgumentParser(description="Run offline eval tasks through pi.sh.")
+    ap = argparse.ArgumentParser(description="Run offline eval tasks with Pi.")
     ap.add_argument("tasks", nargs="*", help="task files (default: evals/*.json)")
     ap.add_argument("--out", required=True, help="directory for runs")
     ap.add_argument("--requests-log", required=True, help="gateway requests.jsonl")
     ap.add_argument("--model", default="", help="repo@revision, recorded in result.json")
-    ap.add_argument("--jobs", type=int, default=1, help=f"tasks at once, 1..{MAX_JOBS} (default 1)")
     a, pi = parse_args(ap, sys.argv[1:])
     tasks = load_tasks(a.tasks, here)
     repo, _, rev = a.model.partition("@")
     try:
         results = run_all(tasks, pi, a.out, a.requests_log, {"repo": repo, "revision": rev},
-                          a.jobs, print_result)
+                          print_result)
     except KeyboardInterrupt:
         sys.exit(130)
     sys.exit(0 if all(r["ok"] for _, r in results) else 1)
