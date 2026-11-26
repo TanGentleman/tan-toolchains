@@ -86,11 +86,43 @@ events), `pi.log` and `result.json`. Exit status 0 means every task passed.
 Model calls go only to this Mac. `pi-proxy` still tunnels GitHub, but the
 tasks don't need it.
 
+`--jobs N` (1 to 8) runs up to N tasks at once. Each running task has its
+own Pi container (`pi.sh --instance eval-1` .. `eval-N`, 2 GB each unless
+`PI_MEMORY` is set) and its own run folder. A task's `requests` in
+`result.json` are the gateway log lines with its Pi session id (Pi sends it
+as `x-session-id`; the gateway logs it as `session`). If Pi's output has no
+session id, the task counts its time window, and counts nothing when another
+task ran at the same time. Set `INKLING_DECODE_CONCURRENCY` to at least N
+(see Memory), or requests above that wait at the model.
+
+```sh
+$S/eval.sh --jobs 2
+```
+
 Task files and `result.json` carry `"v": 1`. `eval.py` refuses unknown keys,
 other versions, and paths that are absolute or contain `..`. It reads no file
 through a symlink. Check types: `file_equals` (ignores surrounding
 whitespace), `file_contains`, `file_matches` (regex, multiline),
 `file_unchanged` (same as the seeded file).
+
+## 5b. Benchmark
+
+`bench.sh` runs the eval set (twice per level, `--repeat`) at `--jobs 1`,
+then 2, then 4, against the `serve.sh` that is running. For each level it
+prints tasks/hour, prompt, output and total tokens, and the median time to
+first token (p50 TTFT) of that level's requests. It writes everything to
+`$HOME/.local/share/inkling-2-mini/bench/<time>/` (`bench.json`, `"v": 1`,
+and the run folders under `jobs-N/`). Levels above serve.sh's decode
+concurrency only queue at the model, so start serve.sh for the highest level:
+
+```sh
+INKLING_DECODE_CONCURRENCY=4 $S/serve.sh pi     # terminal 1
+$S/bench.sh                                     # terminal 2; or --jobs 1,2 --repeat 1
+```
+
+Pick the level with the most tasks/hour that does not swap (watch Activity
+Monitor's memory pressure), then use it for `INKLING_DECODE_CONCURRENCY` and
+`eval.sh --jobs`.
 
 ## 6. Back to OpenRouter
 
@@ -108,8 +140,27 @@ again.
 
 ## Memory
 
-About 17.3 GB of weights plus up to 4 GB of prompt cache, 4 GB for the Pi VM (`PI_MEMORY`) and 1 GB for
-the proxy: close to 30 GB. Use `PI_MEMORY=2G $S/pi.sh` if the Mac swaps.
+`serve.sh` reads these when it starts (restart it to change them):
+
+| Variable | Default | `mlx_lm.server` flag |
+|---|---|---|
+| `INKLING_DECODE_CONCURRENCY` | 2 | `--decode-concurrency`: requests decoded as one batch |
+| `INKLING_PROMPT_CONCURRENCY` | 1 | `--prompt-concurrency`: prompts prefilled as one batch |
+| `INKLING_PROMPT_CACHE_SIZE` | 4 | `--prompt-cache-size`: cached prompts kept |
+| `INKLING_PROMPT_CACHE_GB` | 4 | `--prompt-cache-bytes`: cap for the cache and the active batch |
+
+Defaults for a 30 GB Mac: 17.3 GB of weights, up to 4 GB of prompt cache and
+batch, two eval VMs at 2 GB, 1 GB for the proxy: about 26 GB, which leaves
+some for macOS. Two decodes at once cost little memory beyond the cache cap,
+and keep two tasks moving. Prefill stays at 1: a batched prefill holds two
+long prompts in memory at once, and it is not measured yet (try
+`INKLING_PROMPT_CONCURRENCY=2` with `bench.sh`). Four cache entries hold
+two prompts for each of two Pi sessions, so the next turn of each only
+prefills its new messages.
+
+At `--jobs 4` the VMs alone take 8 GB (about 30 GB in all); use
+`PI_MEMORY=1G` if the Mac swaps. Interactive `pi.sh` keeps its 4 GB VM:
+`PI_MEMORY=2G $S/pi.sh` if the Mac swaps.
 
 ## Try it with a small model first
 

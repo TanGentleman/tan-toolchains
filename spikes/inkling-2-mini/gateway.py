@@ -4,11 +4,13 @@
 mlx_lm.server returns Inkling's message markup as plain content. This turns it
 into reasoning_content, content and tool_calls, maps reasoning effort to the
 chat template, and logs one JSON line per request (no prompt or reply text).
-Stdlib only."""
+Each line carries Pi's session id (x-session-id, which Pi sends to OpenRouter)
+so overlapping runs can tell their requests apart. Stdlib only."""
 import argparse
 import errno
 import http.client
 import json
+import re
 import sys
 import threading
 import time
@@ -18,6 +20,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 MSG, END, BODY = "<|message_model|>", "<|end_message|>", "<|content_"
 EOS = "<|content_model_end_sampling|>"
 EFFORTS = {"none", "minimal", "low", "medium", "high", "xhigh", "max"}
+SESSION = re.compile(r"^[A-Za-z0-9._:-]{1,128}$")
 DROP = ("provider", "transforms", "models", "route", "usage", "plugins")
 
 
@@ -161,6 +164,9 @@ class Handler(BaseHTTPRequestHandler):
         rec = {"ts": time.time(), "model": model, "stream": stream,
                "effort": rewrite(body), "messages": len(body.get("messages", [])),
                "tools": len(body.get("tools") or [])}
+        session = self.headers.get("x-session-id", "")
+        if SESSION.match(session):
+            rec["session"] = session
         try:
             conn = http.client.HTTPConnection(*self.upstream, timeout=1800)
             conn.request("POST", "/v1/chat/completions", json.dumps(body),

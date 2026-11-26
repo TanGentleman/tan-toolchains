@@ -11,10 +11,16 @@ Check types: file_equals, file_contains, file_matches (regex), file_unchanged.
 Checks only read files; nothing Pi writes is run on the host.
 
 Each run writes <out>/<run>/{work/, pi.jsonl, pi.log, result.json}; result.json
-is "v": 1 (see RESULT_KEYS).
+is "v": 1 (see RESULT_KEYS). Its "requests" are the gateway log lines that carry
+the session id from Pi's first pi.jsonl line; a run without one falls back to
+its time window, and only when no other run overlaps it.
 
-  eval.py [TASK.json ...] --out DIR --requests-log FILE [--model REPO@REV] -- PI_COMMAND..."""
+--jobs N runs up to N tasks at once. "{instance}" in PI_COMMAND becomes the
+worker's slot, eval-1..eval-N, so each running task has its own container.
+
+  eval.py [TASK.json ...] --out DIR --requests-log FILE [--model REPO@REV] [--jobs N] -- PI_COMMAND..."""
 import argparse
+import concurrent.futures
 import datetime
 import hashlib
 import json
@@ -23,6 +29,7 @@ import re
 import signal
 import subprocess
 import sys
+import threading
 import time
 
 V = 1
@@ -31,6 +38,8 @@ TASK_KEYS = {"v", "id", "prompt", "timeout_s", "files", "checks"}
 RESULT_KEYS = ("v", "task", "task_sha256", "started", "ok", "exit_code", "timed_out",
                "seconds", "model", "requests", "checks")
 ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
+MAX_JOBS = 8
+_running, _lock = set(), threading.Lock()
 
 
 class TaskError(ValueError):
@@ -127,20 +136,52 @@ def run_check(c, work, files):
     return ok, "" if ok else f"got {got[:200]!r}"
 
 
-def gateway_requests(log, since):
-    out = {"count": 0, "errors": 0, "prompt_tokens": 0, "completion_tokens": 0}
+def read_log(log):
+    """Gateway log records (dicts); unreadable lines are skipped."""
     try:
         with open(log) as f:
             lines = f.readlines()
     except OSError:
-        return out
+        return []
+    out = []
     for line in lines:
         try:
             r = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if not isinstance(r, dict) or r.get("ts", 0) < since:
-            continue
+        if isinstance(r, dict) and isinstance(r.get("ts", 0), (int, float)):
+            out.append(r)
+    return out
+
+
+def pi_session(run):
+    """Session id from Pi's JSON-mode header line, or None."""
+    try:
+        with open(os.path.join(run, "pi.jsonl"), errors="replace") as f:
+            for _, line in zip(range(20), f):
+                try:
+                    e = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(e, dict) and e.get("type") == "session" and isinstance(e.get("id"), str):
+                    return e["id"]
+    except OSError:
+        pass
+    return None
+
+
+def run_records(records, since, until, session, exclusive):
+    """This run's requests: by session id, else by time window if no run overlapped."""
+    if session:
+        return [r for r in records if r.get("session") == session and r.get("ts", 0) >= since]
+    if not exclusive:
+        return []
+    return [r for r in records if since <= r.get("ts", 0) <= until]
+
+
+def gateway_requests(records):
+    out = {"count": 0, "errors": 0, "prompt_tokens": 0, "completion_tokens": 0}
+    for r in records:
         out["count"] += 1
         out["errors"] += r.get("status") != 200 or "error" in r
         u = r.get("usage") or {}
@@ -149,11 +190,25 @@ def gateway_requests(log, since):
     return out
 
 
-def run_task(t, pi_cmd, out_dir, requests_log, model):
+def new_run_dir(out_dir, started, task_id):
+    base = os.path.join(out_dir, started.strftime("%Y%m%dT%H%M%SZ") + "-" + task_id)
+    run, n = base, 1
+    while True:
+        try:
+            os.makedirs(run)
+            return run
+        except FileExistsError:
+            n += 1
+            run = f"{base}-{n}"
+
+
+def run_task(t, pi_cmd, out_dir, requests_log, model, instance="eval-1", exclusive=lambda: True):
+    """exclusive() tells, after the run, whether no other run overlapped it."""
     started = datetime.datetime.now(datetime.timezone.utc)
-    run = os.path.join(out_dir, started.strftime("%Y%m%dT%H%M%SZ") + "-" + t["id"])
+    run = new_run_dir(out_dir, started, t["id"])
     work = os.path.join(run, "work")
     os.makedirs(work)
+    pi_cmd = [a.replace("{instance}", instance) for a in pi_cmd]
     for p, text in t["files"].items():
         os.makedirs(os.path.dirname(os.path.join(work, p)), exist_ok=True)
         with open(os.path.join(work, p), "w") as f:
@@ -163,16 +218,17 @@ def run_task(t, pi_cmd, out_dir, requests_log, model):
     with open(os.path.join(run, "pi.jsonl"), "wb") as so, open(os.path.join(run, "pi.log"), "wb") as se:
         p = subprocess.Popen(pi_cmd, cwd=work, stdin=subprocess.PIPE, stdout=so, stderr=se,
                              start_new_session=True)
+        with _lock:
+            _running.add(p)
         try:
             p.communicate(t["prompt"].encode(), timeout=t["timeout_s"])
         except subprocess.TimeoutExpired:
             timed_out = True
-            os.killpg(p.pid, signal.SIGTERM)
-            try:
-                p.wait(30)
-            except subprocess.TimeoutExpired:
-                os.killpg(p.pid, signal.SIGKILL)
-                p.wait()
+            stop(p)
+        finally:
+            with _lock:
+                _running.discard(p)
+    wall1 = time.time()
     checks = []
     for c in t["checks"]:
         ok, detail = run_check(c, work, t["files"])
@@ -183,12 +239,112 @@ def run_task(t, pi_cmd, out_dir, requests_log, model):
         "ok": p.returncode == 0 and not timed_out and all(c["ok"] for c in checks),
         "exit_code": p.returncode, "timed_out": timed_out,
         "seconds": round(time.monotonic() - t0, 1), "model": model,
-        "requests": gateway_requests(requests_log, wall0), "checks": checks,
+        "requests": gateway_requests(run_records(read_log(requests_log), wall0, wall1,
+                                                 pi_session(run), exclusive())),
+        "checks": checks,
     }
     with open(os.path.join(run, "result.json"), "w") as f:
         json.dump(result, f, indent=2)
         f.write("\n")
     return run, result
+
+
+def stop(p):
+    """SIGTERM the process group (pi.sh, run.sh, container), then SIGKILL after 30 s."""
+    try:
+        os.killpg(p.pid, signal.SIGTERM)
+        p.wait(30)
+    except subprocess.TimeoutExpired:
+        os.killpg(p.pid, signal.SIGKILL)
+        p.wait()
+    except ProcessLookupError:
+        pass
+
+
+def stop_all():
+    with _lock:
+        procs = list(_running)
+    threads = [threading.Thread(target=stop, args=(p,)) for p in procs]
+    for th in threads:
+        th.start()
+    for th in threads:
+        th.join()
+
+
+def run_all(tasks, pi_cmd, out_dir, requests_log, model, jobs=1, done=None):
+    """Run tasks with up to `jobs` at once; done(task, run, result) as each ends.
+    Returns [(run, result)] in task order. Ctrl-C stops every running task."""
+    slots = [f"eval-{i}" for i in range(jobs, 0, -1)]
+    active, overlapped, results = set(), set(), [None] * len(tasks)
+
+    def one(i):
+        with _lock:
+            slot = slots.pop()
+            if active:
+                overlapped.add(i)
+                overlapped.update(active)
+            active.add(i)
+
+        def exclusive():
+            with _lock:
+                active.discard(i)
+                return i not in overlapped
+        try:
+            run, r = run_task(tasks[i], pi_cmd, out_dir, requests_log, model, slot, exclusive)
+        finally:
+            with _lock:
+                active.discard(i)
+                slots.append(slot)
+        results[i] = (run, r)
+        if done:
+            with _lock:
+                done(tasks[i], run, r)
+
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=jobs)
+    try:
+        for f in [ex.submit(one, i) for i in range(len(tasks))]:
+            f.result()
+    except KeyboardInterrupt:
+        ex.shutdown(wait=False, cancel_futures=True)
+        stop_all()
+        raise
+    ex.shutdown()
+    return results
+
+
+def print_result(t, run, r):
+    why = "timeout" if r["timed_out"] else f"exit {r['exit_code']}" if r["exit_code"] else \
+        "; ".join(f"{c['path']}: {c['type']} {c['detail']}" for c in r["checks"] if not c["ok"])
+    n = r["requests"]
+    print(f"{t['id']:<16} {r['seconds']:6.1f}s  {'ok' if r['ok'] else 'FAIL'}  "
+          f"{n['count']} requests, {n['completion_tokens']} tokens out  {why}".rstrip())
+    if r["exit_code"]:
+        with open(os.path.join(run, "pi.log"), errors="replace") as f:
+            for line in f.read().splitlines()[-5:]:
+                print(f"{'':<16} pi.log: {line}")
+    print(f"{'':<16} {run}/result.json", flush=True)
+
+
+def parse_args(ap, argv):
+    """argparse for the part before --; returns (args, PI_COMMAND)."""
+    if "--" not in argv or argv.index("--") == len(argv) - 1:
+        ap.error("needs -- PI_COMMAND...; the prompt goes on its stdin")
+    i = argv.index("--")
+    a, pi = ap.parse_args(argv[:i]), argv[i + 1:]
+    if not 1 <= a.jobs <= MAX_JOBS:
+        ap.error(f"--jobs must be in 1..{MAX_JOBS}")
+    if a.jobs > 1 and not any("{instance}" in x for x in pi):
+        ap.error("--jobs > 1 needs {instance} in PI_COMMAND so each task gets its own container")
+    return a, pi
+
+
+def load_tasks(paths, here):
+    paths = paths or sorted(os.path.join(here, "evals", f)
+                            for f in os.listdir(os.path.join(here, "evals")) if f.endswith(".json"))
+    try:
+        return [load_task(p) for p in paths]
+    except (OSError, TaskError) as e:
+        sys.exit(f"eval: {e}")
 
 
 def main():
@@ -198,33 +354,16 @@ def main():
     ap.add_argument("--out", required=True, help="directory for runs")
     ap.add_argument("--requests-log", required=True, help="gateway requests.jsonl")
     ap.add_argument("--model", default="", help="repo@revision, recorded in result.json")
-    argv = sys.argv[1:]
-    if "--" not in argv or argv.index("--") == len(argv) - 1:
-        ap.error("needs -- PI_COMMAND...; the prompt goes on its stdin")
-    i = argv.index("--")
-    a, pi = ap.parse_args(argv[:i]), argv[i + 1:]
-    paths = a.tasks or sorted(os.path.join(here, "evals", f)
-                              for f in os.listdir(os.path.join(here, "evals")) if f.endswith(".json"))
-    try:
-        tasks = [load_task(p) for p in paths]
-    except (OSError, TaskError) as e:
-        sys.exit(f"eval: {e}")
+    ap.add_argument("--jobs", type=int, default=1, help=f"tasks at once, 1..{MAX_JOBS} (default 1)")
+    a, pi = parse_args(ap, sys.argv[1:])
+    tasks = load_tasks(a.tasks, here)
     repo, _, rev = a.model.partition("@")
-    failed = 0
-    for t in tasks:
-        run, r = run_task(t, pi, a.out, a.requests_log, {"repo": repo, "revision": rev})
-        why = "timeout" if r["timed_out"] else f"exit {r['exit_code']}" if r["exit_code"] else \
-            "; ".join(f"{c['path']}: {c['type']} {c['detail']}" for c in r["checks"] if not c["ok"])
-        n = r["requests"]
-        print(f"{t['id']:<16} {r['seconds']:6.1f}s  {'ok' if r['ok'] else 'FAIL'}  "
-              f"{n['count']} requests, {n['completion_tokens']} tokens out  {why}".rstrip())
-        if r["exit_code"]:
-            with open(os.path.join(run, "pi.log"), errors="replace") as f:
-                for line in f.read().splitlines()[-5:]:
-                    print(f"{'':<16} pi.log: {line}")
-        print(f"{'':<16} {run}/result.json")
-        failed += not r["ok"]
-    sys.exit(1 if failed else 0)
+    try:
+        results = run_all(tasks, pi, a.out, a.requests_log, {"repo": repo, "revision": rev},
+                          a.jobs, print_result)
+    except KeyboardInterrupt:
+        sys.exit(130)
+    sys.exit(0 if all(r["ok"] for _, r in results) else 1)
 
 
 if __name__ == "__main__":
