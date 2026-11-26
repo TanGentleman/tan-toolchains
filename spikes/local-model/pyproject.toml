@@ -1,9 +1,9 @@
 [project]
-name = "inkling-2-mini-spike"
+name = "local-model-spike"
 version = "0"
 requires-python = "==3.12.*"
 dependencies = [
-    # Inkling 2 Mini support is ml-explore/mlx-lm#2086, not yet in a release.
+    # mlx-lm backend. Inkling 2 Mini support is ml-explore/mlx-lm#2086, not yet in a release.
     "mlx-lm @ git+https://github.com/ml-explore/mlx-lm.git@e2b5bbd3bd9d186dea895e60802aa765e70b9d93",
     "huggingface-hub",
 ]

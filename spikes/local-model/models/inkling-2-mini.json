@@ -1,0 +1,15 @@
+{
+  "v": 1,
+  "backend": "mlx-lm",
+  "weights": {
+    "repo": "mlx-community/Inkling-2-Mini-4bit",
+    "revision": "9c0e2960609ba7cb40daf92c6f7bf8ed56e1dd62",
+    "exclude": [".eval_results/*"]
+  },
+  "parser": "inkling",
+  "server_args": [
+    "--temp", "1.0", "--top-p", "0.95", "--top-k", "20", "--max-tokens", "32768",
+    "--decode-concurrency", "2", "--prompt-concurrency", "1",
+    "--prompt-cache-size", "4", "--prompt-cache-bytes", "4294967296"
+  ]
+}
