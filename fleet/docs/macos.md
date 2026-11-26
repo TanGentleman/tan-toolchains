@@ -231,8 +231,9 @@ pic serve --check                # ok config: image min, egress offline ...; no 
 **Optional.** With a second tailnet login, `$URL` answers 403 from a device
 logged in as it. And each of these makes `pic serve --check` print a `FAIL`
 line (restore each after): Tailscale logged out, HTTPS certificates off,
-`container system stop`, `chmod 644` on the env file, `GITHUB_TOKEN`
-removed, `OPENROUTER_API_KEY=x pic serve --check`.
+`container system stop`, `chmod 644` on the env file,
+`OPENROUTER_API_KEY=x pic serve --check`. With `GITHUB_TOKEN` removed it
+prints a `warn` line and still passes: scratch chats need no token.
 
 | Where | Checks | Needs |
 |---|---|---|

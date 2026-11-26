@@ -7,10 +7,11 @@
 # certificates on), the node's config (run.sh config: PI_IMAGE, PI_EGRESS and
 # PI_MODEL_URL from this shell, else the defaults; every turn uses it), the
 # container system, that image (with Pi and the egress lock, as run.sh
-# requires for a turn), the env file (mode 600 or 400, real OpenRouter key,
-# and GITHUB_TOKEN unless egress is offline), that this shell does not hold
-# the real key, the fleetd binary and the port. If any check fails it prints
-# all of them and refuses to start. --check stops after the checks.
+# requires for a turn), the env file (mode 600 or 400, real OpenRouter key),
+# that this shell does not hold the real key, the fleetd binary and the port.
+# If any check fails it prints all of them and refuses to start. A missing
+# GITHUB_TOKEN is a warning: scratch chats need none, repo sessions do.
+# --check stops after the checks.
 #
 # Then it runs fleetd and a foreground `tailscale serve --https=443` in front
 # of it. Ctrl-C, or either one exiting, stops both, and the serve config goes
@@ -48,6 +49,7 @@ done
 bad=0
 ok() { printf 'ok    %s\n' "$*" >&2; }
 no() { printf 'FAIL  %s\n' "$*" >&2; bad=1; }
+warn() { printf 'warn  %s\n' "$*" >&2; }
 
 dns="" login="" host=""
 if ! ts=$(tailscale status --json 2>/dev/null) || ! jq -e . >/dev/null 2>&1 <<<"$ts"; then
@@ -115,7 +117,7 @@ else
   else no "set OPENROUTER_API_KEY in $env_file"; fi
   if [ "$token" = false ]; then ok "egress $egress: turns get no GitHub token"
   elif grep -q '^GITHUB_TOKEN=.' "$env_file"; then ok "GITHUB_TOKEN is in $env_file"
-  else no "set GITHUB_TOKEN in $env_file: a fine-grained token, selected repos, Contents read and write only"; fi
+  else warn "no GITHUB_TOKEN in $env_file: scratch chats only; repo sessions need a fine-grained token (selected repos, Contents read and write)"; fi
 fi
 case ${OPENROUTER_API_KEY:-} in
   ''|"$placeholder") ok "fleetd will not hold the OpenRouter key" ;;

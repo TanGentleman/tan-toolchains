@@ -113,7 +113,9 @@ contains "egress offline, model_url http://gateway:8090" "$(out)" "offline confi
 reset; printf 'OPENROUTER_API_KEY=sk-or-v1-placeholder\nGITHUB_TOKEN=x\n' > "$cfg/env"; serve --check
 refuses "placeholder key" "set OPENROUTER_API_KEY in $cfg/env"
 reset; printf 'OPENROUTER_API_KEY=sk-or-v1-real\n' > "$cfg/env"; serve --check
-refuses "no GitHub token" "set GITHUB_TOKEN"
+eq 0 "$(st)" "no GitHub token is a warning, not a refusal: $(out)"
+contains "warn  no GITHUB_TOKEN in $cfg/env: scratch chats only" "$(out)" "no GitHub token warns"
+not_contains "FAIL" "$(out)" "no GitHub token fails nothing"
 reset; chmod 644 "$cfg/env"; serve --check
 refuses "env file mode 644" "$cfg/env must be mode 600"
 reset; chmod 400 "$cfg/env"; serve --check
