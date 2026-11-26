@@ -109,11 +109,11 @@ through a symlink. Checks: `file_equals` (ignores surrounding whitespace),
   (`--model`, `--host`, `--port`). Edit them here, then restart `serve`.
 - `parser`: `inkling` translates Inkling's markup; `none` passes replies through.
 
-With more than one model file, pick one in `~/.config/local-model/config.json`:
-`{"v": 1, "model": "<name>"}`. `install` downloads its weights to
-`models/<name>/`.
+With more than one model file, pick one with `LOCAL_MODEL=<name>` (the same
+for every command). `install` downloads its weights to `models/<name>/`.
 
-Environment: `LOCAL_MODEL_HOME` (default `~/.local/share/local-model`),
+Environment: `LOCAL_MODEL` (the model; default the only one in `models/`),
+`LOCAL_MODEL_HOME` (default `~/.local/share/local-model`),
 `LOCAL_MODEL_PORT` (gateway, 8090), `LOCAL_MODEL_BACKEND_PORT` (loopback, 8091).
 Pi's `--model-url` must use the same port as `LOCAL_MODEL_PORT`.
 

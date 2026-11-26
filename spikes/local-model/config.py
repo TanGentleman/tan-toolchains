@@ -6,8 +6,8 @@ models/<name>.json, "v": 1, every key required but "exclude" and "server_args":
    "weights": {"repo": "ORG/NAME", "revision": "<40-hex commit>", "exclude": ["GLOB", ...]},
    "server_args": ["--flag", "value", ...]}
 server_args go to the backend unchanged, after the flags it owns (model, host,
-port). $HOME/.config/local-model/config.json, {"v": 1, "model": "<name>"},
-picks the model; without it, models/ must hold exactly one.
+port). LOCAL_MODEL=<name> picks the model; without it, models/ must hold
+exactly one.
 
   config.py show       the selected model as one JSON object
   config.py exec PORT  replace this process with the backend on 127.0.0.1:PORT
@@ -91,28 +91,26 @@ def load_model(path):
     return m
 
 
-def selected(models_dir, config_path):
-    """Name of the model to serve."""
-    if os.path.exists(config_path):
-        c = read_json(config_path)
-        exact_keys(c, {"v"}, {"model"}, config_path)
-        if c["v"] != V:
-            raise ConfigError(f"{config_path}: v must be {V}, got {c['v']!r}")
-        if "model" in c:
-            if not isinstance(c["model"], str) or not NAME.match(c["model"]):
-                raise ConfigError(f"{config_path}: model must match {NAME.pattern}")
-            if not os.path.isfile(os.path.join(models_dir, c["model"] + ".json")):
-                raise ConfigError(f"{config_path}: no model {c['model']!r} in {models_dir}")
-            return c["model"]
+def selected(models_dir, name):
+    """Name of the model to serve: name (LOCAL_MODEL), else the only one."""
+    if name:
+        if not NAME.match(name):
+            raise ConfigError(f"LOCAL_MODEL must match {NAME.pattern}")
+        if not os.path.isfile(os.path.join(models_dir, name + ".json")):
+            raise ConfigError(f"LOCAL_MODEL: no model {name!r} in {models_dir}")
+        return name
     names = sorted(f[:-5] for f in os.listdir(models_dir) if f.endswith(".json"))
     if len(names) != 1:
-        raise ConfigError(f"{len(names)} models in {models_dir}; pick one in {config_path}")
+        raise ConfigError(f"{len(names)} models in {models_dir}; pick one with LOCAL_MODEL=<name>")
     return names[0]
 
 
-def info(here, home, user_home):
+def info(here, home, user_home, name=""):
     models = os.path.join(here, "models")
-    name = selected(models, os.path.join(user_home, ".config", "local-model", "config.json"))
+    legacy = os.path.join(user_home, ".config", "local-model", "config.json")
+    if os.path.lexists(legacy):
+        raise ConfigError(f"{legacy} is no longer read; set LOCAL_MODEL=<name> instead, then delete the file")
+    name = selected(models, name)
     m = load_model(os.path.join(models, name + ".json"))
     b = BACKENDS[m["backend"]]
     d = os.path.join(home, "models", name)
@@ -133,7 +131,7 @@ def main():
     if not home or len(sys.argv) < 2:
         sys.exit(usage)
     try:
-        i = info(here, home, os.environ["HOME"])
+        i = info(here, home, os.environ["HOME"], os.environ.get("LOCAL_MODEL", ""))
     except ConfigError as e:
         sys.exit(f"model: {e}")
     if sys.argv[1:] == ["show"]:

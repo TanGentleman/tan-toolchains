@@ -111,7 +111,7 @@ class CLI(unittest.TestCase):
         rev = config.load_model(os.path.join(HERE, "models", NAME + ".json"))["weights"]["revision"]
         write(os.path.join(home, "models", NAME, ".complete"), rev + "\n")
         write(os.path.join(home, ".local-model-spike"), "")
-        self.env = {k: v for k, v in os.environ.items() if not k.startswith(("LOCAL_MODEL_", "PI_", "FAKE_"))}
+        self.env = {k: v for k, v in os.environ.items() if not k.startswith(("LOCAL_MODEL", "PI_", "FAKE_"))}
         self.port = free_port()
         self.env.update(HOME=self.user, LOCAL_MODEL_HOME=home, PATH=f"{fakes}:{os.environ['PATH']}",
                         LOCAL_MODEL_PORT=str(self.port), LOCAL_MODEL_BACKEND_PORT=str(free_port()))
@@ -245,13 +245,12 @@ class CLI(unittest.TestCase):
             self.assertIn("model serve [--containers]", r.stderr)
 
     def test_selected_model(self):
-        cfg = os.path.join(self.user, ".config", "local-model", "config.json")
-        write(cfg, '{"v": 1}')
         self.assertEqual(self.status()["model"], NAME)
-        write(cfg, '{"v": 1, "model": "nope"}')
-        self.assertIn("no model 'nope'", self.fails("check"))
-        write(cfg, '{"v": 2, "model": "inkling-2-mini"}')
-        self.assertIn("v must be 1", self.fails("serve"))
+        self.assertEqual(json.loads(self.ok("status", "--json", LOCAL_MODEL=NAME).stdout)["model"], NAME)
+        self.assertIn("no model 'nope'", self.fails("check", LOCAL_MODEL="nope"))
+        self.assertIn("LOCAL_MODEL must match", self.fails("serve", LOCAL_MODEL="../x"))
+        write(os.path.join(self.user, ".config", "local-model", "config.json"), '{"v": 1, "model": "%s"}' % NAME)
+        self.assertIn("is no longer read; set LOCAL_MODEL=<name>", self.fails("serve"))
 
     @unittest.skipIf(sys.platform == "darwin", "the platform check passes on a Mac")
     def test_install_refuses_other_platforms(self):
@@ -302,17 +301,17 @@ class Config(unittest.TestCase):
                 self.load({**self.good, **bad})
 
     def test_selection(self):
-        models, cfg = os.path.join(self.dir, "models"), os.path.join(self.dir, "config.json")
+        models = os.path.join(self.dir, "models")
         write(os.path.join(models, "a.json"), "{}")
-        self.assertEqual(config.selected(models, cfg), "a")
+        self.assertEqual(config.selected(models, ""), "a")
         write(os.path.join(models, "b.json"), "{}")
-        with self.assertRaisesRegex(config.ConfigError, "2 models"):
-            config.selected(models, cfg)
-        write(cfg, '{"v": 1, "model": "b"}')
-        self.assertEqual(config.selected(models, cfg), "b")
-        write(cfg, '{"v": 1, "model": "b", "image": "min"}')
-        with self.assertRaisesRegex(config.ConfigError, "unknown keys"):
-            config.selected(models, cfg)
+        with self.assertRaisesRegex(config.ConfigError, "2 models.*LOCAL_MODEL=<name>"):
+            config.selected(models, "")
+        self.assertEqual(config.selected(models, "b"), "b")
+        with self.assertRaisesRegex(config.ConfigError, "no model 'c'"):
+            config.selected(models, "c")
+        with self.assertRaisesRegex(config.ConfigError, "must match"):
+            config.selected(models, "B/../a")
 
 
 if __name__ == "__main__":
