@@ -363,13 +363,13 @@ phase_auto() {
   section "Zig, ZLS and zigpeek"
   zproj=$work/zigproj
   rm -rf "$zproj" && mkdir -p "$zproj"
-  step zig-init in_dir "$zproj" "$run" --manual sh -c 'zig init && zig build && echo built'
+  step zig-init in_dir "$zproj" "$run" --image zig --manual sh -c 'zig init && zig build && echo built'
   check "zig init and zig build in the mount" has built
   check "no .zig-cache left in the mounted project" test ! -e "$zproj/.zig-cache"
-  step zls-attach in_dir "$zproj" "$run" --manual nvim --headless src/main.zig \
+  step zls-attach in_dir "$zproj" "$run" --image zig --manual nvim --headless src/main.zig \
     "+lua vim.defer_fn(function() for _, c in ipairs(vim.lsp.get_clients()) do io.stdout:write('client=' .. c.name .. '\n') end vim.cmd('qa!') end, 8000)"
   check "ZLS attaches in nvim" has "client=zls"
-  step zigpeek in_dir "$proj" "$run" --manual sh -c '
+  step zigpeek in_dir "$proj" "$run" --image zig --manual sh -c '
     set -e
     zigpeek info
     zigpeek search ArrayList | head -n 3
@@ -382,7 +382,7 @@ phase_auto() {
   check "zigpeek info shows doc/langref.html" has "langref.html"
   rm -rf "$work/zigpeek"
   rsync -a --exclude .zig-cache --exclude zig-out "$top/zigpeek/" "$work/zigpeek/"
-  step cross in_dir "$work/zigpeek" "$run" --manual zig build --release=small -Dtarget=aarch64-macos --prefix out
+  step cross in_dir "$work/zigpeek" "$run" --image zig --manual zig build --release=small -Dtarget=aarch64-macos --prefix out
   step cross-run "$work/zigpeek/out/bin/zigpeek" --version
   check "a binary built for aarch64-macos in the VM runs on the Mac" is "$code" 0
 
@@ -406,7 +406,8 @@ phase_auto() {
 }
 
 phase_cleanup() {
-  local host_env host_settings cfg2 vol2 vol2x cvol
+  local host_env host_settings cfg2 vol2 vol2x cvol default_started
+  default_started=$(started "$(pi_proxy_name "$(pi_default_config_dir)")")
   host_env=$(hash_of "$(pi_default_config_dir)/env")
   host_settings=$(hash_of "$(pi_default_config_dir)/settings.json")
   cfg2=$root/cfg2
@@ -436,7 +437,7 @@ phase_cleanup() {
   check "nuke all deletes pi-full:local" sh -c '! "${CONTAINER_CLI:-container}" image inspect pi-full:local >/dev/null 2>&1'
   check "nuke all deletes this profile's proxy" sh -c '! "${CONTAINER_CLI:-container}" inspect "$1" >/dev/null 2>&1' sh "$(pi_proxy_name "$cfg")"
   check "other profile's agent volume stays" vol_exists "$vol2"
-  check "default profile's proxy stays" is "$(proxy_state "$(pi_proxy_name "$(pi_default_config_dir)")")" running
+  check "default profile's proxy untouched" is "$(started "$(pi_proxy_name "$(pi_default_config_dir)")")" "$default_started"
   step nuke-agent-noimage env PI_CONFIG_DIR="$cfg2" PI_INSTANCE=default "$clear" nuke agent --yes
   check "nuke agent without the image skips the backup" has "without a session backup"
   check "and deletes the volume" sh -c '! "${CONTAINER_CLI:-container}" volume list -q | grep -qx "$1"' sh "$vol2"
@@ -456,7 +457,7 @@ phase_cleanup() {
   step nuke-profile "$clear" nuke profile --yes
   check "nuke profile deletes the e2e proxy" sh -c '! "${CONTAINER_CLI:-container}" inspect "$1" >/dev/null 2>&1' sh "$(pi_proxy_name "$cfg")"
   check "the shared image stays" image_exists pi-full:local
-  check "default profile's proxy stays" is "$(proxy_state "$(pi_proxy_name "$(pi_default_config_dir)")")" running
+  check "default profile's proxy untouched" is "$(started "$(pi_proxy_name "$(pi_default_config_dir)")")" "$default_started"
   check "host env file unchanged" is "$(hash_of "$(pi_default_config_dir)/env")" "$host_env"
   check "host settings.json unchanged" is "$(hash_of "$(pi_default_config_dir)/settings.json")" "$host_settings"
   check "Neovim paths survive" test -f "$cfg/nvim/init.lua"
