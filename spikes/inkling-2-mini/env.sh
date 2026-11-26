@@ -1,4 +1,4 @@
-# Sourced by install.sh, serve.sh and uninstall.sh. Every file this spike
+# Sourced by every script here. Every file this spike
 # creates lives under $INKLING_HOME, so uninstall is one directory.
 spike_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 INKLING_HOME=${INKLING_HOME:-$HOME/.local/share/inkling-2-mini}
@@ -15,6 +15,18 @@ venv="$INKLING_HOME/venv"
 mlx_port=${INKLING_MLX_PORT:-8091}     # mlx_lm.server, loopback only
 port=${INKLING_PORT:-8090}             # gateway.py, what clients call
 host=${INKLING_HOST:-127.0.0.1}
+
+# serve.sh: mlx_lm.server batching and prompt cache (see GUIDE.md, Memory).
+decode_concurrency=${INKLING_DECODE_CONCURRENCY:-2}
+prompt_concurrency=${INKLING_PROMPT_CONCURRENCY:-1}
+prompt_cache_size=${INKLING_PROMPT_CACHE_SIZE:-4}
+prompt_cache_gb=${INKLING_PROMPT_CACHE_GB:-4}
+
+# eval.sh and bench.sh: the Pi command (same flags as fleet's turns: JSON
+# events on stdout, prompt on stdin, no repo extensions or skills). eval.py
+# puts the worker's slot (eval-1..eval-N) in {instance}. Eval VMs get 2 GB.
+eval_pi=("$spike_dir/pi.sh" --instance '{instance}' pi --mode json -p --no-approve --no-skills)
+eval_pi_memory=2G
 
 # Keep uv, Python and Hugging Face out of their default ~/.cache homes.
 export UV_CACHE_DIR="$INKLING_HOME/uv-cache"

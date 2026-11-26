@@ -11,7 +11,8 @@ spikes/inkling-2-mini/install.sh     # uv sync, then asks before the 17.3 GB dow
 spikes/inkling-2-mini/serve.sh [pi]  # foreground; Ctrl-C stops both; pi: also listen for pi-proxy
 spikes/inkling-2-mini/serve.sh check # in a second terminal
 spikes/inkling-2-mini/pi.sh          # pi-container/run.sh, model calls go to the gateway
-spikes/inkling-2-mini/eval.sh        # small tasks for Pi through pi.sh, checked on the host
+spikes/inkling-2-mini/eval.sh        # small tasks for Pi through pi.sh, checked on the host; [--jobs N]
+spikes/inkling-2-mini/bench.sh       # the evals at --jobs 1, 2, 4: tasks/hour, tokens, p50 TTFT
 spikes/inkling-2-mini/uninstall.sh   # [--keep-model]
 ```
 
@@ -27,7 +28,7 @@ instead, read only and with no download.
 |---|---|---|
 | Runtime | `mlx-lm` at [ml-explore/mlx-lm#2086](https://github.com/ml-explore/mlx-lm/pull/2086), pinned commit, in `uv.lock` | Inkling support is not in a release yet. Move to the release when it ships. |
 | Weights | [mlx-community/Inkling-2-Mini-4bit](https://huggingface.co/mlx-community/Inkling-2-Mini-4bit), pinned revision | Converted with the same mlx-lm PR. Routed experts (most weights) keep the official NVFP4/MXFP8; attention, embeddings and head are 4-bit affine. 17.3 GB vs 20.2 GB for the official checkpoint, and no MTP head, which mlx-lm does not use. `oQ4e` builds need oMLX, not mlx-lm. |
-| Server | `mlx_lm.server`, loopback, 1 request at a time, prompt cache capped at 4 GB | One agent turn at a time fits in 30 GB. `server_v2` has no image input. |
+| Server | `mlx_lm.server`, loopback, decodes 2 requests as one batch, prefills 1 at a time, prompt cache 4 entries / 4 GB; set by `INKLING_*` env vars ([GUIDE.md](GUIDE.md#memory)) | Inkling's caches can merge, so requests batch. Two eval tasks at once fit in 30 GB. `server_v2` has no image input. |
 | Sampling | temperature 1.0, top-p 0.95, top-k 20, max 32768 tokens | Model's `generation_config` and the PR's benchmark. The server's defaults (0.0, 512) are wrong for this model. |
 | Front | `gateway.py` (stdlib, ~320 lines) on port 8090 | See below. |
 

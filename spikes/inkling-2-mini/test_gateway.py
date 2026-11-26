@@ -1,6 +1,8 @@
 """python3 test_gateway.py: gateway against a fake mlx_lm.server."""
 import http.client
 import json
+import os
+import tempfile
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -54,10 +56,29 @@ class T(unittest.TestCase):
         gateway.Handler.upstream = ("127.0.0.1", serve(Fake))
         cls.port = serve(gateway.Handler)
 
-    def post(self, path, body):
+    def post(self, path, body, headers=None):
         c = http.client.HTTPConnection("127.0.0.1", self.port)
-        c.request("POST", path, json.dumps(body), {"Content-Type": "application/json"})
+        c.request("POST", path, json.dumps(body), {"Content-Type": "application/json", **(headers or {})})
         return c.getresponse()
+
+    def test_log_has_session_not_text(self):
+        with tempfile.TemporaryDirectory() as d:
+            gateway.Handler.log_file = os.path.join(d, "requests.jsonl")
+            try:
+                for sid in ("0198c5a2-7d1e-7abc-9def-0123456789ab", "bad id\"x", "a" * 129, None):
+                    self.post("/api/v1/chat/completions",
+                              {"stream": True, "messages": [{"role": "user", "content": "SECRET-PROMPT"}]},
+                              {"x-session-id": sid} if sid else {}).read()
+                with open(gateway.Handler.log_file) as f:
+                    text = f.read()
+            finally:
+                gateway.Handler.log_file = None
+        recs = [json.loads(l) for l in text.splitlines()]
+        self.assertEqual([r.get("session") for r in recs],
+                         ["0198c5a2-7d1e-7abc-9def-0123456789ab", None, None, None])
+        self.assertNotIn("SECRET-PROMPT", text)
+        self.assertNotIn("Hello there", text)
+        self.assertTrue(all("ttft_ms" in r for r in recs))
 
     def test_tool_call_whole(self):
         r = self.post("/api/v1/chat/completions", {"model": "thinkingmachines/inkling-2-mini", "tools": [{}],
