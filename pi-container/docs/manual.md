@@ -21,7 +21,7 @@ normal `--clone` in the same profile.
 
 Use `--image editor` (or `tools`, `zig`) to pick the pack. Manual mode does not
 require the image to contain Pi. Manual mode refuses egress `offline`; pass
-`--egress standard` when `config.json` sets it.
+`--egress standard` when `PI_EGRESS=offline` is set.
 
 Neovim paths:
 

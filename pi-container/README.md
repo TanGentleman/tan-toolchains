@@ -48,13 +48,12 @@ build the agent image for you; it only rebuilds the profile's proxy image
 predates an edit to the `Dockerfile`, `zigpeek/`, or `enforcer/`, so re-run
 `build.sh` after changing any of them.
 
-Build another pack and pick it per run, or for every run in `config.json`:
+Build another pack and pick it per run, or for every run with `PI_IMAGE`:
 
 ```bash
 ./build.sh min
 ./run.sh --image min check you/your-repo
-echo '{"v": 1, "image": "min"}' > ~/.config/pi-container/config.json
-./run.sh config          # image min, from the file
+PI_IMAGE=min ./run.sh config   # image min, from env
 ./run.sh images          # every pack, its tag, built or not
 ```
 

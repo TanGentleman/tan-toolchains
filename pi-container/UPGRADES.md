@@ -120,7 +120,7 @@ behavior or test value justifies the churn.
   local Mac tool; add tests only if it starts changing often or grows more
   logic.
 - Instances are not bound to images. The image is a per-run choice (`--image` or
-  `config.json`), and `run.sh announce_run` prints the pair but nothing records it, so `clear.sh list`
+  `PI_IMAGE`), and `run.sh announce_run` prints the pair but nothing records it, so `clear.sh list`
   cannot show which image last wrote a volume. If that provenance matters, add a
   marker file per agent volume rather than a `pi.image` label: labels are fixed
   at `volume create` and would go stale on the first image switch.

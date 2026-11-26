@@ -5,38 +5,40 @@ flag, config key, environment variable, generated file, pack, or build
 argument, update this file, `run.sh --help` / `clear.sh help`, and the tests
 in the same change. Commands run from `pi-container/`.
 
-## Config file
+## Run settings
 
 Three settings decide what a run is: the image, the egress profile, and where
-model calls go. Each comes from a flag, then an env var (`PI_IMAGE`, `PI_EGRESS`,
-`PI_MODEL_URL`), then the optional `$PI_CONFIG_DIR/config.json` (a node's
-fleet defaults), then the default. Prefer env vars in aliases; `pic config`
-shows each value's source:
+model calls go. Each comes from a flag, then an env var, then the default.
+There is no config file; set the env vars in an alias, or in the shell that
+starts `pic serve` for a fleet node:
 
-| Key | Flag | Values | Default |
-| --- | --- | --- | --- |
-| `image` | `--image PACK` | `min`, `full`, `zig` ([packs](#image-packs)); the flag also takes `tools` and `editor` for `--manual` | `full` |
-| `egress` | `--egress PROFILE` | `standard`, `offline` ([egress](#egress-profiles)) | `standard` |
-| `model_url` | `--model-url URL` | `openrouter`, or `http://HOST:PORT` with no path | `openrouter` |
+| Setting | Flag | Env var | Values | Default |
+| --- | --- | --- | --- | --- |
+| image | `--image PACK` | `PI_IMAGE` | `min`, `full`, `zig` ([packs](#image-packs)); the flag also takes `tools` and `editor` for `--manual` | `full` |
+| egress | `--egress PROFILE` | `PI_EGRESS` | `standard`, `offline` ([egress](#egress-profiles)) | `standard` |
+| model_url | `--model-url URL` | `PI_MODEL_URL` | `openrouter`, or `http://HOST:PORT` with no path | `openrouter` |
 
-```json
-{"v": 1, "image": "min", "egress": "offline", "model_url": "http://gateway:8090"}
+```sh
+alias opic='PI_IMAGE=min PI_EGRESS=offline PI_MODEL_URL=http://gateway:8090 pic --instance offline'
 ```
 
-- `"v": 1` is required. Every other key is optional. Unknown keys, other
-  versions, non-string values and bad values are refused before anything
-  starts, by every command.
+- Bad values and pairs that cannot work (offline with `openrouter`) are
+  refused before anything starts, by every command.
 - `HOST` may be `gateway`: `run.sh` resolves it to the default container
   network's IPv4 gateway, the Mac's side of the bridge (e.g. `192.168.64.1`).
   A local model server for containers listens there on port 8090 and serves
   OpenAI-compatible `/v1` and `/health`.
 - Secrets never go here; they stay in the [env file](#host-env-file).
-- `run.sh config` prints the effective values, the source of each (`flag`,
-  `file`, `default`) and the file's path; `run.sh config --json` prints
-  `{"v":1,"config","image","tag","egress","model_url","source":{...}}`.
+- `run.sh config` prints the effective values and the source of each (`flag`,
+  `env`, `default`); `run.sh config --json` prints
+  `{"v":1,"image","tag","egress","model_url","source":{...}}`.
   `run.sh check` starts with the same summary.
-- `pi-ctr` and `pic serve` read the same file: it is the fleet node's
-  defaults, and `GET /v1/node` reports them.
+- A fleet node is the env `pic serve` was started with: fleetd passes these
+  vars to every `pi-ctr` turn, `GET /v1/node` reports them, and each turn
+  records what it ran with. Restart `pic serve` to change them.
+- `$PI_CONFIG_DIR/config.json` set these before the env vars did. Every
+  command refuses while it exists and prints the env vars that replace it;
+  ignoring an offline one would widen egress.
 
 ## Design decisions
 
@@ -163,7 +165,7 @@ image has it, and always with its own GitHub token patterns.
 
 | Flag or command | Effect |
 | --- | --- |
-| `--image PACK`, `--egress PROFILE`, `--model-url URL` | Override `config.json` for this run. See [Config file](#config-file). |
+| `--image PACK`, `--egress PROFILE`, `--model-url URL` | Override `PI_IMAGE`, `PI_EGRESS`, `PI_MODEL_URL` for this run. See [Run settings](#run-settings). |
 | `--instance NAME` | Isolate sessions and the agent volume. Defaults to `PI_INSTANCE` or `default`. |
 | `--clone O/R` | Use a clone kept in a volume instead of the current folder. Defaults to `PI_CLONE`. Refused offline. |
 | `--manual [CMD]` | Open a shell without Pi or the proxy. See [Manual mode](manual.md). |
@@ -226,18 +228,22 @@ Changing the egress or model_url recreates `pi-proxy` from the same image.
 | `nuke clones` | Delete the selected instance's clone volumes in this profile. |
 | `nuke profile` | Delete this profile: every instance's agent volume, its clone volumes, proxy, network, and proxy image. The shared image and builder cache stay. |
 | `nuke all` | Delete the selected instance's agent volume plus the effective image and profile resources. See [Operations](operations.md). |
-| `--image PACK` | The image `nuke all` deletes and `save` reads with. Defaults to `config.json`'s, else `full`. |
+| `--image PACK` | The image `nuke all` deletes and `save` reads with. Defaults to `PI_IMAGE`, else `full`. |
 | `--instance NAME` | Scope `save` or `nuke`. Defaults to `PI_INSTANCE` or `default`. |
 | `--yes` | Skip the `nuke` confirmation. |
 | `help` | Print usage. |
 
 ## Environment variables
 
+Most runs need only `PI_IMAGE`, `PI_EGRESS`, `PI_MODEL_URL`
+([run settings](#run-settings)), `PI_INSTANCE`, `PI_CONFIG_DIR` and
+`PI_ENV_FILE`. The rest override derived names, sizes and timeouts.
+
 ### Profile and paths
 
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `PI_CONFIG_DIR` | `~/.config/pi-container` | Profile directory. A different path gets its own `config.json`, proxy, network, subnet, settings, env file, and volumes. |
+| `PI_CONFIG_DIR` | `~/.config/pi-container` | Profile directory. A different path gets its own proxy, network, subnet, settings, env file, and volumes. |
 | `PI_ENV_FILE` | `$PI_CONFIG_DIR/env` | Host env file. |
 | `PI_SETTINGS_FILE` | `$PI_CONFIG_DIR/settings.json` | Host settings file. |
 | `PI_AGENT_VOLUME` | Profile/instance-derived | Override the agent volume name. |
@@ -277,8 +283,10 @@ to the container when set on the host.
 | `PI_LOCK_WAIT` | `120` | Seconds to wait for the host setup lock. |
 | `CONTAINER_CLI` | `container` | CLI used by `run.sh`, `clear.sh`, `build.sh`, and `record-fixtures.sh`. |
 
-`PI_SOURCE_ONLY`, `PI_SKIP_HOST_SETUP`, and `PI_SKIP_PROXY_IP` are test hooks.
-Do not use them for normal runs.
+Internal, not settings: `PI_SOURCE_ONLY`, `PI_SKIP_HOST_SETUP`,
+`PI_SKIP_PROXY_IP` and `PI_CTR_BIN` are test hooks; `PI_PROXY_*` inside the
+proxy container and `PI_CTR_*` inside a fleet turn are set by `run.sh` and
+`pi-ctr`. Do not set them for normal runs.
 
 ## Image build arguments
 

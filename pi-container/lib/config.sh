@@ -1,69 +1,25 @@
-# The profile's config file, $PI_CONFIG_DIR/config.json:
-#   {"v": 1, "image": "min|full|zig", "egress": "standard|offline|NAME",
-#    "model_url": "openrouter" | "http://HOST:PORT"}
-# Every key is optional. Sourced, never executed; needs jq and lib/validate.sh.
-# Secrets never go here; they stay in the env file.
+# The three settings that decide what a run is: the image pack, the egress
+# profile, and where model calls go. Each comes from a flag, then an env var
+# (PI_IMAGE, PI_EGRESS, PI_MODEL_URL), then the default. Sourced, never
+# executed; needs jq and lib/validate.sh. Secrets stay in the env file.
 
 pi_config_default_image=full
 pi_config_default_egress=standard
 pi_config_default_model_url=openrouter
 
-# Prints "IMAGE<US>EGRESS<US>MODEL_URL" (US is \x1f), a field empty when its
-# key is absent; an absent file has every field empty. On a bad file prints
-# the reason and returns 1.
-pi_config_read() { # file
-  local file=$1 out image egress url
-  if [ ! -e "$file" ] && [ ! -L "$file" ]; then
-    printf '\037\037\n'
-    return 0
-  fi
-  if [ ! -f "$file" ] || [ ! -r "$file" ]; then
-    printf 'is not a readable file\n'
-    return 1
-  fi
-  if ! out=$(jq -rs '
-      def bad($m): "error:" + $m;
-      def known: ["v", "image", "egress", "model_url"];
-      def text: type == "string" and (explode | all(. >= 32));
-      if length != 1 or (.[0] | type) != "object" then bad("must hold one JSON object")
-      else .[0]
-        | if .v != 1 then bad("needs \"v\": 1, not \(.v | tojson)")
-          elif (keys - known) != [] then bad("has unknown key \((keys - known)[0] | tojson)")
-          elif [to_entries[] | select(.key != "v") | .value] | any(text | not) then
-            bad("image, egress and model_url must be one-line strings")
-          else [.image // "", .egress // "", .model_url // ""] | join("\u001f")
-          end
-      end' "$file" 2>/dev/null); then
-    printf 'is not valid JSON\n'
-    return 1
-  fi
-  case $out in
-    error:*) printf '%s\n' "${out#error:}"; return 1 ;;
-  esac
-  IFS=$'\037' read -r image egress url <<<"$out"
-  if [ -n "$image" ] && ! pi_pi_pack_valid "$image"; then
-    printf 'image must be min, full or zig, not "%s"\n' "$image"
-    return 1
-  fi
-  if [ -n "$egress" ] && ! pi_egress_valid "$egress"; then
-    printf 'egress must be a profile name (standard, offline, or NAME for egress/NAME.json), not "%s"\n' "$egress"
-    return 1
-  fi
-  if [ -n "$url" ] && ! pi_model_url_split "$url" >/dev/null; then
-    printf 'model_url must be "openrouter" or http://HOST:PORT, not "%s"\n' "$url"
-    return 1
-  fi
-  printf '%s\037%s\037%s\n' "$image" "$egress" "$url"
+# $PI_CONFIG_DIR/config.json set these until env vars replaced it. A file left
+# behind is refused, not ignored: ignoring an offline one would widen egress.
+# Prints the env assignments that replace it ("" when it holds none).
+pi_config_legacy() { # file
+  jq -r 'if type == "object" then [to_entries[] | select(.key == "image" or .key == "egress" or .key == "model_url")
+      | "PI_\(.key | ascii_upcase)=\(.value | tostring | @sh)"] | join(" ") else "" end' "$1" 2>/dev/null || true
 }
 
-# The effective value and where it came from: flag, then env (PI_IMAGE,
-# PI_EGRESS, PI_MODEL_URL), then file, then default.
-# Prints "VALUE SOURCE".
-pi_config_pick() { # flag-value, env-value, file-value, default
+# The effective value and where it came from. Prints "VALUE SOURCE".
+pi_config_pick() { # flag-value, env-value, default
   if [ -n "${1:-}" ]; then printf '%s flag\n' "$1"
   elif [ -n "${2:-}" ]; then printf '%s env\n' "$2"
-  elif [ -n "${3:-}" ]; then printf '%s file\n' "$3"
-  else printf '%s default\n' "$4"
+  else printf '%s default\n' "$3"
   fi
 }
 
@@ -87,10 +43,10 @@ pi_config_combo_check() { # egress name, its model_url rule, model_url
 }
 
 # run.sh config --json.
-pi_config_json() { # path, image, image-source, egress, egress-source, model_url, model_url-source, tag, profile file, tunnel csv, model_url rule, github_token
-  jq -cn --arg path "$1" --arg image "$2" --arg is "$3" --arg egress "$4" --arg es "$5" \
-    --arg url "$6" --arg us "$7" --arg tag "$8" --arg pf "$9" --arg tunnel "${10}" --arg rule "${11}" --arg token "${12}" \
-    '{v: 1, config: $path, image: $image, tag: $tag, egress: $egress, model_url: $url,
+pi_config_json() { # image, image-source, egress, egress-source, model_url, model_url-source, tag, profile file, tunnel csv, model_url rule, github_token
+  jq -cn --arg image "$1" --arg is "$2" --arg egress "$3" --arg es "$4" \
+    --arg url "$5" --arg us "$6" --arg tag "$7" --arg pf "$8" --arg tunnel "$9" --arg rule "${10}" --arg token "${11}" \
+    '{v: 1, image: $image, tag: $tag, egress: $egress, model_url: $url,
       source: {image: $is, egress: $es, model_url: $us},
       egress_profile: {file: $pf, tunnel: ($tunnel | split(",") | map(select(. != ""))), model_url: $rule, github_token: ($token == "true")}}'
 }

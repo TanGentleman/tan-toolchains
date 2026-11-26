@@ -31,7 +31,7 @@ network_name="${PI_NETWORK_NAME:-$(pi_network_name "$cfg")}"
 locked_subnet="${PI_LOCKED_SUBNET:-$(pi_locked_subnet "$cfg")}"
 proxy_image="${PI_PROXY_IMAGE:-$(pi_proxy_image "$cfg")}"
 lock_dir="$(pi_lock_dir)"
-config_file="$cfg/config.json"
+legacy_config="$cfg/config.json"
 # pi-proxy's model route and egress profile; set_model_upstream fills it.
 upstream_env=()
 
@@ -70,7 +70,7 @@ Run options:
   --clone O/R         default: $PI_CLONE
 
 Image, egress and model_url: a flag, then PI_IMAGE, PI_EGRESS, PI_MODEL_URL,
-then the optional $PI_CONFIG_DIR/config.json, then full, standard, openrouter.
+then full, standard, openrouter. Set the env vars in an alias:
   alias opic='PI_IMAGE=min PI_EGRESS=offline PI_MODEL_URL=http://gateway:8090 pic --instance offline'
 EOF
 }
@@ -141,7 +141,7 @@ case "${1:-}" in
   -*) echo "run.sh: unknown option '$1' (try --help)" >&2; exit 2 ;;
   serve)
     if [ "$manual$egress" != 00 ] || [ -n "$clone$fleet_state$flag_image$flag_egress$flag_model_url" ] || [ "$instance" != "${PI_INSTANCE:-$pi_default_instance}" ]; then
-      echo "run.sh: serve takes no run options; it uses $config_file" >&2
+      echo "run.sh: serve takes no run options; set PI_IMAGE, PI_EGRESS and PI_MODEL_URL in this shell" >&2
       exit 2
     fi
     shift
@@ -162,11 +162,11 @@ if [ -n "$flag_model_url" ] && ! pi_model_url_split "$flag_model_url" >/dev/null
   exit 2
 fi
 command -v jq >/dev/null 2>&1 || { echo "run.sh: jq not found; install it (brew install jq)" >&2; exit 1; }
-if ! config_raw=$(pi_config_read "$config_file"); then
-  echo "run.sh: $config_file $config_raw" >&2
+if [ -e "$legacy_config" ] || [ -L "$legacy_config" ]; then
+  legacy=$(pi_config_legacy "$legacy_config")
+  echo "run.sh: $legacy_config is no longer read; set ${legacy:-PI_IMAGE, PI_EGRESS or PI_MODEL_URL} in your alias or shell instead, then delete the file" >&2
   exit 2
 fi
-IFS=$'\037' read -r file_image file_egress file_model_url <<<"$config_raw"
 if [ -n "${PI_IMAGE:-}" ] && ! pi_pi_pack_valid "$PI_IMAGE"; then
   echo "run.sh: PI_IMAGE must be min, full or zig" >&2; exit 2
 fi
@@ -176,9 +176,9 @@ fi
 if [ -n "${PI_MODEL_URL:-}" ] && ! pi_model_url_split "$PI_MODEL_URL" >/dev/null; then
   echo "run.sh: PI_MODEL_URL must be openrouter or http://HOST:PORT" >&2; exit 2
 fi
-read -r pack pack_source <<<"$(pi_config_pick "$flag_image" "${PI_IMAGE:-}" "$file_image" "$pi_config_default_image")"
-read -r egress_mode egress_source <<<"$(pi_config_pick "$flag_egress" "${PI_EGRESS:-}" "$file_egress" "$pi_config_default_egress")"
-read -r model_url model_url_source <<<"$(pi_config_pick "$flag_model_url" "${PI_MODEL_URL:-}" "$file_model_url" "$pi_config_default_model_url")"
+read -r pack pack_source <<<"$(pi_config_pick "$flag_image" "${PI_IMAGE:-}" "$pi_config_default_image")"
+read -r egress_mode egress_source <<<"$(pi_config_pick "$flag_egress" "${PI_EGRESS:-}" "$pi_config_default_egress")"
+read -r model_url model_url_source <<<"$(pi_config_pick "$flag_model_url" "${PI_MODEL_URL:-}" "$pi_config_default_model_url")"
 image=$(pi_pack_tag "$pack")
 if ! egress_file=$(pi_egress_file "$egress_mode" "$here/egress" "$cfg/egress"); then
   echo "run.sh: egress \"$egress_mode\" is neither built in ($pi_egress_builtin_names) nor $cfg/egress/$egress_mode.json" >&2
@@ -195,9 +195,6 @@ if ! why=$(pi_config_combo_check "$egress_mode" "$egress_model_rule" "$model_url
 fi
 
 config_summary() {
-  local state=absent
-  [ ! -e "$config_file" ] || state=present
-  printf 'config     %s (%s)\n' "$config_file" "$state"
   printf 'image      %-26s %s\n' "$pack ($image)" "$pack_source"
   printf 'egress     %-26s %s\n' "$egress_mode" "$egress_source"
   printf 'model_url  %-26s %s\n' "$model_url" "$model_url_source"
@@ -223,7 +220,7 @@ case "${1:-}" in
       '') [ $# -eq 1 ] || { echo "run.sh: config takes only --json" >&2; exit 2; }
           config_summary ;;
       --json) [ $# -eq 2 ] || { echo "run.sh: config takes only --json" >&2; exit 2; }
-          pi_config_json "$config_file" "$pack" "$pack_source" "$egress_mode" "$egress_source" \
+          pi_config_json "$pack" "$pack_source" "$egress_mode" "$egress_source" \
             "$model_url" "$model_url_source" "$image" "$egress_file" "$egress_tunnel" "$egress_model_rule" "$egress_token" ;;
       *) echo "run.sh: config takes only --json" >&2; exit 2 ;;
     esac

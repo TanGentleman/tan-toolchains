@@ -22,8 +22,8 @@ without it, zsh passes a trailing `# comment` to the command.
 |---|---|
 | Repo | `~/src/tan-toolchains` |
 | `fleetd` | `~/src/tan-toolchains/fleet/bin/fleetd`, built by `build.sh fleet` |
-| Agent image | `pi-full:local`, built by `build.sh full`; `~/.config/pi-container/config.json` can pick `min` or `zig` |
-| Node config | `~/.config/pi-container/config.json` (image, egress, model_url); `pic config` prints it, `GET /v1/node` serves it |
+| Agent image | `pi-full:local`, built by `build.sh full`; `PI_IMAGE=min` or `zig` picks another |
+| Node config | `PI_IMAGE`, `PI_EGRESS`, `PI_MODEL_URL` in the shell that runs `pic serve`; `pic config` prints it, `GET /v1/node` serves it |
 | OpenRouter key, GitHub token | `~/.config/pi-container/env`, mode 600; only the proxy and the VM read them |
 | Sessions | `~/.fleet`; each turn's errors in `~/.fleet/sessions/<sid>/stderr-N.log` |
 | Code | branch `fleet/<sid>` in the repo you picked |
@@ -133,10 +133,9 @@ curl -sS --fail-with-body "$URL/v1/node" | jq .harnesses   # ["pi-ctr"]
 curl -sS --fail-with-body "$URL/v1/node" | jq .config      # {"image":"full","egress":"standard","model_url":"openrouter"}
 ```
 
-Every turn uses the image, egress and model_url in
-`~/.config/pi-container/config.json`, or the defaults above; `pic config`
-prints them with their source. fleetd reads the file on each `GET /v1/node`;
-turns read it when they start, so no restart is needed after an edit.
+Every turn uses the `PI_IMAGE`, `PI_EGRESS` and `PI_MODEL_URL` that `pic
+serve` was started with, or the defaults above; `pic config` prints them with
+their source, and each turn records them. Restart `pic serve` to change them.
 
 The first request to a new Tailscale name can fail TLS for a few seconds
 while the certificate is issued; repeat it.
@@ -214,10 +213,8 @@ saw only OpenRouter and GitHub and refused nothing.
 `pic serve` stopped:
 
 ```sh
-cfg=~/.config/pi-container/config.json
-[ -e $cfg ] && cp $cfg $cfg.bak
-printf '{"v":1,"image":"min","egress":"offline","model_url":"http://gateway:8090"}\n' > $cfg
-pic config                       # min/offline/http://gateway:8090, each "file"
+export PI_IMAGE=min PI_EGRESS=offline PI_MODEL_URL=http://gateway:8090
+pic config                       # min/offline/http://gateway:8090, each "env"
 pic serve --check                # ok config: image min, egress offline ...; no GITHUB_TOKEN needed
 ```
 
@@ -229,8 +226,7 @@ pic serve --check                # ok config: image min, egress offline ...; no 
 - [ ] Spawn with a repo and no mirror: the turn fails, and
       `stderr-1.log` names the `git clone --mirror` command. Run it, spawn
       again: the turn commits to `state/repo.bundle` and pushes nothing.
-- [ ] Stop `pic serve`, then restore: `mv $cfg.bak $cfg` (or `rm $cfg` if
-      there was none).
+- [ ] Stop `pic serve`, then `unset PI_IMAGE PI_EGRESS PI_MODEL_URL`.
 
 **Optional.** With a second tailnet login, `$URL` answers 403 from a device
 logged in as it. And each of these makes `pic serve --check` print a `FAIL`

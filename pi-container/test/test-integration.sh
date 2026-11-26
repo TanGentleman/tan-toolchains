@@ -85,6 +85,7 @@ new_case() { # name
   cfg="$home/.config/pi-container"
   world="$t/world"
   logfile="$t/log"
+  case_env=""
   mkdir -p "$home" "$cfg/certs" "$cfg/private" \
     "$world/images" "$world/networks" "$world/containers" "$world/volumes" \
     "$t/project"
@@ -134,10 +135,12 @@ proxy_running_json() {
 
 # Run a pi-container script in the isolated world. The default profile is used,
 # so PI_CONFIG_DIR stays unset and cfg resolves to $HOME/.config/pi-container.
+# $case_env is the case's PI_IMAGE/PI_EGRESS/PI_MODEL_URL, e.g. as an alias sets them.
 pi() { # script, args...
   local script=$1
   shift
-  run_it env HOME="$home" PI_ENV_FILE="$cfg/env" \
+  # shellcheck disable=SC2086
+  run_it env HOME="$home" PI_ENV_FILE="$cfg/env" $case_env \
     CONTAINER_CLI="$fake" FAKE_CONTAINER_WORLD="$world" FAKE_CONTAINER_LOG="$logfile" \
     bash "$script" "$@"
 }
@@ -949,7 +952,7 @@ case_option_guards() {
   contains 'Run Pi inside' "$(o)" "help text shown"
   contains '[COMMAND [ARG...]]' "$(o)" "help documents normal-mode commands"
   contains '--image PACK' "$(o)" "help documents the image flag"
-  contains 'config.json' "$(o)" "help documents the config file"
+  contains 'PI_IMAGE, PI_EGRESS, PI_MODEL_URL' "$(o)" "help documents the config env vars"
   log_lacks "network create" "help has no side effects"
 }
 
@@ -997,10 +1000,10 @@ case_model_url() {
   expect_status 0 "run with the default model_url"
   contains 'egress=standard model_url=openrouter' "$(e)" "default route announced"
   : > "$logfile"
-  printf '{"v":1,"model_url":"http://gateway:8090"}\n' > "$cfg/config.json"
+  case_env="PI_MODEL_URL=http://gateway:8090"
   (cd "$t/project" && pi "$run_sh" pi)
-  expect_status 0 "run with model_url from config.json"
-  contains 'egress=standard model_url=http://gateway:8090' "$(e)" "file model_url announced"
+  expect_status 0 "run with model_url from PI_MODEL_URL"
+  contains 'egress=standard model_url=http://gateway:8090' "$(e)" "env model_url announced"
   log_has "network inspect default" "gateway is read from the default network"
   log_has "delete --force pi-proxy" "changing model_url recreates the proxy"
   log_lacks "build -t pi-proxy" "changing model_url does not rebuild the image"
@@ -1010,7 +1013,7 @@ case_model_url() {
   log_lacks "delete --force pi-proxy" "same model_url keeps the proxy"
   : > "$logfile"
   (cd "$t/project" && pi "$run_sh" --model-url openrouter pi)
-  expect_status 0 "flag overrides the file"
+  expect_status 0 "flag overrides PI_MODEL_URL"
   contains 'model_url=openrouter' "$(e)" "flag model_url announced"
   log_has "delete --force pi-proxy" "flag model_url recreates the proxy"
   # Absent proxy: the new one gets the route. The fake publishes no
@@ -1043,37 +1046,47 @@ case_config_command() {
   local json
   run_it env HOME="$home" CONTAINER_CLI=/nonexistent bash "$run_sh" config
   expect_status 0 "config needs no container runtime"
-  contains "config     $cfg/config.json (absent)" "$(o)" "config names the file"
+  not_contains "config.json" "$(o)" "config names no file"
   contains "image      full (pi-full:local)" "$(o)" "default image"
   contains "egress     standard" "$(o)" "default egress"
   contains "model_url  openrouter" "$(o)" "default model_url"
   contains "default" "$(o)" "default source"
-  printf '{"v":1,"image":"min","egress":"offline","model_url":"http://gateway:8090"}\n' > "$cfg/config.json"
-  run_it env HOME="$home" CONTAINER_CLI=/nonexistent bash "$run_sh" --image zig config --json
+  run_it env HOME="$home" CONTAINER_CLI=/nonexistent PI_IMAGE=min PI_EGRESS=offline PI_MODEL_URL=http://gateway:8090 \
+    bash "$run_sh" --image zig config --json
   expect_status 0 "config --json"
   json=$(o)
   eq 1 "$(jq -r .v <<<"$json")" "json v"
   eq "zig pi-zig:local flag" "$(jq -r '"\(.image) \(.tag) \(.source.image)"' <<<"$json")" "flag image in json"
-  eq "offline file http://gateway:8090 file" "$(jq -r '"\(.egress) \(.source.egress) \(.model_url) \(.source.model_url)"' <<<"$json")" "file egress and model_url in json"
-  eq "$cfg/config.json" "$(jq -r .config <<<"$json")" "json names the file"
-  run_it env HOME="$home" PI_CONFIG_DIR="$t/other" bash "$run_sh" config --json
-  eq "$t/other/config.json full default" "$(o | jq -r '"\(.config) \(.image) \(.source.image)"')" "PI_CONFIG_DIR picks the file"
+  eq "offline env http://gateway:8090 env" "$(jq -r '"\(.egress) \(.source.egress) \(.model_url) \(.source.model_url)"' <<<"$json")" "env egress and model_url in json"
+  eq "false" "$(jq 'has("config")' <<<"$json")" "json names no file"
   run_it env HOME="$home" bash "$run_sh" config --yaml
   expect_status 2 "config refuses other arguments"
   run_it env HOME="$home" bash "$run_sh" --manual config
   expect_status 2 "config refuses run modes"
   local bad
-  for bad in '{"v":2}' '{"v":1,"image":"agent"}' '{"v":1,"proxy":1}' 'nope' '{"v":1,"egress":"offline"}'; do
-    printf '%s' "$bad" > "$cfg/config.json"
-    run_it env HOME="$home" CONTAINER_CLI="$fake" FAKE_CONTAINER_WORLD="$world" FAKE_CONTAINER_LOG="$logfile" bash "$run_sh" config
+  for bad in PI_IMAGE=agent PI_EGRESS=normal PI_MODEL_URL=https://gateway:8090 PI_EGRESS=offline; do
+    run_it env HOME="$home" "$bad" CONTAINER_CLI="$fake" FAKE_CONTAINER_WORLD="$world" FAKE_CONTAINER_LOG="$logfile" bash "$run_sh" config
     expect_status 2 "config refuses [$bad]"
     contains "run.sh: " "$(e)" "config refusal is named [$bad]"
     : > "$logfile"
-    (cd "$t/project" && pi "$run_sh" pi)
+    (cd "$t/project" && env "$bad" pi "$run_sh" pi)
     expect_status 2 "a run refuses [$bad]"
     log_lacks "CALL" "a bad config [$bad] touches no container"
   done
   contains "openrouter is refused offline" "$(e)" "offline with the default model_url names why"
+  # A config.json from before the env vars is refused, so an offline one
+  # cannot silently turn into a standard-egress run.
+  printf '{"v":1,"egress":"offline","model_url":"http://gateway:8090"}\n' > "$cfg/config.json"
+  : > "$logfile"
+  (cd "$t/project" && pi "$run_sh" pi)
+  expect_status 2 "a run refuses a leftover config.json"
+  contains "$cfg/config.json is no longer read; set PI_EGRESS='offline' PI_MODEL_URL='http://gateway:8090'" "$(e)" "the refusal names the env vars"
+  log_lacks "CALL" "a leftover config.json touches no container"
+  run_it env HOME="$home" bash "$run_sh" config --json
+  expect_status 2 "config refuses a leftover config.json"
+  run_it env HOME="$home" bash "$clear_sh" list
+  expect_status 1 "clear.sh refuses a leftover config.json"
+  contains "no longer read" "$(e)" "clear.sh names the leftover config.json"
   rm -f "$cfg/config.json"
   for bad in "--image agent" "--image agent-min" "--egress normal" "--model-url https://gateway:8090" "--model-url http://gateway"; do
     # shellcheck disable=SC2086
@@ -1087,8 +1100,7 @@ case_config_command() {
 case_images_command() {
   new_case imagescmd
   image_json 1.4.0 "netlock,pi" > "$world/images/pi-min_local.json"
-  printf '{"v":1,"image":"min"}\n' > "$cfg/config.json"
-  pi "$run_sh" images
+  PI_IMAGE=min pi "$run_sh" images
   expect_status 0 "images"
   local out
   out=$(o)
@@ -1098,7 +1110,7 @@ case_images_command() {
   contains "  tools   pi-tools:local" "$out" "tools listed"
   contains "  editor  pi-editor:local" "$out" "editor listed"
   not_contains "agent" "$out" "no agent pack"
-  contains "the effective image (file)" "$out" "the effective image's source"
+  contains "the effective image (env)" "$out" "the effective image's source"
   mkdir -p "$world/fail"
   : > "$world/fail/system"
   pi "$run_sh" images
@@ -1118,11 +1130,10 @@ case_min() {
   local st cmd
   mkdir -p "$home/.fleet/sessions/s1/state"
   st=$(cd "$home/.fleet/sessions/s1/state" && pwd -P)
-  printf '{"v":1,"image":"min"}\n' > "$cfg/config.json"
   for cmd in "pi" "check owner/repo" "--fleet-state $st --clone owner/repo pi --mode json"; do
     : > "$logfile"
     # shellcheck disable=SC2086
-    (cd "$t/project" && run_it env HOME="$home" PI_ENV_FILE="$cfg/env" \
+    (cd "$t/project" && run_it env HOME="$home" PI_ENV_FILE="$cfg/env" PI_IMAGE=min \
       CONTAINER_CLI="$fake" FAKE_CONTAINER_WORLD="$world" FAKE_CONTAINER_LOG="$logfile" bash "$run_sh" $cmd)
     expect_status 0 "min: $cmd runs"
     contains 'image=pi-min:local pack=min capabilities=netlock,pi' "$(e)" "min: $cmd announces the pack"
@@ -1180,7 +1191,7 @@ offline_world() { # name
   proxy_running_json > "$world/containers/pi-proxy.json"
   printf '172.30.240.2\n' > "$cfg/private/proxy.addr"
   printf 'GH_TOKEN=ghp_other\nGITHUB_PAT=ghp_pat\n' >> "$cfg/env"
-  printf '{"v":1,"model_url":"http://gateway:8090"}\n' > "$cfg/config.json"
+  case_env="PI_MODEL_URL=http://gateway:8090"
 }
 
 offline_pi() { # args...
@@ -1210,10 +1221,10 @@ case_offline_run() {
   not_contains "TOKEN" "$(cat "$cfg/pi.env")" "offline pi.env has no token variable"
   contains "GIT_AUTHOR_NAME=Test" "$(cat "$cfg/pi.env")" "offline pi.env keeps the commit identity"
   : > "$logfile"
-  printf '{"v":1,"egress":"offline","model_url":"http://gateway:8090"}\n' > "$cfg/config.json"
+  case_env="PI_EGRESS=offline PI_MODEL_URL=http://gateway:8090"
   (cd "$t/project" && pi "$run_sh" pi)
-  expect_status 0 "offline from config.json"
-  contains 'egress=offline' "$(e)" "file egress announced"
+  expect_status 0 "offline from PI_EGRESS"
+  contains 'egress=offline' "$(e)" "env egress announced"
   log_lacks "delete --force pi-proxy" "same offline settings keep the proxy"
   # Absent proxy: the new one gets the profile and the route. The fake
   # publishes no address, so the run then fails on the address wait.

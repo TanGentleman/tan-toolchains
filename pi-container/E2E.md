@@ -31,7 +31,7 @@ unset PI_AGENT_VOLUME PI_SETTINGS_FILE PI_CLONE
 unset PI_NVIM_CONFIG PI_NVIM_DATA PI_NVIM_STATE PI_NVIM_CACHE
 unset PI_PROXY_NAME PI_NETWORK_NAME PI_PROXY_IMAGE PI_LOCKED_SUBNET
 cp ~/.config/pi-container/env "$PI_ENV_FILE"
-# no config.json: the profile starts on the defaults (full, standard, openrouter)
+unset PI_IMAGE PI_EGRESS PI_MODEL_URL  # the defaults: full, standard, openrouter
 # edit "$PI_ENV_FILE": set GITHUB_TOKEN to the test token
 chmod 600 "$PI_ENV_FILE"
 ```
@@ -56,12 +56,12 @@ the remaining checks by hand; the script lists them at the end.
 - [ ] `./run.sh images` lists exactly `min full zig tools editor` with tags
       `pi-<pack>:local`, `yes` for the four built, and `*` on `full`.
 - [ ] `./run.sh config` prints `image full (pi-full:local) default`,
-      `egress standard default`, `model_url openrouter default` and
-      `$PI_CONFIG_DIR/config.json (absent)`; `./run.sh --image min config --json | jq -c .source`
+      `egress standard default` and `model_url openrouter default`;
+      `./run.sh --image min config --json | jq -c .source`
       prints `{"image":"flag","egress":"default","model_url":"default"}`.
-- [ ] `echo '{"v":2}' > "$PI_CONFIG_DIR/config.json"; ./run.sh config` exits 2
-      naming the version; same for `{"v":1,"image":"agent"}` and
-      `{"v":1,"token":"x"}`. `rm "$PI_CONFIG_DIR/config.json"` after.
+- [ ] `PI_IMAGE=agent ./run.sh config` exits 2 naming `PI_IMAGE`.
+      `echo '{"v":1,"image":"min"}' > "$PI_CONFIG_DIR/config.json"; ./run.sh config`
+      exits 2 with `no longer read; set PI_IMAGE='min'`. `rm "$PI_CONFIG_DIR/config.json"` after.
 - [ ] `./run.sh --manual --image editor sh -c 'nvim --version | head -n 1; zls --version; command -v enforcer; ! command -v pi; ! command -v gh'`
       reports the editor tools and confirms Pi/gh are absent.
 - [ ] `$PI_ENV_FILE` is mode 600/400; `private/proxy.env` and `pi.env` are
@@ -117,8 +117,8 @@ Needs `./build.sh min`. The refusal and routing checks need nothing on port
       before starting anything.
 - [ ] `./run.sh --egress offline --clone "$owner/tan-toolchains-e2e"` and
       `./run.sh --egress offline --manual` exit 2.
-- [ ] Write `{"v":1,"image":"min","egress":"offline","model_url":"http://gateway:8090"}`
-      to `$PI_CONFIG_DIR/config.json`. `./run.sh config` shows all three as `file`.
+- [ ] `export PI_IMAGE=min PI_EGRESS=offline PI_MODEL_URL=http://gateway:8090`.
+      `./run.sh config` shows all three as `env`.
 - [ ] `./run.sh check` recreates `pi-proxy` without a build, prints the summary,
       `mode offline`, `pi-proxy enforces offline`, `no GitHub token in the VM`,
       `github.com refused by pi-proxy` and enforcer `not in this pack`; only the
@@ -130,7 +130,7 @@ Needs `./build.sh min`. The refusal and routing checks need nothing on port
       `./run.sh pi -p "say hi"` answers from the local model.
 - [ ] `./run.sh proxy` never shows the real key; offline, the model server
       gets only the placeholder key.
-- [ ] `rm "$PI_CONFIG_DIR/config.json"`; plain `./run.sh check` recreates
+- [ ] `unset PI_IMAGE PI_EGRESS PI_MODEL_URL`; plain `./run.sh check` recreates
       `pi-proxy` in standard mode and passes the GitHub checks again.
 
 ### Pi and instances
@@ -177,7 +177,7 @@ Needs `./build.sh min`. The refusal and routing checks need nothing on port
 ### Neovim and ZLS
 
 Pass `--image zig` to every `run.sh` in this section and the two Zig
-sections below (or set `"image": "zig"` in `$PI_CONFIG_DIR/config.json`).
+sections below (or `export PI_IMAGE=zig`).
 
 - [ ] `./run.sh --manual` seeds `$PI_CONFIG_DIR/nvim/init.lua` and starts a shell.
 - [ ] From a Zig project on the host mount, `nvim src/main.zig`;

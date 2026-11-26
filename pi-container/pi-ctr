@@ -25,8 +25,8 @@
 # can confirm the container is gone: with the container system not answering,
 # it fails rather than guess.
 #
-# The image, egress and model_url come from $PI_CONFIG_DIR/config.json (the
-# node config), as for run.sh. `pi-ctr --config` prints them: it runs
+# The image, egress and model_url come from PI_IMAGE, PI_EGRESS and
+# PI_MODEL_URL in fleetd's environment (the node config), as for run.sh. `pi-ctr --config` prints them: it runs
 # `run.sh config --json`, which fleetd serves in GET /v1/node and records in
 # each turn's input event, then passes back as $FLEET_IMAGE, $FLEET_EGRESS
 # and $FLEET_MODEL_URL (run.sh's --image, --egress and --model-url).

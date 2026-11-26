@@ -30,8 +30,8 @@ Pi's VM runs behind the egress lock in pi-container's normal mode, `run.sh
 check`, and fleet turns.
 
 - **Allowed:** `pi-proxy` only, with an egress profile set in
-  `pi-container`'s `config.json` or `--egress`
-  ([configuration](pi-container/docs/configuration.md#config-file)):
+  `PI_EGRESS` or `--egress`
+  ([configuration](pi-container/docs/configuration.md#run-settings)):
   - `standard` (default): it tunnels GitHub and sends model calls (Pi's
     `openrouter.ai` requests) to openrouter.ai with the real key, or, with an
     http `model_url` such as `http://gateway:8090`, to that server (e.g. a

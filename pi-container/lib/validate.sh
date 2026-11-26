@@ -45,7 +45,7 @@ pi_egress_valid() { # profile
   [[ ${1:-} =~ ^[a-z][a-z0-9-]{0,31}$ ]]
 }
 
-# A Pi image pack, as config.json and run.sh --image name it.
+# A Pi image pack, as PI_IMAGE and run.sh --image name it.
 pi_pi_pack_valid() { # pack
   case ${1:-} in
     min|full|zig) return 0 ;;

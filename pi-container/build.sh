@@ -21,7 +21,7 @@ Build a pi-container image pack from the repo root context.
 
   build.sh PACK|all [container build options...]
 
-Pi packs (pick one with config.json "image" or run.sh --image):
+Pi packs (pick one with PI_IMAGE or run.sh --image):
   min     pi-min:local     Pi, git, jq, ripgrep, fd; no enforcer, gh or Zig stage
   full    pi-full:local    min + gh + enforcer (the default)
   zig     pi-zig:local     full + Zig, zigpeek, Neovim, ZLS

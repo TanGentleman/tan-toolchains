@@ -54,14 +54,16 @@ chmod +x "$tmp/bin/pi-ctr-spy" "$tmp/container"
 U=http://127.0.0.1:17441
 api() { curl -fsS -X "$1" -H 'Tailscale-User-Login: tan' -H 'Content-Type: application/json' ${3:+-d "$3"} "$U$2"; }
 # fleetd gets the real key in its environment; it must reach no turn.
+# Arguments are more env, e.g. PI_IMAGE=min: the node's config.
 start_fleetd() {
   env HOME="$home" OPENROUTER_API_KEY="$real" PI_CTR_MAX_FILE_BYTES=1000 FLEET_PI_CTR_BIN="$tmp/bin/pi-ctr-spy" \
-    CONTAINER_CLI="$tmp/container" \
+    CONTAINER_CLI="$tmp/container" "$@" \
     "$tmp/fleetd" -name a -url $U -listen 127.0.0.1:17441 -owner tan 2>>"$tmp/fleetd.log" &
   pid=$!
   for _ in $(seq 50); do api GET /v1/node >/dev/null 2>&1 && return; sleep 0.1; done
   echo "pi-ctr: fleetd did not start"; cat "$tmp/fleetd.log"; exit 1
 }
+restart_fleetd() { kill "$pid"; wait "$pid" 2>/dev/null || true; start_fleetd "$@"; }
 start_fleetd
 fail() { echo "pi-ctr: FAIL: $*"; echo "--- fleetd log"; tail -20 "$tmp/fleetd.log"; tail -n 15 "$home"/.fleet/sessions/*/stderr-*.log; exit 1; }
 idle() { # sid
@@ -82,14 +84,18 @@ events() { api GET "/v1/sessions/$1/events"; }
 # Through a file: grep -q closing the pipe early would fail curl under pipefail.
 has() { events "$1" > "$tmp/events"; grep -q -- "$2" "$tmp/events"; }
 
-# GET /v1/node reports the node's config: the defaults, then config.json.
+# GET /v1/node reports the node's config: the defaults, then the PI_* env
+# fleetd was started with.
 node=$(api GET /v1/node)
 [ "$(jq -r '.config | "\(.image) \(.egress) \(.model_url)"' <<<"$node")" = "full standard openrouter" ] || fail "GET /v1/node config: $node"
-printf '{"v":1,"image":"min","model_url":"http://gateway:8090"}\n' > "$home/.config/pi-container/config.json"
+restart_fleetd PI_IMAGE=min PI_MODEL_URL=http://gateway:8090
 node=$(api GET /v1/node)
-[ "$(jq -r '.config | "\(.image) \(.model_url)"' <<<"$node")" = "min http://gateway:8090" ] || fail "GET /v1/node after config.json: $node"
-printf '{"v":9}\n' > "$home/.config/pi-container/config.json"
-api GET /v1/node | jq -e '.config_error | contains("needs \"v\": 1")' >/dev/null || fail "GET /v1/node hides a bad config.json"
+[ "$(jq -r '.config | "\(.image) \(.model_url)"' <<<"$node")" = "min http://gateway:8090" ] || fail "GET /v1/node with PI_IMAGE: $node"
+restart_fleetd PI_IMAGE=agent
+api GET /v1/node | jq -e '.config_error | contains("PI_IMAGE must be")' >/dev/null || fail "GET /v1/node hides a bad PI_IMAGE"
+restart_fleetd
+printf '{"v":1,"image":"min"}\n' > "$home/.config/pi-container/config.json"
+api GET /v1/node | jq -e '.config_error | contains("no longer read")' >/dev/null || fail "GET /v1/node hides a leftover config.json"
 rm "$home/.config/pi-container/config.json"
 
 # Turn 1: clone o/r, start from dev, push to fleet/<sid>, report dev as base.
@@ -219,7 +225,7 @@ ms=$(grep -o 'first_output_ms[^,]*' "$tmp/events" | tr -d '\\"' | sed 's/first_o
 # Offline repo session: clones from a local mirror, pushes nothing, and
 # keeps its commits in the session's repo.bundle for the next turn.
 git clone -q --mirror "$tmp/gh/o/r.git" "$cfg/mirrors/o/r.git"
-printf '{"v":1,"egress":"offline","model_url":"http://10.0.0.5:8090"}\n' > "$cfg/config.json"
+restart_fleetd PI_EGRESS=offline PI_MODEL_URL=http://10.0.0.5:8090
 osid=$(api POST /v1/sessions '{"harness":"pi-ctr","repo":"o/r","key":"k-off","prompt":"write off1"}' | jq -r .sid)
 idle "$osid"
 o1=$(st "$osid" commit)
@@ -232,6 +238,5 @@ o2=$(st "$osid" commit)
 [ "$(git -C "$tmp/gh/o/r.git" rev-parse -q --verify "$o2^" 2>/dev/null || git --git-dir="$cfg/mirrors/o/r.git" fetch -q "$b" "refs/heads/fleet/$osid:refs/b" 2>/dev/null && git --git-dir="$cfg/mirrors/o/r.git" rev-parse "refs/b^")" = "$o1" ] ||
   fail "offline turn 2 did not continue from the bundle"
 has "$osid" '"egress":"offline"' || fail "offline turns do not record egress offline"
-rm "$cfg/config.json"
 
 echo "pi-ctr: ok ($sid; $ms)"

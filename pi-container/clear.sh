@@ -68,11 +68,14 @@ pi_instance_valid "$instance" || die "invalid instance '$instance'"
 if [ -n "$flag_image" ]; then
   pi_pack_tag "$flag_image" >/dev/null || die "--image must be one of: $pi_pack_names"
 fi
-# The agent image: --image, then config.json, then full; as run.sh picks it.
-command -v jq >/dev/null 2>&1 || die "jq not found; install it (brew install jq)"
-config_raw=$(pi_config_read "$cfg/config.json") || die "$cfg/config.json $config_raw"
-IFS=$'\037' read -r file_image _ <<<"$config_raw"
-read -r pi_pack _ <<<"$(pi_config_pick "$flag_image" "$file_image" "$pi_config_default_image")"
+# The agent image: --image, then PI_IMAGE, then full; as run.sh picks it.
+if [ -n "${PI_IMAGE:-}" ] && ! pi_pi_pack_valid "$PI_IMAGE"; then
+  die "PI_IMAGE must be min, full or zig"
+fi
+read -r pi_pack _ <<<"$(pi_config_pick "$flag_image" "${PI_IMAGE:-}" "$pi_config_default_image")"
+if [ -e "$cfg/config.json" ] || [ -L "$cfg/config.json" ]; then
+  die "$cfg/config.json is no longer read; set PI_IMAGE in your alias or shell instead, then delete the file"
+fi
 pi_image=$(pi_pack_tag "$pi_pack")
 agent_volume="${PI_AGENT_VOLUME:-$(pi_agent_volume "$instance" "$cfg")}"
 
@@ -110,8 +113,8 @@ save and nuke accept --instance NAME or PI_INSTANCE=NAME; the default is
   clear.sh nuke all [--instance NAME] [--image PACK] [--yes]
       Save sessions, then delete the selected instance's agent volume, this
       profile's proxy ($proxy_name) and network ($network_name), this profile's
-      proxy image, the agent image ($pi_image: --image, else config.json's
-      image, else full), and the builder cache. Other
+      proxy image, the agent image ($pi_image: --image, else PI_IMAGE,
+      else full), and the builder cache. Other
       profiles' proxy/network, other agent volumes, and all clone volumes stay.
       The agent image is global, so other profiles still need to rebuild it.
 

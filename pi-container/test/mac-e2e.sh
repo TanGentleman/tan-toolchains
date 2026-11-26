@@ -66,7 +66,7 @@ repo_name=${repo#*/}
 
 # Same isolation as E2E.md's setup.
 export PI_CONFIG_DIR=$cfg PI_ENV_FILE=$cfg/env PI_BACKUP_DIR=$root/backups PI_INSTANCE=e2e
-unset PI_AGENT_VOLUME PI_SETTINGS_FILE PI_CLONE OPENROUTER_API_KEY
+unset PI_AGENT_VOLUME PI_SETTINGS_FILE PI_CLONE OPENROUTER_API_KEY PI_IMAGE PI_EGRESS PI_MODEL_URL
 unset PI_NVIM_CONFIG PI_NVIM_DATA PI_NVIM_STATE PI_NVIM_CACHE
 unset PI_PROXY_NAME PI_NETWORK_NAME PI_PROXY_IMAGE PI_LOCKED_SUBNET
 if [ -n "$repo" ] && [ "$src_env" != "$PI_ENV_FILE" ]; then
@@ -203,7 +203,6 @@ phase_auto() {
   check "default profile's proxy untouched" is "$(started "$(pi_proxy_name "$(pi_default_config_dir)")")" "$default_started"
 
   section "Config and images"
-  rm -f "$cfg/config.json"
   step config in_dir "$proj" "$run" config
   check "config shows the defaults" sh -c 'printf "%s\n" "$1" | grep -q "^image      full (pi-full:local) *default" &&
     printf "%s\n" "$1" | grep -q "^egress     standard" && printf "%s\n" "$1" | grep -q "^model_url  openrouter"' sh "$out"
@@ -220,10 +219,8 @@ phase_auto() {
     rm -f "$cfg/env-keyonly"
     step min-tools in_dir "$proj" "$run" --image min bash -c 'pi --version && git --version && jq --version && rg --version && fd --version && ! command -v enforcer && ! command -v gh && ! command -v zig'
     check "min has pi, git, jq, rg, fd; no enforcer, gh or zig" is "$code" 0
-    printf '{"v":1,"image":"min"}\n' >"$cfg/config.json"
-    step min-config in_dir "$proj" "$run" true
-    check "config.json selects min" has "image=pi-min:local pack=min"
-    rm -f "$cfg/config.json"
+    step min-config in_dir "$proj" env PI_IMAGE=min "$run" true
+    check "PI_IMAGE selects min" has "image=pi-min:local pack=min"
   else
     skip "min checks: pi-min:local missing (run the build phase)"
   fi

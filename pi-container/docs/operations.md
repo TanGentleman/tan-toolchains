@@ -14,7 +14,7 @@ network, port, and OpenRouter key stay shared.
 `PI_CONFIG_DIR` selects a profile. The default is `~/.config/pi-container`;
 another directory gets its own settings, env file, proxy, host-only network,
 subnet, proxy image, agent volumes, and clone volumes. The active image and
-builder cache stay machine-wide; each profile's `config.json` picks its image.
+builder cache stay machine-wide; `PI_IMAGE` picks the image per run.
 
 ```bash
 alias pic=/path/to/pi-container/run.sh
@@ -68,7 +68,7 @@ another profile may have removed.
 `nuke clones` deletes the selected instance's clone volumes in the current
 profile, scoped by volume labels. `nuke all` deletes the selected instance's
 agent volume plus this profile's proxy and network, this profile's proxy image,
-the active image (`--image`, else `config.json`, else `pi-full:local`), and the builder cache. It keeps other profiles'
+the active image (`--image`, else `PI_IMAGE`, else `pi-full:local`), and the builder cache. It keeps other profiles'
 proxy/network resources, other agent volumes, all clone volumes, and other pack
 tags. The active image is machine-wide, so other profiles using it still need to
 rebuild. It does not delete the Neovim host paths under `$PI_CONFIG_DIR`
@@ -76,7 +76,7 @@ rebuild. It does not delete the Neovim host paths under `$PI_CONFIG_DIR`
 the active pack:
 
 ```bash
-./build.sh full          # or the pack your config.json names
+./build.sh full          # or the pack PI_IMAGE names
 ```
 
 ## Rebuilding from scratch

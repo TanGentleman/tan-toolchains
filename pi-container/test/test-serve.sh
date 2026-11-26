@@ -5,7 +5,7 @@ set -uo pipefail
 
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 . "$here/lib.sh"
-unset PI_INSTANCE PI_CLONE PI_CONFIG_DIR PI_ENV_FILE OPENROUTER_API_KEY FLEETD FLEET_PORT
+unset PI_INSTANCE PI_CLONE PI_CONFIG_DIR PI_ENV_FILE PI_IMAGE PI_EGRESS PI_MODEL_URL OPENROUTER_API_KEY FLEETD FLEET_PORT
 
 tmp=$(mktemp -d)
 bg=""
@@ -93,18 +93,20 @@ reset; image netlock; serve --check
 refuses "image without Pi" "lacks capability 'pi'"
 reset; image netlock,pi; serve --check
 eq 0 "$(st)" "an image without enforcer (min) passes: $(out)"
-contains "config: image full, egress standard, model_url openrouter ($cfg/config.json)" "$(out)" "the node's config is shown"
-reset; printf '{"v":1,"image":"min"}' > "$cfg/config.json"; serve --check
+contains "config: image full, egress standard, model_url openrouter" "$(out)" "the node's config is shown"
+reset; extra="PI_IMAGE=min"; serve --check; extra=""
 refuses "config image not built" "image pi-min:local is missing; run: $root/build.sh min"
-reset; printf '{"v":1,"image":"min"}' > "$cfg/config.json"
+reset
 printf '[{"id":"sha256:t","variants":[{"config":{"config":{"Env":["PI_CONTAINER_CAPABILITIES=netlock,pi"]}}}]}]' > "$world/images/pi-min_local.json"
-serve --check
-eq 0 "$(st)" "config.json picks the min image: $(out)"
+extra="PI_IMAGE=min"; serve --check; extra=""
+eq 0 "$(st)" "PI_IMAGE picks the min image: $(out)"
 contains "image pi-min:local is built" "$(out)" "the config's image is checked"
-reset; printf '{"v":2}' > "$cfg/config.json"; serve --check
-refuses "bad config" 'config: '"$cfg"'/config.json needs "v": 1, not 2'
-reset; printf '{"v":1,"egress":"offline","model_url":"http://gateway:8090"}' > "$cfg/config.json"
-printf 'OPENROUTER_API_KEY=sk-or-v1-real\n' > "$cfg/env"; serve --check
+reset; extra="PI_IMAGE=agent"; serve --check; extra=""
+refuses "bad PI_IMAGE" 'config: PI_IMAGE must be min, full or zig'
+reset; printf '{"v":1,"image":"min"}' > "$cfg/config.json"; serve --check
+refuses "a leftover config.json" "config.json is no longer read; set PI_IMAGE='min'"
+reset; printf 'OPENROUTER_API_KEY=sk-or-v1-real\n' > "$cfg/env"
+extra="PI_EGRESS=offline PI_MODEL_URL=http://gateway:8090"; serve --check; extra=""
 eq 0 "$(st)" "offline needs no GitHub token: $(out)"
 contains "egress offline: turns get no GitHub token" "$(out)" "offline token check"
 contains "egress offline, model_url http://gateway:8090" "$(out)" "offline config shown"

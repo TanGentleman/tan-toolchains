@@ -777,7 +777,7 @@ func TestNodeDefaults(t *testing.T) {
 			return core.TurnConfig{Image: "min", Egress: "offline", ModelURL: "http://gateway:8090"}, nil
 		},
 			`"config":{"image":"min","egress":"offline","model_url":"http://gateway:8090"}`},
-		{func() (core.TurnConfig, error) { return core.TurnConfig{}, errors.New("bad config.json") }, `"config_error":"bad config.json"`},
+		{func() (core.TurnConfig, error) { return core.TurnConfig{}, errors.New("bad PI_IMAGE") }, `"config_error":"bad PI_IMAGE"`},
 	} {
 		var h http.Handler = http.NotFoundHandler()
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { h.ServeHTTP(w, r) }))
@@ -852,7 +852,7 @@ func TestTurnConfigRecorded(t *testing.T) {
 	if !slices.Equal(images, []string{"min", "full"}) {
 		t.Fatalf("recorded images %v, want [min full]", images)
 	}
-	cfgErr = errors.New("config.json needs \"v\": 1")
+	cfgErr = errors.New("PI_IMAGE must be min, full or zig")
 	head := waitIdle(t, n, sid).Head
 	if _, err := n.Input("tan", sid, "i3", "three"); err == nil || !strings.Contains(err.Error(), "node config") {
 		t.Fatalf("input with a bad config: %v", err)

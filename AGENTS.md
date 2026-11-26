@@ -162,7 +162,7 @@ Move these together:
 - `lib/*.sh` and `test/lib.sh` are sourced, never executed. They must not set
   shell options or call `exit`; return a status and let the caller decide.
 - Keep parsing in `lib/inspect.sh`, naming in `names.sh`, validation in
-  `lib/validate.sh`, `config.json` reading and precedence in `lib/config.sh`,
+  `lib/validate.sh`, run-setting precedence in `lib/config.sh`,
   the pack catalog in `images.sh`, and path/security logic in `lib/paths.sh`.
 - Zig targets the pinned version and uses the standard library only. Keep
   zigpeek command parsing in `cli.zig`, indexing in `stdlib.zig`, builtins in
@@ -173,10 +173,10 @@ Move these together:
   claims. Root `README.md` owns the network boundary; `UPGRADES.md` holds open
   work only.
 - `pi-container/docs/configuration.md` is the source of truth for user-facing
-  flags, `config.json`, environment variables, generated config files, and
-  build arguments. Image, egress and model_url are set only by `config.json`
-  and the `--image`/`--egress`/`--model-url` flags, never by environment
-  variables; secrets stay in the env file.
+  flags, environment variables, generated config files, and build arguments.
+  Image, egress and model_url are set only by the `--image`/`--egress`/
+  `--model-url` flags and `PI_IMAGE`/`PI_EGRESS`/`PI_MODEL_URL`; there is no
+  config file. Secrets stay in the env file.
   Update it with the code and `--help` text.
 - Update docs in the same commit as behavior changes and delete stale text
   instead of appending corrections.

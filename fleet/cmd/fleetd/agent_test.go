@@ -25,7 +25,7 @@ func TestPiConfig(t *testing.T) {
 	t.Setenv("OPENROUTER_API_KEY", "sk-or-v1-real")
 	fakeCtr(t, `[ "$1" = --config ] || exit 9
 [ "$PI_CTR_HOME" = /home/x ] && [ "$PI_CONFIG_DIR" = /cfg ] && [ -z "$OPENROUTER_API_KEY" ] || exit 8
-echo '{"v":1,"config":"/cfg/config.json","image":"min","tag":"pi-min:local","egress":"offline","model_url":"http://gateway:8090","source":{"image":"file"}}'`)
+echo '{"v":1,"image":"min","tag":"pi-min:local","egress":"offline","model_url":"http://gateway:8090","source":{"image":"env"}}'`)
 	c, err := piConfig()
 	if err != nil {
 		t.Fatal(err)
@@ -37,7 +37,7 @@ echo '{"v":1,"config":"/cfg/config.json","image":"min","tag":"pi-min:local","egr
 
 func TestPiConfigRefusals(t *testing.T) {
 	for _, tc := range []struct{ script, want string }{
-		{`echo 'run.sh: /cfg/config.json needs "v": 1, not 2' >&2; exit 2`, `needs "v": 1, not 2`},
+		{`echo 'run.sh: PI_IMAGE must be min, full or zig' >&2; exit 2`, `PI_IMAGE must be min, full or zig`},
 		{`echo '{"v":2,"image":"min","egress":"standard","model_url":"openrouter"}'`, `want {"v":1`},
 		{`echo '{"v":1,"image":"min"}'`, `want {"v":1`},
 		{`echo nope`, `got "nope"`},

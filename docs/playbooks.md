@@ -18,8 +18,7 @@ chmod 600 ~/.config/pi-container/env && open -e ~/.config/pi-container/env
 ```
 
 Pick the image, egress profile and model route with env vars, best in
-aliases (a flag beats them; an optional `~/.config/pi-container/config.json`
-with the same keys sets defaults under them):
+aliases (a flag beats them):
 
 ```sh
 alias mpic='PI_IMAGE=min pic --instance min'

@@ -4,7 +4,7 @@
 run.sh passes the profile (pi-container/egress/*.json, lib/egress.sh):
 PI_PROXY_EGRESS is its name, PI_PROXY_TUNNEL the comma-separated hosts to
 pass through (unset: none), PI_PROXY_MODEL_RULE "any" or "private" (unset:
-private). PI_PROXY_MODEL_HOST/PORT (from config.json's model_url) send
+private). PI_PROXY_MODEL_HOST/PORT (from run.sh's model_url) send
 openrouter.ai requests over plain HTTP to that model server instead, with a
 placeholder key; with "private" model calls go only there, and it must be a
 private IPv4 address."""
