@@ -11,7 +11,8 @@ bash -n "$here/fleet-probe.sh" && bash -n "$here/fleet-isolation.sh" && pass || 
 
 tmp=$(cd "$(mktemp -d)" && pwd -P) # macOS: /var is a symlink, and the fleet-state guard refuses symlinks
 pids=""
-trap 'for p in $pids; do kill "$p" 2>/dev/null; done; rm -rf "$tmp"' EXIT
+# wait silences bash's "Terminated: 15" report for each killed server.
+trap 'for p in $pids; do kill "$p" 2>/dev/null; wait "$p" 2>/dev/null; done; rm -rf "$tmp"' EXIT
 free_port() { python3 -c 'import socket; s=socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])'; }
 listen() { # port
   python3 -c 'import socket,sys,time

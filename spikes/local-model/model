@@ -59,6 +59,11 @@ cmd_install() {
   name=$(jq -r .name <<<"$info"); dir=$(jq -r .dir <<<"$info")
   repo=$(jq -r .weights.repo <<<"$info"); rev=$(jq -r .weights.revision <<<"$info")
   echo "== 2/2 weights for $name"
+  old="$HOME/.local/share/$name/model" # where the first spike kept these weights
+  if [ "$(jq -r .installed <<<"$info")" != true ] && [ ! -e "$dir" ] && [ -f "$old/.complete" ] && [ "$(cat "$old/.complete")" = "$rev" ]; then
+    mkdir -p "$(dirname "$dir")" && mv "$old" "$dir" && echo "moved the weights from $old (no download)"
+    info=$(model_info) || exit 1
+  fi
   if [ "$(jq -r .installed <<<"$info")" = true ]; then
     echo "already at $rev"
   else
