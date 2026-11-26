@@ -18,6 +18,7 @@ Commands run from `pi-container/` unless noted.
 | Agent state | Per instance, in a volume | Sessions and extensions survive restarts and stay isolated. |
 | Settings | Shared per profile, read-only | Pi cannot persist preference or install changes. |
 | Manual mode | Default network, no proxy | Editor work is separate from the locked Pi path. |
+| Offline egress | Off; `PI_EGRESS=offline` | Local models with no internet route: GitHub and openrouter.ai are refused, Pi gets no GitHub token. |
 | Egress mode | Off; `--allow-egress` | Runs Pi on the default network when the allowlist is too narrow; the real key enters the VM. |
 | Pack capability check | Refuse missing `pi` in normal mode | A clear error beats a container that cannot start its command. |
 | Egress lock | On in normal mode, `check`, and `--fleet-state` | `pi-locked` alone reaches the Mac and Tailscale's resolver. See the [network boundary](../../README.md#network-boundary). |
@@ -44,7 +45,7 @@ requires it for the OpenRouter key; manual mode does not require it.
 - `$PI_CONFIG_DIR/private/egress.env`: the OpenRouter key plus the `pi.env`
   values, passed only to `--allow-egress`. See [Egress mode](egress.md).
 - `$PI_CONFIG_DIR/pi.env`: the GitHub token and commit identity, passed only to
-  Pi. It is created only when at least one value is present; removing a token
+  Pi. With `PI_EGRESS=offline` it holds the commit identity only. It is created only when at least one value is present; removing a token
   from the host file removes the generated file on the next normal run or
   manual clone.
 
@@ -127,7 +128,7 @@ a FAIL instead):
 | Mode | Needs |
 | --- | --- |
 | normal Pi, `--fleet-state` | `pi`, `netlock` (iptables for the egress lock) |
-| `check` | `pi`, `netlock`, `enforcer`; `gh` when `GITHUB_TOKEN` is set |
+| `check` | `pi`, `netlock`, `enforcer`; `gh` when `GITHUB_TOKEN` is set, except offline |
 | `pic serve --check` | `pi`, `netlock`, and capability metadata |
 
 `check` tests Zig and zigpeek only in an image that lists `zig`. An image with
@@ -145,7 +146,7 @@ the VM and says to rebuild. `agent` is for tokenless runs.
 | `--manual [CMD]` | Open a shell without Pi or the proxy. See [Manual mode](manual.md). |
 | `--allow-egress` | Run Pi or `COMMAND` on the default network with the real OpenRouter key. See [Egress mode](egress.md). |
 | `COMMAND [ARG...]` | Run inside the normal Pi container instead of `pi`; for example, `run.sh bash`. |
-| `check [O/R]` | Check keys, the proxy, GitHub when a token is present, the egress lock, and enforcer. |
+| `check [O/R]` | Check the egress mode, keys, the proxy, GitHub when a token is present, the egress lock, and enforcer. Offline, it checks that the token is absent and GitHub is refused instead. |
 | `proxy` | Follow the profile's proxy logs. |
 | `proxy-stop` | Stop the profile's proxy. |
 | `--help` | Print usage. |
@@ -157,6 +158,27 @@ volume mounted, unlike `--manual`. `run.sh bash` is therefore the way to run
 `--allow-egress` applies to normal mode's Pi and command path only: it uses the
 default network, passes the real OpenRouter key, and refuses the proxy, `check`,
 and `--manual`.
+
+### Offline egress
+
+`PI_EGRESS=offline` narrows normal mode, `check`, and `--fleet-state`; it never
+adds a route:
+
+| Route | Normal | Offline |
+| --- | --- | --- |
+| GitHub (`github.com`, `api.github.com`, ...) | Tunneled | Refused (403) |
+| `openrouter.ai` | Key added, sent to openrouter.ai or `PI_PROXY_OPENROUTER_HOST` | Sent only to `PI_PROXY_OPENROUTER_HOST`, with the placeholder key |
+| Every other host, direct IPs, DNS | Refused | Refused |
+| `GITHUB_TOKEN` in `pi.env` | When set | Never |
+
+Offline needs `PI_PROXY_OPENROUTER_HOST` set to a private IPv4 address
+(10/8, 172.16/12, 192.168/16, 169.254/16), such as the container network's
+gateway; a name, loopback, or a public address is refused before anything
+starts, and `pi-proxy` refuses to start without one. It cannot be combined
+with `--manual` or `--allow-egress`, which have no proxy. Switching the mode
+recreates `pi-proxy` from the same image, like changing the upstream. `check`
+prints `mode offline`, asks `pi-proxy` which mode it enforces, and fails if
+the token is present or GitHub answers. `spikes/inkling-2-mini/pi.sh` sets it.
 
 ### `clear.sh`
 
@@ -199,6 +221,7 @@ and `--manual`.
 | `PI_PROXY_OPENROUTER_HOST` | unset (`openrouter.ai`) | Where `pi-proxy` forwards OpenRouter requests, e.g. a model server on this Mac. Changing it recreates the proxy. |
 | `PI_PROXY_OPENROUTER_PORT` | `443` | Port for that upstream. |
 | `PI_PROXY_OPENROUTER_TLS` | `1` | `0` uses plain HTTP to that upstream. |
+| `PI_EGRESS` | `normal` | `offline` refuses GitHub and openrouter.ai and drops the GitHub token. See [Offline egress](#offline-egress). Changing it recreates the proxy. |
 
 ### Runtime and editor
 

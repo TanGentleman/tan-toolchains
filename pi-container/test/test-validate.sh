@@ -28,4 +28,21 @@ for r in '' owner owner/ /repo 'owner//repo' owner/repo/extra owner/. owner/.. o
   rc 1 "repo [$r] should be invalid" pi_repo_valid "$r"
 done
 
+# Egress profiles.
+for m in normal offline; do
+  rc 0 "egress [$m] should be valid" pi_egress_valid "$m"
+done
+for m in '' Offline online 'offline ' none; do
+  rc 1 "egress [$m] should be invalid" pi_egress_valid "$m"
+done
+
+# Offline upstream: a private IPv4 literal only, never a name.
+for h in 192.168.64.1 10.0.0.1 172.16.0.1 172.31.255.254 169.254.1.1; do
+  rc 0 "offline upstream [$h] should be valid" pi_offline_upstream_valid "$h"
+done
+for h in '' openrouter.ai github.com localhost 127.0.0.1 1.1.1.1 100.100.100.100 172.15.0.1 \
+         172.32.0.1 192.169.0.1 192.168.64.256 192.168.64 192.168.64.1.5 ' 192.168.64.1' '::1' fd00::1; do
+  rc 1 "offline upstream [$h] should be invalid" pi_offline_upstream_valid "$h"
+done
+
 finish

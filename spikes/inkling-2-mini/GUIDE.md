@@ -1,15 +1,16 @@
 # Guide: Inkling 2 Mini in a Pi container
 
 Pi runs in its normal sandbox (locked network, `pi-proxy` as the only way
-out). The only change: `pi-proxy` forwards model calls to this Mac instead of
-openrouter.ai. GitHub still goes through the proxy as usual.
+out) with `PI_EGRESS=offline`: `pi-proxy` forwards model calls only to this
+Mac, refuses openrouter.ai and GitHub, and Pi gets no GitHub token. For GitHub
+access with the local model, use `PI_EGRESS=normal $S/pi.sh`.
 
 ```
 Pi VM (pi-locked) -> pi-proxy -> 192.168.64.1:8090 gateway.py -> 127.0.0.1:8091 mlx_lm.server
 ```
 
 No image rebuild is needed. `run.sh` recreates `pi-proxy` by itself when the
-upstream changes, and back again when you stop using `pi.sh`.
+upstream or the egress mode changes, and back again when you stop using `pi.sh`.
 
 Run everything from the repo root. `$S` is short for the spike folder:
 
@@ -55,7 +56,7 @@ model to load (`$HOME/.local/share/inkling-2-mini/logs/mlx.log`).
 
 ```sh
 $S/serve.sh check   # host -> gateway -> model: one tool call, one stream
-$S/pi.sh check      # Pi VM -> pi-proxy -> gateway; OpenRouter line should pass
+$S/pi.sh check      # mode offline; OpenRouter line passes via the gateway, GitHub refused
 ```
 
 ## 4. Use Pi
@@ -103,6 +104,8 @@ $S/serve.sh pi
 - The gateway listens only on loopback and the container network's host
   address, not on your LAN. Containers on the default network can reach it;
   it serves only the model.
-- `pi-proxy` still adds your OpenRouter key to each request, so the key goes to
-  the gateway over the host-only bridge. The gateway does not read or log it.
+- Offline, `pi-proxy` sends the placeholder key, so your OpenRouter key never
+  leaves the proxy. With `PI_EGRESS=normal` it adds the real key, which then
+  goes to the gateway over the host-only bridge; the gateway does not read or
+  log it.
 - Request logs hold timings and token counts, not prompts or replies.

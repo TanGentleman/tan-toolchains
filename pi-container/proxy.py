@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Allowlist proxy: tunnels GitHub, MITMs openrouter.ai to add the key, refuses the rest."""
+"""Allowlist proxy: tunnels GitHub, MITMs openrouter.ai to add the key, refuses the rest.
+
+PI_PROXY_EGRESS=offline removes routes: GitHub is refused too, and openrouter.ai
+requests go only to PI_PROXY_OPENROUTER_HOST, a private IPv4 address, without
+the real key."""
 from __future__ import annotations
 
 import asyncio
@@ -40,6 +44,9 @@ UPSTREAM_HOST = os.environ.get("PI_PROXY_OPENROUTER_HOST", "")
 UPSTREAM_PORT = env_int("PI_PROXY_OPENROUTER_PORT", 443)
 UPSTREAM_TLS = os.environ.get("PI_PROXY_OPENROUTER_TLS", "1") != "0"
 LOCKED_CIDR = os.environ.get("PI_PROXY_LOCKED_CIDR", "172.30.240.0/24")
+EGRESS = os.environ.get("PI_PROXY_EGRESS", "normal")
+# Offline upstreams: the Mac's container bridge, or another host-only address.
+LOCAL_NETS = [ipaddress.ip_network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16")]
 
 
 def safe(value: str, limit: int = 200) -> str:
@@ -86,6 +93,28 @@ def allowed_github(host: str) -> bool:
 def allowed_openrouter(host: str) -> bool:
     host = host.lower().rstrip(".")
     return host == "openrouter.ai" or host.endswith(".openrouter.ai")
+
+
+def local_upstream(host: str) -> bool:
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return ip.version == 4 and any(ip in net for net in LOCAL_NETS)
+
+
+def check_egress() -> None:
+    if EGRESS == "normal":
+        return
+    if EGRESS != "offline":
+        raise RuntimeError(f"PI_PROXY_EGRESS must be normal or offline, not {safe(EGRESS, 40)!r}")
+    if not UPSTREAM_HOST:
+        raise RuntimeError("offline egress needs PI_PROXY_OPENROUTER_HOST, the local model server")
+    if not local_upstream(UPSTREAM_HOST):
+        raise RuntimeError("offline egress needs PI_PROXY_OPENROUTER_HOST to be a private IPv4 address "
+                           f"(10/8, 172.16/12, 192.168/16, 169.254/16), not {safe(UPSTREAM_HOST, 80)!r}")
+    if not 1 <= UPSTREAM_PORT <= 65535:
+        raise RuntimeError("PI_PROXY_OPENROUTER_PORT must be between 1 and 65535")
 
 
 async def pipe(src: asyncio.StreamReader, dst: asyncio.StreamWriter) -> None:
@@ -198,13 +227,16 @@ def upstream_context() -> ssl.SSLContext | None:
 async def forward_openrouter(host: str, method: str, target: str, headers: list[bytes], body: bytes, writer: asyncio.StreamWriter) -> None:
     key = openrouter_key()
     upstream = UPSTREAM_HOST or host
+    if EGRESS != "normal" and not local_upstream(upstream):
+        raise PermissionError(upstream)
     pairs = [(n, v) for n, v in header_map(headers) if n.lower() not in {
         "authorization", "proxy-authorization", "proxy-connection", "connection",
         "transfer-encoding", "content-length", "host",
     }]
     host_header = upstream if UPSTREAM_PORT == 443 else f"{upstream}:{UPSTREAM_PORT}"
     pairs.append(("Host", host_header))
-    pairs.append(("Authorization", "Bearer " + key))
+    # Offline, the real key stays in the proxy: the local server needs none.
+    pairs.append(("Authorization", "Bearer " + (key if EGRESS == "normal" else "sk-or-v1-placeholder")))
     pairs.append(("Content-Length", str(len(body))))
     pairs.append(("Connection", "close"))
     request = (method + " " + target + " HTTP/1.1\r\n").encode()
@@ -261,7 +293,7 @@ async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> 
             host, _, port = target.partition(":")
             if port != "443" or not host or any(c in host for c in " /\\"):
                 raise PermissionError(target)
-            if allowed_github(host):
+            if allowed_github(host) and EGRESS == "normal":
                 log(f"allow {safe(host)}")
                 await tunnel(reader, writer, host)
                 return
@@ -271,6 +303,12 @@ async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> 
             raise PermissionError(host)
         if method == "GET" and target.split("?", 1)[0] == "/health":
             body = b"pi-container-proxy\n"
+            writer.write(b"HTTP/1.1 200 OK\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s" % (len(body), body))
+            await writer.drain()
+            return
+        if method == "GET" and target.split("?", 1)[0] == "/egress":
+            # run.sh check reads the mode the proxy enforces, not the one it asked for.
+            body = EGRESS.encode() + b"\n"
             writer.write(b"HTTP/1.1 200 OK\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s" % (len(body), body))
             await writer.drain()
             return
@@ -454,6 +492,7 @@ def main() -> None:
         raise SystemExit("proxy: PI_PROXY_PORT must be between 1 and 65535")
     clear_addr()
     try:
+        check_egress()
         openrouter_key()
         ensure_certs()
         server_context()

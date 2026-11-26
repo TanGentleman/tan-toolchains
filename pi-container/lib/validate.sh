@@ -38,3 +38,27 @@ pi_repo_valid() { # owner/repo
   [ "${repo#-}" = "$repo" ] || return 1
   return 0
 }
+
+# PI_EGRESS: the proxy's egress profile. Empty means normal.
+pi_egress_valid() { # mode
+  case ${1:-} in
+    normal|offline) return 0 ;;
+  esac
+  return 1
+}
+
+# The only upstream offline mode allows: a dotted-quad IPv4 address in
+# 10/8, 172.16/12, 192.168/16 or 169.254/16. proxy.py enforces the same list.
+pi_offline_upstream_valid() { # host
+  local ip=${1:-} a b o
+  [[ $ip =~ ^([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})\.([0-9]{1,3})$ ]] || return 1
+  for o in "${BASH_REMATCH[@]:1}"; do
+    [ "$((10#$o))" -le 255 ] || return 1
+  done
+  a=$((10#${BASH_REMATCH[1]})) b=$((10#${BASH_REMATCH[2]}))
+  [ "$a" = 10 ] && return 0
+  [ "$a" = 172 ] && [ "$b" -ge 16 ] && [ "$b" -le 31 ] && return 0
+  [ "$a" = 192 ] && [ "$b" = 168 ] && return 0
+  [ "$a" = 169 ] && [ "$b" = 254 ] && return 0
+  return 1
+}

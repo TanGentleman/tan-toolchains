@@ -96,6 +96,27 @@ the remaining checks by hand; the script lists them at the end.
       the same instance, and `./run.sh check` still reports the placeholder and
       blocked direct egress afterwards.
 
+### Offline egress
+Use the Mac's container gateway as a stand-in upstream; nothing needs to
+listen there for the refusals. `gw` is
+`container network inspect default | jq -r '.[0].status.ipv4Gateway'`.
+- [ ] `PI_EGRESS=offline ./run.sh check` (no `PI_PROXY_OPENROUTER_HOST`) and
+      `PI_EGRESS=offline PI_PROXY_OPENROUTER_HOST=openrouter.ai ./run.sh check`
+      exit 2 before starting anything.
+- [ ] `PI_EGRESS=offline PI_PROXY_OPENROUTER_HOST=$gw PI_PROXY_OPENROUTER_PORT=8090 PI_PROXY_OPENROUTER_TLS=0 ./run.sh check`
+      recreates `pi-proxy` without a build, prints `mode offline`,
+      `pi-proxy enforces offline`, `no GitHub token in the VM`, and
+      `github.com refused by pi-proxy`; only the OpenRouter line fails unless
+      a model server listens on `$gw:8090`.
+- [ ] With the same variables,
+      `./run.sh sh -c 'env | grep -c GITHUB_TOKEN; curl -sS -m 10 -o /dev/null -w "%{http_connect}\n" https://github.com/'`
+      prints `0` and `403`, and `./run.sh proxy` shows `deny github.com`.
+- [ ] Plain `./run.sh check` afterwards recreates `pi-proxy` in normal mode
+      and passes the GitHub checks again.
+- [ ] With `spikes/inkling-2-mini/serve.sh pi` running,
+      `spikes/inkling-2-mini/pi.sh check` passes, and
+      `spikes/inkling-2-mini/pi.sh -p "say hi"` answers from the local model.
+
 ### Pi and instances
 - [ ] `./run.sh` starts Pi; `/model` works; `/quit` exits.
 - [ ] `/login` is not needed; OpenRouter placeholder is in place.
