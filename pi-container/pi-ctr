@@ -26,8 +26,10 @@
 # it fails rather than guess.
 #
 # The image, egress and model_url come from $PI_CONFIG_DIR/config.json (the
-# node's defaults), as for run.sh. `pi-ctr --config` prints them: it runs
-# `run.sh config --json`, which fleetd serves in GET /v1/node.
+# node config), as for run.sh. `pi-ctr --config` prints them: it runs
+# `run.sh config --json`, which fleetd serves in GET /v1/node and records in
+# each turn's input event, then passes back as $FLEET_IMAGE, $FLEET_EGRESS
+# and $FLEET_MODEL_URL (run.sh's --image, --egress and --model-url).
 set -uo pipefail
 
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
@@ -151,6 +153,11 @@ EOF
 opts=()
 [ -z "$name" ] || opts=(--fleet-name "$name")
 [ -z "${FLEET_REPO:-}" ] || opts+=(--clone "$FLEET_REPO")
+# fleetd records the node config in the turn's input event and passes it
+# here, so the turn runs with what the session log says.
+[ -z "${FLEET_IMAGE:-}" ] || opts+=(--image "$FLEET_IMAGE")
+[ -z "${FLEET_EGRESS:-}" ] || opts+=(--egress "$FLEET_EGRESS")
+[ -z "${FLEET_MODEL_URL:-}" ] || opts+=(--model-url "$FLEET_MODEL_URL")
 HOME=$PI_CTR_HOME "$here/run.sh" --fleet-state "$FLEET_STATE" "${opts[@]}" \
   bash -c "$turn" turn "${FLEET_PUSH:-}" "${FLEET_BASE:-}" "${FLEET_BRANCH:-}" "$cap" "$handoff" pi "$@"
 code=$?

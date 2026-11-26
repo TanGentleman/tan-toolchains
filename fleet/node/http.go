@@ -225,6 +225,8 @@ func reply(w http.ResponseWriter, v any, err error) {
 		code = http.StatusForbidden
 	case errors.Is(err, core.ErrRunning), errors.Is(err, core.ErrNotRunning):
 		code = http.StatusConflict
+	case errors.Is(err, ErrBusy):
+		code = http.StatusServiceUnavailable
 	case errors.Is(err, core.ErrBadEvent):
 		code = http.StatusInternalServerError
 	}

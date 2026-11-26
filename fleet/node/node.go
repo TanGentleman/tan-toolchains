@@ -35,9 +35,12 @@ type Config struct {
 	Owners    []string // tailnet logins allowed to use this node; nobody else gets in
 	Harnesses map[string]Harness
 	Now       func() time.Time
-	// Defaults reports what every turn runs with (pi-container's image,
-	// egress and model_url) for GET /v1/node; nil leaves it out.
-	Defaults func() (any, error)
+	// Defaults reads the node config (pi-container's image, egress and
+	// model_url). GET /v1/node serves it, and each turn records it in its
+	// input event and runs with exactly that. nil: no config.
+	Defaults func() (core.TurnConfig, error)
+	// MaxTurns caps turns running at once on this node; 0 means 2.
+	MaxTurns int
 }
 
 type Node struct {
@@ -45,6 +48,7 @@ type Node struct {
 	blobs store.Blobs
 
 	mu         sync.Mutex
+	running    int // turns in progress, across sessions
 	sessions   map[string]*session
 	unreadable map[string]string // sid -> why its log was refused at start
 	once       sync.Once
@@ -64,6 +68,7 @@ type session struct {
 var (
 	ErrForbidden = errors.New("forbidden")
 	ErrNotFound  = errors.New("no such session")
+	ErrBusy      = errors.New("node busy: its turn limit is running; try again when one ends")
 )
 
 func New(cfg Config) (*Node, error) {
@@ -275,6 +280,9 @@ func (n *Node) Spawn(login, key, prompt string, d core.CreatedData) (string, err
 	if _, ok := n.cfg.Harnesses[d.Harness]; !ok {
 		return "", fmt.Errorf("unknown harness %q", d.Harness)
 	}
+	if n.full() {
+		return "", ErrBusy
+	}
 	if !validModel(d.Model) {
 		return "", fmt.Errorf("bad model %q", d.Model)
 	}
@@ -353,6 +361,7 @@ func (n *Node) create(sid, login, key string, d core.CreatedData, prompt string)
 // its checkpoint and exit in one append. It owns the state dir while it runs.
 func (n *Node) turn(ctx context.Context, s *session, done chan struct{}, h Harness, run int, t Turn, files []core.File) {
 	defer close(done)
+	defer n.release()
 	t.State = filepath.Join(s.dir, "state")
 	state := t.State
 	code, reason := -1, ""
@@ -546,23 +555,69 @@ func (n *Node) input(s *session, login, key, text string) (uint64, error) {
 	if !ok {
 		return 0, fmt.Errorf("unknown harness %q", s.st.Harness)
 	}
+	var cfg *core.TurnConfig
+	if n.cfg.Defaults != nil {
+		c, err := n.cfg.Defaults()
+		if err != nil {
+			return 0, fmt.Errorf("node config: %w", err)
+		}
+		cfg = &c
+	}
+	if !n.reserve() {
+		return 0, ErrBusy
+	}
 	before := s.st.Head
-	seqs, err := n.commit(s, n.cmd(login, core.Input, key, core.InputData{Text: text}))
+	seqs, err := n.commit(s, n.cmd(login, core.Input, key, core.InputData{Text: text, Config: cfg}))
 	if err != nil {
+		n.release()
 		return 0, err
 	}
 	if seqs[0] <= before {
+		n.release()
 		return seqs[0], nil // duplicate
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel, s.done = cancel, make(chan struct{})
 	t := Turn{Sid: s.st.Sid, Prompt: text, Model: s.st.Model, Repo: s.st.Repo, Branch: s.st.Branch, Base: s.st.Base}
+	if cfg != nil {
+		t.Config = *cfg
+	}
 	if t.Repo != "" {
 		t.Push = "fleet/" + s.st.Sid
 		t.Result = filepath.Join(s.dir, fmt.Sprintf("result-%d.json", s.st.Run))
 	}
 	go n.turn(ctx, s, s.done, h, s.st.Run, t, s.st.Files)
 	return seqs[0], nil
+}
+
+func (n *Node) maxTurns() int {
+	if n.cfg.MaxTurns > 0 {
+		return n.cfg.MaxTurns
+	}
+	return 2
+}
+
+// reserve takes one of the node's turn slots; release gives it back.
+func (n *Node) reserve() bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.running >= n.maxTurns() {
+		return false
+	}
+	n.running++
+	return true
+}
+
+func (n *Node) release() {
+	n.mu.Lock()
+	n.running--
+	n.mu.Unlock()
+}
+
+func (n *Node) full() bool {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.running >= n.maxTurns()
 }
 
 // Fork starts a new session from sid's latest checkpoint and last pushed

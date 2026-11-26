@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/TanGentleman/tan-toolchains/fleet/agent"
+	"github.com/TanGentleman/tan-toolchains/fleet/core"
 )
 
 // runPiCtr is `fleetd pi-ctr [-model M] [-bin PATH] [-stop] [-- PI ARGS]`,
@@ -107,20 +108,12 @@ func ctrEnviron() ([]string, error) {
 	return env, nil
 }
 
-// NodeConfig is what every turn runs with: pi-container's effective image,
-// egress and model_url, from config.json or the defaults.
-type NodeConfig struct {
-	Image    string `json:"image"`
-	Egress   string `json:"egress"`
-	ModelURL string `json:"model_url"`
-}
-
-// piConfig reads the node's config with `pi-ctr --config`, which prints
+// piConfig reads the node config, what every turn runs with, with `pi-ctr --config`, which prints
 // `run.sh config --json`.
-func piConfig() (NodeConfig, error) {
+func piConfig() (core.TurnConfig, error) {
 	env, err := ctrEnviron()
 	if err != nil {
-		return NodeConfig{}, err
+		return core.TurnConfig{}, err
 	}
 	bin := ctrBin()
 	cmd := exec.Command(bin, "--config")
@@ -128,16 +121,16 @@ func piConfig() (NodeConfig, error) {
 	cmd.Env, cmd.Stderr = env, &stderr
 	out, err := cmd.Output()
 	if err != nil {
-		return NodeConfig{}, fmt.Errorf("%s --config: %v: %s", bin, err, strings.TrimSpace(stderr.String()))
+		return core.TurnConfig{}, fmt.Errorf("%s --config: %v: %s", bin, err, strings.TrimSpace(stderr.String()))
 	}
 	var c struct {
 		V int `json:"v"`
-		NodeConfig
+		core.TurnConfig
 	}
 	if err := json.Unmarshal(out, &c); err != nil || c.V != 1 || c.Image == "" || c.Egress == "" || c.ModelURL == "" {
-		return NodeConfig{}, fmt.Errorf("%s --config: want {\"v\":1,\"image\",\"egress\",\"model_url\"}, got %q", bin, bytes.TrimSpace(out))
+		return core.TurnConfig{}, fmt.Errorf("%s --config: want {\"v\":1,\"image\",\"egress\",\"model_url\"}, got %q", bin, bytes.TrimSpace(out))
 	}
-	return c.NodeConfig, nil
+	return c.TurnConfig, nil
 }
 
 // ctrEnv is what pi-ctr needs from fleetd's environment besides the
@@ -145,5 +138,6 @@ func piConfig() (NodeConfig, error) {
 // container CLI.
 var ctrEnv = []string{
 	"FLEET_SID", "FLEET_STATE", "FLEET_REPO", "FLEET_BRANCH", "FLEET_BASE", "FLEET_PUSH", "FLEET_RESULT",
+	"FLEET_IMAGE", "FLEET_EGRESS", "FLEET_MODEL_URL",
 	"PI_CONFIG_DIR", "PI_ENV_FILE", "PI_CPUS", "PI_MEMORY", "PI_CTR_MAX_FILE_BYTES", "CONTAINER_CLI",
 }

@@ -65,7 +65,16 @@ type CreatedData struct {
 }
 
 type InputData struct {
-	Text string `json:"text"`
+	Text   string      `json:"text"`
+	Config *TurnConfig `json:"config,omitempty"` // what the turn runs with; nil for nodes without one
+}
+
+// TurnConfig is the node config a turn ran with, recorded in its input event
+// so a session shows what each turn could do even after the config changes.
+type TurnConfig struct {
+	Image    string `json:"image"`     // image pack, e.g. min, full, zig
+	Egress   string `json:"egress"`    // egress profile, e.g. standard, offline
+	ModelURL string `json:"model_url"` // openrouter or http://HOST:PORT
 }
 
 type ExitedData struct {

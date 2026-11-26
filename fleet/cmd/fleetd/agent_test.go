@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/TanGentleman/tan-toolchains/fleet/core"
 )
 
 // fakeCtr installs a pi-ctr that runs script and points FLEET_PI_CTR_BIN at it.
@@ -28,7 +30,7 @@ echo '{"v":1,"config":"/cfg/config.json","image":"min","tag":"pi-min:local","egr
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := (NodeConfig{Image: "min", Egress: "offline", ModelURL: "http://gateway:8090"}); c != want {
+	if want := (core.TurnConfig{Image: "min", Egress: "offline", ModelURL: "http://gateway:8090"}); c != want {
 		t.Fatalf("got %+v, want %+v", c, want)
 	}
 }

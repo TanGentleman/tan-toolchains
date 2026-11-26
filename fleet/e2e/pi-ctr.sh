@@ -171,6 +171,11 @@ idle "$nid"
 say "$nid" n2 key
 [ "$(git -C "$tmp/gh/o/r.git" show "$(tip "fleet/$nid"):key.txt")" = sk-or-v1-placeholder ] || fail "Pi did not see the placeholder"
 grep -q "^PI_CTR_HOME=$home$" "$tmp/pi-ctr.env" || fail "pi-ctr did not get the real home"
+grep -q '^FLEET_IMAGE=full$' "$tmp/pi-ctr.env" && grep -q '^FLEET_EGRESS=standard$' "$tmp/pi-ctr.env" &&
+  grep -q '^FLEET_MODEL_URL=openrouter$' "$tmp/pi-ctr.env" || fail "pi-ctr did not get the node config fleetd recorded"
+configs=$(api GET "/v1/sessions/$sid/events" | jq -sc '[.[] | select(.kind == "input") | .data.config] | unique')
+[ "$configs" = '[{"image":"full","egress":"standard","model_url":"openrouter"}]' ] ||
+  fail "input events record $configs, not the node config"
 grep -q '^HOME=' "$tmp/pi-ctr.env" && fail "pi-ctr got the adapter's HOME"
 grep -q '^PI_CODING_AGENT_DIR=' "$tmp/pi-ctr.env" && fail "pi-ctr got a writable agent dir"
 for f in "$tmp/pi-ctr.env" "$disk/env.log" "$tmp/container.log"; do

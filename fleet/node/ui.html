@@ -115,7 +115,7 @@ async function view(sid) {
     const e = JSON.parse(m.data);
     if (e.kind === "input") {
       if (turn) turn.open = false;
-      turn = $(`<details class="turn" open><summary><small class="dim">${e.run}</small> <span class="input">${esc(e.by)}: ${esc(e.data.text || "")}</span> <small class="dim"></small></summary></details>`);
+      turn = $(`<details class="turn" open><summary><small class="dim">${e.run}</small> <span class="input">${esc(e.by)}: ${esc(e.data.text || "")}</span>${e.data.config ? ` <small class="dim">${esc(e.data.config.image)} · ${esc(e.data.config.egress)}${e.data.config.model_url === "openrouter" ? "" : " · " + esc(e.data.config.model_url)}</small>` : ""} <small class="dim"></small></summary></details>`);
       info = turn.querySelector("summary small:last-child");
       lines = 0;
       log.append(turn);

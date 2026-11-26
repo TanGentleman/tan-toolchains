@@ -515,7 +515,7 @@ esac`
 // turns that ignore SIGTERM cost one grace period in total, not one each.
 func TestCloseAbortsInParallel(t *testing.T) {
 	data, out := t.TempDir(), t.TempDir()
-	n, err := New(Config{Name: "a", Data: data, Owners: []string{"tan"},
+	n, err := New(Config{Name: "a", Data: data, Owners: []string{"tan"}, MaxTurns: 3,
 		Harnesses: map[string]Harness{"sh": Exec{Argv: []string{"sh", "-c", `trap '' TERM; touch "$OUT/started-$FLEET_SID"; sleep 30`},
 			Env: []string{"OUT=" + out}, Grace: time.Second}}})
 	if err != nil {
@@ -769,12 +769,15 @@ func TestUnreadableSessionSkipped(t *testing.T) {
 // TestNodeDefaults: GET /v1/node carries Config.Defaults, or why it failed.
 func TestNodeDefaults(t *testing.T) {
 	for _, tc := range []struct {
-		defaults func() (any, error)
+		defaults func() (core.TurnConfig, error)
 		want     string
 	}{
 		{nil, `"name":"a"`},
-		{func() (any, error) { return map[string]string{"image": "min", "egress": "offline"}, nil }, `"config":{"egress":"offline","image":"min"}`},
-		{func() (any, error) { return nil, errors.New("bad config.json") }, `"config_error":"bad config.json"`},
+		{func() (core.TurnConfig, error) {
+			return core.TurnConfig{Image: "min", Egress: "offline", ModelURL: "http://gateway:8090"}, nil
+		},
+			`"config":{"image":"min","egress":"offline","model_url":"http://gateway:8090"}`},
+		{func() (core.TurnConfig, error) { return core.TurnConfig{}, errors.New("bad config.json") }, `"config_error":"bad config.json"`},
 	} {
 		var h http.Handler = http.NotFoundHandler()
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { h.ServeHTTP(w, r) }))
@@ -793,4 +796,96 @@ func TestNodeDefaults(t *testing.T) {
 		srv.Close()
 		n.Close()
 	}
+}
+
+// TestTurnConfigRecorded: each turn reads the node config once, records it in
+// its input event, and the harness gets exactly that; a config that cannot
+// be read refuses the input before anything is recorded.
+func TestTurnConfigRecorded(t *testing.T) {
+	cfg := core.TurnConfig{Image: "min", Egress: "offline", ModelURL: "http://gateway:8090"}
+	var cfgErr error
+	seen := make(chan core.TurnConfig, 4)
+	var h http.Handler = http.NotFoundHandler()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { h.ServeHTTP(w, r) }))
+	defer srv.Close()
+	n, err := New(Config{Name: "a", URL: srv.URL, Data: t.TempDir(), Owners: []string{"tan"},
+		Defaults: func() (core.TurnConfig, error) { return cfg, cfgErr },
+		Harnesses: map[string]Harness{"fake": Func(func(ctx context.Context, tn Turn, w io.Writer) (int, error) {
+			seen <- tn.Config
+			return fakeRun(ctx, tn.State, tn.Prompt, w)
+		})}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer n.Close()
+	h = n.Handler()
+	sid, err := n.Spawn("tan", "k1", "hello", core.CreatedData{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitTurns(t, n, sid, 1)
+	if got := <-seen; got != cfg {
+		t.Fatalf("harness got %+v, want %+v", got, cfg)
+	}
+	cfg.Image = "full"
+	if _, err := n.Input("tan", sid, "i2", "two"); err != nil {
+		t.Fatal(err)
+	}
+	waitTurns(t, n, sid, 1, 2)
+	if got := <-seen; got.Image != "full" {
+		t.Fatalf("second turn ran with %+v, want image full", got)
+	}
+	lines, _, _ := n.Events(sid, 0)
+	var images []string
+	for _, l := range lines {
+		var e core.Event
+		json.Unmarshal(l, &e)
+		if e.Kind == core.Input {
+			var d core.InputData
+			json.Unmarshal(e.Data, &d)
+			if d.Config == nil {
+				t.Fatalf("input without config: %s", l)
+			}
+			images = append(images, d.Config.Image)
+		}
+	}
+	if !slices.Equal(images, []string{"min", "full"}) {
+		t.Fatalf("recorded images %v, want [min full]", images)
+	}
+	cfgErr = errors.New("config.json needs \"v\": 1")
+	head := waitIdle(t, n, sid).Head
+	if _, err := n.Input("tan", sid, "i3", "three"); err == nil || !strings.Contains(err.Error(), "node config") {
+		t.Fatalf("input with a bad config: %v", err)
+	}
+	if st, _ := n.State(sid); st.Head != head {
+		t.Fatalf("a refused input changed the log: head %d, want %d", st.Head, head)
+	}
+}
+
+// TestTurnLimit: at most MaxTurns turns run at once across sessions; the
+// next spawn or input is ErrBusy (503) and works once a turn ends.
+func TestTurnLimit(t *testing.T) {
+	a := startNode(t, "a", t.TempDir())
+	a.Node.cfg.MaxTurns = 1
+	s1, err := a.Spawn("tan", "k1", "sleep", core.CreatedData{Harness: "fake"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Spawn("tan", "k2", "hi", core.CreatedData{Harness: "fake"}); !errors.Is(err, ErrBusy) {
+		t.Fatalf("spawn while full: %v", err)
+	}
+	if code, body := post(t, a.srv.URL+"/v1/sessions", "tan", `{"key":"k3","prompt":"hi"}`); code != http.StatusServiceUnavailable {
+		t.Fatalf("spawn over HTTP while full: %d %s", code, body)
+	}
+	a.Abort(s1)
+	waitIdle(t, a.Node, s1)
+	s2, err := a.Spawn("tan", "k4", "hello", core.CreatedData{Harness: "fake"})
+	if err != nil {
+		t.Fatalf("spawn after the turn ended: %v", err)
+	}
+	waitTurns(t, a.Node, s2, 1)
+	if _, err := a.Input("tan", s1, "i1", "again"); err != nil {
+		t.Fatalf("input with a free slot: %v", err)
+	}
+	waitIdle(t, a.Node, s1)
 }

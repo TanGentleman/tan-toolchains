@@ -12,6 +12,8 @@ import (
 	"strings"
 	"syscall"
 	"time"
+
+	"github.com/TanGentleman/tan-toolchains/fleet/core"
 )
 
 // A Harness runs one turn of an agent: one process, the prompt on stdin,
@@ -32,20 +34,22 @@ type Stopper interface {
 type Turn struct {
 	Sid    string
 	Prompt string
-	Model  string // chosen at spawn; "" means the harness default
-	State  string // harness-owned files, checkpointed; also the working directory
-	Repo   string // OWNER/REPO to clone, "" for none
-	Branch string // branch chosen at spawn
-	Base   string // commit to start from when Push doesn't exist yet
-	Push   string // branch the turn pushes to, fleet/<sid>
-	Result string // file where the harness reports {"commit","base"}
+	Model  string          // chosen at spawn; "" means the harness default
+	State  string          // harness-owned files, checkpointed; also the working directory
+	Repo   string          // OWNER/REPO to clone, "" for none
+	Branch string          // branch chosen at spawn
+	Base   string          // commit to start from when Push doesn't exist yet
+	Push   string          // branch the turn pushes to, fleet/<sid>
+	Result string          // file where the harness reports {"commit","base"}
+	Config core.TurnConfig // recorded in the input event; Exec passes it as $FLEET_IMAGE, $FLEET_EGRESS, $FLEET_MODEL_URL
 	Stderr io.Writer
 }
 
 // Exec runs a command per turn in Turn.State. $FLEET_SID and $FLEET_STATE in
 // Argv are expanded, and the same names are set in the environment, plus
 // $FLEET_SESSION_MODEL when the session has a model, and $FLEET_REPO,
-// $FLEET_BRANCH, $FLEET_BASE, $FLEET_PUSH and $FLEET_RESULT when it has a repo. Cancelling ctx sends
+// $FLEET_BRANCH, $FLEET_BASE, $FLEET_PUSH and $FLEET_RESULT when it has a repo,
+// and $FLEET_IMAGE, $FLEET_EGRESS and $FLEET_MODEL_URL when the node has a config. Cancelling ctx sends
 // the whole process group SIGTERM, then SIGKILL after Grace. StopArgv, if
 // set, is what Stop runs, with $FLEET_SID and $FLEET_STATE set.
 type Exec struct {
@@ -84,7 +88,8 @@ func (h Exec) Stop(sid, state string) error {
 
 func (h Exec) Run(ctx context.Context, t Turn, stdout io.Writer) (int, error) {
 	vars := map[string]string{"FLEET_SID": t.Sid, "FLEET_STATE": t.State}
-	for k, v := range map[string]string{"FLEET_REPO": t.Repo, "FLEET_BRANCH": t.Branch, "FLEET_BASE": t.Base, "FLEET_PUSH": t.Push, "FLEET_RESULT": t.Result} {
+	for k, v := range map[string]string{"FLEET_REPO": t.Repo, "FLEET_BRANCH": t.Branch, "FLEET_BASE": t.Base, "FLEET_PUSH": t.Push, "FLEET_RESULT": t.Result,
+		"FLEET_IMAGE": t.Config.Image, "FLEET_EGRESS": t.Config.Egress, "FLEET_MODEL_URL": t.Config.ModelURL} {
 		if v != "" {
 			vars[k] = v
 		}
