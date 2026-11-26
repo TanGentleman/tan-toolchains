@@ -13,7 +13,7 @@ resolves it. Run everything from the repo root, with `S=spikes/local-model`.
 
 - [uv](https://docs.astral.sh/uv/), `jq`, Apple `container` (`container system start`).
 - `pi-container/run.sh check` passes. The eval uses the `min` image:
-  `pi-container/build.sh agent-min` builds it if missing.
+  `pi-container/build.sh min` builds it if missing.
 
 ### Migrate weights from the old `inkling-2-mini` spike (no 17 GB download)
 
