@@ -64,5 +64,5 @@ through the tailnet URL, checked with git. `fleet/e2e/pi-ctr.sh` runs it in
 CI against a fake Pi and a local bare repo.
 
 A release follows [E2E.md, Release](../E2E.md#release): `mac-e2e.sh`,
-`fleet-e2e.sh` and the by-hand checks, `mac-e2e.sh` again in a new standard
-account, then a tag.
+`fleet-e2e.sh` and the by-hand checks on the main account, `mac-e2e.sh` again
+in a new standard account made with `sysadminctl`, then a tag.

@@ -276,18 +276,66 @@ including a scratch session on `offline` and `min`.
 ## Release
 
 A release is an annotated tag `vX.Y.Z` on a commit that passed this
-checklist and fleet step 8 on a Mac. On a clean checkout of that commit:
+checklist, fleet step 8, and `mac-e2e.sh` in a new standard account. Every
+step tests the same SHA. `R` is the throwaway repo from Setup
+(`owner/tan-toolchains-e2e`), `FILE` is a mode-600 env file with the
+OpenRouter key and R's token (Setup's `$PI_ENV_FILE`), and `T` is the test
+account's short name.
 
-1. Push it and wait for CI to pass on that SHA.
-2. `./build.sh fleet`, then restart `pic serve`.
-3. `test/mac-e2e.sh --repo R ci build auto`, then the by-hand checks it
-   lists, then `cleanup --destroy`.
-4. [Fleet step 8](../fleet/docs/macos.md#8-verify-before-relying-on-it):
-   `test/fleet-e2e.sh R` with `pic serve` up, then its by-hand checks.
-5. Create a new standard macOS account and log in as it. Follow the README
-   setup from scratch, then run `test/mac-e2e.sh --repo R ci build auto`
-   there. This catches setup steps that only work in an account that is
-   already set up, such as Homebrew missing from `PATH`. Delete the account
-   afterwards.
-6. `git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z`. Note anything
-   skipped and why in the tag message.
+### 1. Main account
+
+Push the commit and wait for CI to pass on it. Then, from a clean checkout:
+
+```sh
+git status --short && git rev-parse HEAD       # empty, then the SHA
+cd pi-container
+./test/mac-e2e.sh --repo R ci build auto      # then the by-hand checks it prints
+./test/mac-e2e.sh --repo R cleanup --destroy
+./build.sh fleet                              # then restart pic serve
+./test/fleet-e2e.sh R                         # then fleet step 8's by-hand checks
+```
+
+### 2. Create the test account (main account)
+
+Stop `pic serve` (Ctrl-C), then:
+
+```sh
+container system stop                         # one account runs container at a time
+T=pitest
+sudo sysadminctl -addUser $T -fullName "pi-container release tester" -password -
+sudo createhomedir -c -u $T
+sudo install -o $T -g staff -m 600 FILE /Users/$T/release.env
+```
+
+`sysadminctl` prompts for the new account's password. `install` creates the
+file with its final owner and mode, so the key is never readable by others.
+
+### 3. Test account
+
+Switch to T with Fast User Switching (Control Center, then your name). In
+Terminal, follow [README.md](README.md) setup literally. For its env file
+step, use `cp ~/release.env ~/.config/pi-container/env` instead of the
+heredoc. After `git clone`, check out the SHA:
+
+```sh
+git -C ~/tan-toolchains checkout SHA
+cd ~/tan-toolchains/pi-container
+./test/run-tests.sh
+./test/mac-e2e.sh --repo R build auto         # then the TUI checks it prints
+container system stop
+```
+
+Log out of T (Apple menu, Log Out), not just switch away: an account that is
+still logged in cannot be deleted.
+
+### 4. Main account
+
+```sh
+T=pitest
+sudo sysadminctl -deleteUser $T               # also deletes its home and release.env
+container system start                        # then restart pic serve on a fleet node
+git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z
+```
+
+Note anything skipped and why in the tag message. A code fix is a new SHA:
+start again from step 1.

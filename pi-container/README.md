@@ -4,7 +4,7 @@ Run [Pi](https://pi.dev) on OpenRouter in an Apple [`container`](https://github.
 
 `pi-proxy` tunnels GitHub, adds your OpenRouter key, and refuses everything else. Pi shares only a host-only `pi-locked` network with it, and the egress lock inside Pi's VM lets it send only to the proxy ([network boundary](../README.md#network-boundary)). The default profile uses one proxy for every instance; a non-default `PI_CONFIG_DIR` is a separate profile with its own proxy, network, and subnet.
 
-Three settings decide a run: the image (`min`, `full`, `zig`), the egress profile (`standard`, `offline`) and the model URL (`openrouter` or a local `http://HOST:PORT`). Set them in `~/.config/pi-container/config.json` or per run with `--image`, `--egress`, `--model-url`; see [Configuration](docs/configuration.md#config-file). Images are aarch64-only and fail early on other architectures.
+Three settings decide a run: the image (`min`, `full`, `zig`), the egress profile (`standard`, `offline`) and the model URL (`openrouter` or a local `http://HOST:PORT`). Set them with `PI_IMAGE`, `PI_EGRESS` and `PI_MODEL_URL`, or per run with `--image`, `--egress` and `--model-url`; see [Configuration](docs/configuration.md#run-settings). Images are aarch64-only and fail early on other architectures.
 
 ## Setup
 
@@ -130,7 +130,7 @@ The default mode mounts the current folder. Use it only for repos you trust; use
 
 ## Docs
 
-- [Configuration](docs/configuration.md): `config.json`, packs, egress, env file, settings, flags, environment variables, and build arguments.
+- [Configuration](docs/configuration.md): run settings, packs, egress, env file, settings, flags, environment variables, and build arguments.
 - [Operations](docs/operations.md): profiles, instances, and cleanup.
 - [Manual mode](docs/manual.md): local Neovim/ZLS, clone mode, and caches.
 - [Egress mode](docs/egress.md): Pi on the default network with the real key, and its limits.
