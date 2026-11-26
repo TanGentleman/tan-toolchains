@@ -69,9 +69,9 @@ Run options:
   --model-url URL     openrouter, or http://HOST:PORT; HOST may be gateway (this Mac)
   --clone O/R         default: $PI_CLONE
 
---image, --egress and --model-url override $PI_CONFIG_DIR/config.json for one
-run, which overrides the defaults (full, standard, openrouter):
-  {"v": 1, "image": "min", "egress": "offline", "model_url": "http://gateway:8090"}
+Image, egress and model_url: a flag, then PI_IMAGE, PI_EGRESS, PI_MODEL_URL,
+then the optional $PI_CONFIG_DIR/config.json, then full, standard, openrouter.
+  alias opic='PI_IMAGE=min PI_EGRESS=offline PI_MODEL_URL=http://gateway:8090 pic --instance offline'
 EOF
 }
 
@@ -167,9 +167,18 @@ if ! config_raw=$(pi_config_read "$config_file"); then
   exit 2
 fi
 IFS=$'\037' read -r file_image file_egress file_model_url <<<"$config_raw"
-read -r pack pack_source <<<"$(pi_config_pick "$flag_image" "$file_image" "$pi_config_default_image")"
-read -r egress_mode egress_source <<<"$(pi_config_pick "$flag_egress" "$file_egress" "$pi_config_default_egress")"
-read -r model_url model_url_source <<<"$(pi_config_pick "$flag_model_url" "$file_model_url" "$pi_config_default_model_url")"
+if [ -n "${PI_IMAGE:-}" ] && ! pi_pi_pack_valid "$PI_IMAGE"; then
+  echo "run.sh: PI_IMAGE must be min, full or zig" >&2; exit 2
+fi
+if [ -n "${PI_EGRESS:-}" ] && ! pi_egress_valid "$PI_EGRESS"; then
+  echo "run.sh: PI_EGRESS must be a profile name: standard, offline, or NAME for $cfg/egress/NAME.json" >&2; exit 2
+fi
+if [ -n "${PI_MODEL_URL:-}" ] && ! pi_model_url_split "$PI_MODEL_URL" >/dev/null; then
+  echo "run.sh: PI_MODEL_URL must be openrouter or http://HOST:PORT" >&2; exit 2
+fi
+read -r pack pack_source <<<"$(pi_config_pick "$flag_image" "${PI_IMAGE:-}" "$file_image" "$pi_config_default_image")"
+read -r egress_mode egress_source <<<"$(pi_config_pick "$flag_egress" "${PI_EGRESS:-}" "$file_egress" "$pi_config_default_egress")"
+read -r model_url model_url_source <<<"$(pi_config_pick "$flag_model_url" "${PI_MODEL_URL:-}" "$file_model_url" "$pi_config_default_model_url")"
 image=$(pi_pack_tag "$pack")
 if ! egress_file=$(pi_egress_file "$egress_mode" "$here/egress" "$cfg/egress"); then
   echo "run.sh: egress \"$egress_mode\" is neither built in ($pi_egress_builtin_names) nor $cfg/egress/$egress_mode.json" >&2

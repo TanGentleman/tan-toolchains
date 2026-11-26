@@ -1283,11 +1283,18 @@ case_offline_refusals() {
   rm -rf "$cfg/egress"
   # The pre-config variables are gone: setting them changes nothing.
   : > "$logfile"
-  (cd "$t/project" && export PI_EGRESS=offline PI_IMAGE=pi-min:local PI_PROXY_OPENROUTER_HOST=10.0.0.9 && pi "$run_sh" pi)
-  expect_status 0 "removed variables are ignored"
-  contains 'image=pi-full:local' "$(e)" "PI_IMAGE is ignored"
-  contains 'egress=standard' "$(e)" "PI_EGRESS is ignored"
+  (cd "$t/project" && export PI_PROXY_OPENROUTER_HOST=10.0.0.9 && pi "$run_sh" pi)
+  expect_status 0 "a removed variable is ignored"
   log_lacks "10.0.0.9" "PI_PROXY_OPENROUTER_HOST is ignored"
+  : > "$logfile"
+  (cd "$t/project" && export PI_IMAGE=pi-min:local && pi "$run_sh" pi)
+  expect_status 2 "PI_IMAGE takes a pack name, not a tag"
+  contains "PI_IMAGE must be min, full or zig" "$(e)" "bad PI_IMAGE named"
+  : > "$logfile"
+  (cd "$t/project" && export PI_IMAGE=min PI_EGRESS=offline PI_MODEL_URL=http://gateway:8090 && pi "$run_sh" config --json > "$tmp/out")
+  eq "min env offline env http://gateway:8090 env" "$(jq -r '"\(.image) \(.source.image) \(.egress) \(.source.egress) \(.model_url) \(.source.model_url)"' "$tmp/out")" "env vars set the config"
+  (cd "$t/project" && export PI_IMAGE=min && pi "$run_sh" --image zig config --json > "$tmp/out")
+  eq "zig flag" "$(jq -r '"\(.image) \(.source.image)"' "$tmp/out")" "a flag beats the env var"
 }
 
 # A fake VM curl for check. The VM environment is only what run.sh passes, so

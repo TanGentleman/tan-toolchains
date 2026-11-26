@@ -17,12 +17,18 @@ printf 'OPENROUTER_API_KEY=\n# GITHUB_TOKEN=\n# GIT_AUTHOR_NAME=\n# GIT_AUTHOR_E
 chmod 600 ~/.config/pi-container/env && open -e ~/.config/pi-container/env
 ```
 
-A node is one Mac with one config: `~/.config/pi-container/config.json`
-picks the image and the egress profile, and every run and fleet turn uses
-it. `pic config` prints what is in effect and where each value came from;
+Pick the image, egress profile and model route with env vars, best in
+aliases (a flag beats them; an optional `~/.config/pi-container/config.json`
+with the same keys sets defaults under them):
+
+```sh
+alias mpic='PI_IMAGE=min pic --instance min'
+alias opic='PI_IMAGE=min PI_EGRESS=offline PI_MODEL_URL=http://gateway:8090 pic --instance offline'
+```
+ `pic config` prints what is in effect and where each value came from;
 `pic images` lists the packs.
 
-| Key | Values |
+| Env var / key | Values |
 | --- | --- |
 | `image` | `min` (Pi, git, jq, rg, fd), `full` (min + gh + enforcer; default), `zig` |
 | `egress` | `standard` (GitHub + OpenRouter; default), `offline` (local model only), or your own profile |
@@ -44,8 +50,8 @@ No GitHub token needed: sessions with an empty repo are scratch chats.
 
 ```sh
 cd ~/src/tan-toolchains/pi-container && ./build.sh min && ./build.sh fleet
-printf '{"v":1,"image":"min"}\n' > ~/.config/pi-container/config.json
-pic config                      # image min (file), egress standard
+export PI_IMAGE=min             # in the shell that runs pic serve
+pic config                      # image min (env), egress standard
 ```
 
 Tailscale, once: install the macOS app, log in as yourself, turn on its CLI
@@ -73,8 +79,7 @@ token in the VM.
 ```sh
 S=~/src/tan-toolchains/spikes/local-model
 $S/model install && $S/model up --containers && $S/model check
-printf '{"v":1,"image":"min","egress":"offline","model_url":"http://gateway:8090"}\n' > ~/.config/pi-container/config.json
-pic check && pic pi -p "say hi"
+opic check && opic pi -p "say hi"
 ```
 
 For a repo, make a local mirror first; offline turns clone it and keep
@@ -86,15 +91,15 @@ git -C ~/.config/pi-container/mirrors/you/your-repo.git fetch --prune     # refr
 git fetch ~/.fleet/sessions/<sid>/state/repo.bundle 'refs/heads/*:refs/remotes/offline/*'   # take the work out
 ```
 
-`pic serve` works the same with this config. `$S/model down` unloads the
+For fleet, export the three env vars before `pic serve`. `$S/model down` unloads the
 model.
 
 ## Your own egress profile
 
 Copy a built-in from `pi-container/egress/` to
 `~/.config/pi-container/egress/NAME.json`, edit `tunnel` (hosts Pi may
-reach), `model_url` (`any` or `private`) and `github_token`, then set
-`"egress": "NAME"`. `pic config` prints the hosts; `pic check` tests them.
+reach), `model_url` (`any` or `private`) and `github_token`, then use
+`PI_EGRESS=NAME`. `pic config` prints the hosts; `pic check` tests them.
 
 ## References
 

@@ -8,8 +8,10 @@ in the same change. Commands run from `pi-container/`.
 ## Config file
 
 Three settings decide what a run is: the image, the egress profile, and where
-model calls go. Each comes from a flag, then `$PI_CONFIG_DIR/config.json`,
-then the default:
+model calls go. Each comes from a flag, then an env var (`PI_IMAGE`, `PI_EGRESS`,
+`PI_MODEL_URL`), then the optional `$PI_CONFIG_DIR/config.json` (a node's
+fleet defaults), then the default. Prefer env vars in aliases; `pic config`
+shows each value's source:
 
 | Key | Flag | Values | Default |
 | --- | --- | --- | --- |

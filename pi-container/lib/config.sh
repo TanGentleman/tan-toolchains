@@ -56,12 +56,14 @@ pi_config_read() { # file
   printf '%s\037%s\037%s\n' "$image" "$egress" "$url"
 }
 
-# The effective value and where it came from: flag, then file, then default.
+# The effective value and where it came from: flag, then env (PI_IMAGE,
+# PI_EGRESS, PI_MODEL_URL), then file, then default.
 # Prints "VALUE SOURCE".
-pi_config_pick() { # flag-value, file-value, default
+pi_config_pick() { # flag-value, env-value, file-value, default
   if [ -n "${1:-}" ]; then printf '%s flag\n' "$1"
-  elif [ -n "${2:-}" ]; then printf '%s file\n' "$2"
-  else printf '%s default\n' "$3"
+  elif [ -n "${2:-}" ]; then printf '%s env\n' "$2"
+  elif [ -n "${3:-}" ]; then printf '%s file\n' "$3"
+  else printf '%s default\n' "$4"
   fi
 }
 

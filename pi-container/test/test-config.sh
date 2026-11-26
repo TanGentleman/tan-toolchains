@@ -62,9 +62,10 @@ rc 1 "a directory fails" pi_config_read "$tmp/dir.json"
 ln -s "$tmp/nowhere" "$tmp/dangling.json"
 rc 1 "a dangling symlink is refused, not absent" pi_config_read "$tmp/dangling.json"
 
-eq "min flag" "$(pi_config_pick min zig full)" "flag beats file"
-eq "zig file" "$(pi_config_pick '' zig full)" "file beats default"
-eq "full default" "$(pi_config_pick '' '' full)" "default last"
+eq "min flag" "$(pi_config_pick min full zig full)" "flag beats env"
+eq "min env" "$(pi_config_pick '' min zig full)" "env beats file"
+eq "zig file" "$(pi_config_pick '' '' zig full)" "file beats default"
+eq "full default" "$(pi_config_pick '' '' '' full)" "default last"
 eq "full standard openrouter" "$pi_config_default_image $pi_config_default_egress $pi_config_default_model_url" "built-in defaults"
 
 rc 0 "standard with openrouter" pi_config_combo_check standard any openrouter
