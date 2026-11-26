@@ -60,7 +60,8 @@ func main() {
 		Name: *name, URL: *url, Data: *data, Owners: owners,
 		Harnesses: map[string]node.Harness{"pi-ctr": node.Exec{
 			Argv: []string{exe, "pi-ctr"}, StopArgv: []string{exe, "pi-ctr", "-stop"}, Drop: []string{"OPENROUTER_API_KEY"}}},
-		Hosts: []string{*listen, net.JoinHostPort("localhost", port)},
+		Hosts:    []string{*listen, net.JoinHostPort("localhost", port)},
+		Defaults: func() (any, error) { return piConfig() },
 	})
 	if err != nil {
 		log.Fatal(err)

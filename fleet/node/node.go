@@ -35,6 +35,9 @@ type Config struct {
 	Owners    []string // tailnet logins allowed to use this node; nobody else gets in
 	Harnesses map[string]Harness
 	Now       func() time.Time
+	// Defaults reports what every turn runs with (pi-container's image,
+	// egress and model_url) for GET /v1/node; nil leaves it out.
+	Defaults func() (any, error)
 }
 
 type Node struct {

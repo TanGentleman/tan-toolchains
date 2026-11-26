@@ -22,7 +22,8 @@ without it, zsh passes a trailing `# comment` to the command.
 |---|---|
 | Repo | `~/src/tan-toolchains` |
 | `fleetd` | `~/src/tan-toolchains/fleet/bin/fleetd`, built by `build.sh fleet` |
-| Agent image | `pi-agent:local`, built by `build.sh` |
+| Agent image | `pi-full:local`, built by `build.sh full`; `~/.config/pi-container/config.json` can pick `min` or `zig` |
+| Node config | `~/.config/pi-container/config.json` (image, egress, model_url); `pic config` prints it, `GET /v1/node` serves it |
 | OpenRouter key, GitHub token | `~/.config/pi-container/env`, mode 600; only the proxy and the VM read them |
 | Sessions | `~/.fleet`; each turn's errors in `~/.fleet/sessions/<sid>/stderr-N.log` |
 | Code | branch `fleet/<sid>` in the repo you picked |
@@ -55,7 +56,7 @@ Every later step runs from this folder.
 
 ```sh
 ./test/run-tests.sh       # ends: run-tests.sh: all tests passed
-./build.sh                # pi-agent:local; the first build takes a while
+./build.sh full           # pi-full:local; the first build takes a while
 ./build.sh fleet          # fleet's tests (ok per package), then fleet/bin/fleetd
 file ../fleet/bin/fleetd  # Mach-O 64-bit executable arm64
 ../fleet/bin/fleetd -version  # the commit it was built from; -dirty if the tree was not clean
@@ -129,7 +130,13 @@ Check:
 
 ```sh
 curl -sS --fail-with-body "$URL/v1/node" | jq .harnesses   # ["pi-ctr"]
+curl -sS --fail-with-body "$URL/v1/node" | jq .config      # {"image":"full","egress":"standard","model_url":"openrouter"}
 ```
+
+Every turn uses the image, egress and model_url in
+`~/.config/pi-container/config.json`, or the defaults above; `pic config`
+prints them with their source. fleetd reads the file on each `GET /v1/node`;
+turns read it when they start, so no restart is needed after an edit.
 
 The first request to a new Tailscale name can fail TLS for a few seconds
 while the certificate is issued; repeat it.
@@ -202,6 +209,28 @@ saw only OpenRouter and GitHub and refused nothing.
 - [ ] Ctrl-C `pic serve`: `tailscale serve status` shows nothing and
       `container ls` has no `fleet-` container.
 
+**Offline, min image.** A local model server on this Mac at gateway port
+8090 (OpenAI-compatible `/v1` and `/health`), `./build.sh min` done, and
+`pic serve` stopped:
+
+```sh
+cfg=~/.config/pi-container/config.json
+[ -e $cfg ] && cp $cfg $cfg.bak
+printf '{"v":1,"image":"min","egress":"offline","model_url":"http://gateway:8090"}\n' > $cfg
+pic config                       # min/offline/http://gateway:8090, each "file"
+pic serve --check                # ok config: image min, egress offline ...; no GITHUB_TOKEN needed
+```
+
+- [ ] Start `pic serve`. `curl -sS "$URL/v1/node" | jq .config` prints
+      `{"image":"min","egress":"offline","model_url":"http://gateway:8090"}`.
+- [ ] Spawn a scratch session (repo empty) with `Say hi`. It answers from
+      the local model; `~/.fleet/sessions/$sid/stderr-1.log` shows
+      `image=pi-min:local pack=min` and `egress=offline`.
+- [ ] Spawn with a repo: the turn fails with `egress offline has no GitHub
+      route, so --clone cannot clone`.
+- [ ] Stop `pic serve`, then restore: `mv $cfg.bak $cfg` (or `rm $cfg` if
+      there was none).
+
 **Optional.** With a second tailnet login, `$URL` answers 403 from a device
 logged in as it. And each of these makes `pic serve --check` print a `FAIL`
 line (restore each after): Tailscale logged out, HTTPS certificates off,
@@ -219,7 +248,7 @@ removed, `OPENROUTER_API_KEY=x pic serve --check`.
 ## 9. Upgrade or remove
 
 ```sh
-cd ~/src/tan-toolchains && git pull && cd pi-container && ./build.sh && ./build.sh fleet
+cd ~/src/tan-toolchains && git pull && cd pi-container && ./build.sh full && ./build.sh fleet
 ```
 
 Then restart `pic serve`. After a Pi version change, `pic check` warns until

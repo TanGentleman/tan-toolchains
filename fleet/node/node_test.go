@@ -765,3 +765,32 @@ func TestUnreadableSessionSkipped(t *testing.T) {
 		t.Fatalf("unreadable log was changed: %q", after)
 	}
 }
+
+// TestNodeDefaults: GET /v1/node carries Config.Defaults, or why it failed.
+func TestNodeDefaults(t *testing.T) {
+	for _, tc := range []struct {
+		defaults func() (any, error)
+		want     string
+	}{
+		{nil, `"name":"a"`},
+		{func() (any, error) { return map[string]string{"image": "min", "egress": "offline"}, nil }, `"config":{"egress":"offline","image":"min"}`},
+		{func() (any, error) { return nil, errors.New("bad config.json") }, `"config_error":"bad config.json"`},
+	} {
+		var h http.Handler = http.NotFoundHandler()
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { h.ServeHTTP(w, r) }))
+		n, err := New(Config{Name: "a", URL: srv.URL, Data: t.TempDir(), Owners: []string{"tan"}, Defaults: tc.defaults})
+		if err != nil {
+			t.Fatal(err)
+		}
+		h = n.Handler()
+		code, body := get(t, srv.URL+"/v1/node", "tan")
+		if code != http.StatusOK || !strings.Contains(body, tc.want) {
+			t.Errorf("/v1/node: %d %s, want %s", code, body, tc.want)
+		}
+		if tc.defaults == nil && strings.Contains(body, `"config`) {
+			t.Errorf("no Defaults, but /v1/node has a config: %s", body)
+		}
+		srv.Close()
+		n.Close()
+	}
+}

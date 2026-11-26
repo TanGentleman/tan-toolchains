@@ -89,7 +89,7 @@ Every route needs an owner's `Tailscale-User-Login`. Bodies are JSON.
 
 | Route | Does |
 | ----- | ---- |
-| `GET /v1/node` | name, URL, caller, harnesses |
+| `GET /v1/node` | name, URL, caller, harnesses, and `config`: the `{image, egress, model_url}` every turn uses, from `run.sh config --json` (`config_error` if `config.json` is bad) |
 | `GET /v1/sessions` | every session, newest first, with token `usage` |
 | `POST /v1/sessions` | `{key,prompt,repo,branch,model,title}` spawn; a repeated `key` returns the same session |
 | `GET /v1/sessions/{sid}` | folded state: `running`, `run`, `repo`, `branch`, `base`, `commit`, ... |

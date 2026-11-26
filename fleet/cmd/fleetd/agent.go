@@ -1,12 +1,15 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
+	"strings"
 	"syscall"
 	"time"
 
@@ -23,25 +26,15 @@ import (
 func runPiCtr(args []string) int {
 	fs := flag.NewFlagSet("pi-ctr", flag.ContinueOnError)
 	model := fs.String("model", os.Getenv("FLEET_SESSION_MODEL"), "OpenRouter model id")
-	bin := fs.String("bin", os.Getenv("FLEET_PI_CTR_BIN"), "pi-ctr executable (default: pi-ctr on PATH)")
+	bin := fs.String("bin", ctrBin(), "pi-ctr executable (default: $FLEET_PI_CTR_BIN, else pi-ctr on PATH)")
 	stop := fs.Bool("stop", false, "remove the session's container and exit")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
-	home, err := os.UserHomeDir()
+	env, err := ctrEnviron()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "fleetd pi-ctr:", err)
 		return 1
-	}
-	if *bin == "" {
-		*bin = "pi-ctr"
-	}
-	// run.sh finds its config and checks mounts against the real home.
-	env := []string{"PI_CTR_HOME=" + home}
-	for _, k := range ctrEnv {
-		if v, ok := os.LookupEnv(k); ok {
-			env = append(env, k+"="+v)
-		}
 	}
 	stopCtr := func() error {
 		cmd := exec.Command(*bin, "--stop")
@@ -91,10 +84,66 @@ func orphanWatch(stopCtr func() error) {
 	syscall.Kill(0, syscall.SIGKILL)
 }
 
+func ctrBin() string {
+	if b := os.Getenv("FLEET_PI_CTR_BIN"); b != "" {
+		return b
+	}
+	return "pi-ctr"
+}
+
+// ctrEnviron is pi-ctr's environment: PI_CTR_HOME, the real home where
+// run.sh finds its config and checks mounts, plus ctrEnv from fleetd's.
+func ctrEnviron() ([]string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return nil, err
+	}
+	env := []string{"PI_CTR_HOME=" + home}
+	for _, k := range ctrEnv {
+		if v, ok := os.LookupEnv(k); ok {
+			env = append(env, k+"="+v)
+		}
+	}
+	return env, nil
+}
+
+// NodeConfig is what every turn runs with: pi-container's effective image,
+// egress and model_url, from config.json or the defaults.
+type NodeConfig struct {
+	Image    string `json:"image"`
+	Egress   string `json:"egress"`
+	ModelURL string `json:"model_url"`
+}
+
+// piConfig reads the node's config with `pi-ctr --config`, which prints
+// `run.sh config --json`.
+func piConfig() (NodeConfig, error) {
+	env, err := ctrEnviron()
+	if err != nil {
+		return NodeConfig{}, err
+	}
+	bin := ctrBin()
+	cmd := exec.Command(bin, "--config")
+	var stderr bytes.Buffer
+	cmd.Env, cmd.Stderr = env, &stderr
+	out, err := cmd.Output()
+	if err != nil {
+		return NodeConfig{}, fmt.Errorf("%s --config: %v: %s", bin, err, strings.TrimSpace(stderr.String()))
+	}
+	var c struct {
+		V int `json:"v"`
+		NodeConfig
+	}
+	if err := json.Unmarshal(out, &c); err != nil || c.V != 1 || c.Image == "" || c.Egress == "" || c.ModelURL == "" {
+		return NodeConfig{}, fmt.Errorf("%s --config: want {\"v\":1,\"image\",\"egress\",\"model_url\"}, got %q", bin, bytes.TrimSpace(out))
+	}
+	return c.NodeConfig, nil
+}
+
 // ctrEnv is what pi-ctr needs from fleetd's environment besides the
 // adapter's allowlist: the turn, and how to reach run.sh's config and the
 // container CLI.
 var ctrEnv = []string{
 	"FLEET_SID", "FLEET_STATE", "FLEET_REPO", "FLEET_BRANCH", "FLEET_BASE", "FLEET_PUSH", "FLEET_RESULT",
-	"PI_CONFIG_DIR", "PI_ENV_FILE", "PI_IMAGE", "PI_CPUS", "PI_MEMORY", "PI_CTR_MAX_FILE_BYTES", "CONTAINER_CLI",
+	"PI_CONFIG_DIR", "PI_ENV_FILE", "PI_CPUS", "PI_MEMORY", "PI_CTR_MAX_FILE_BYTES", "CONTAINER_CLI",
 }

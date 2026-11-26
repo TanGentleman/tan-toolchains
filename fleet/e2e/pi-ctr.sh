@@ -26,7 +26,7 @@ mkdir -p "$home/.fleet" "$cfg/certs" "$cfg/private" "$world/images" "$world/netw
 printf 'OPENROUTER_API_KEY=%s\nGITHUB_TOKEN=%s\nGIT_AUTHOR_NAME=Test\nGIT_AUTHOR_EMAIL=test@example.com\n' "$real" "$token" > "$cfg/env"
 chmod 600 "$cfg/env"
 img='[{"id":"sha256:t","configuration":{"descriptor":{"digest":"sha256:t"},"name":"pi-agent:local"},"variants":[{"config":{"config":{"Env":["PI_CONTAINER_PI_VERSION=1.6.0","PI_CONTAINER_CAPABILITIES=pi,netlock"]},"history":[]}}]}]'
-printf '%s' "$img" > "$world/images/pi-agent_local.json"
+printf '%s' "$img" > "$world/images/pi-full_local.json"
 printf '%s' "$img" > "$world/images/pi-proxy_local.json"
 printf '[{"configuration":{"name":"pi-locked","mode":"hostOnly","ipv4Subnet":"172.30.240.0/24"},"id":"pi-locked","status":{"ipv4Gateway":"172.30.240.1","ipv4Subnet":"172.30.240.0/24"}}]' > "$world/networks/pi-locked.json"
 printf 'pi-locked\n' > "$world/networks.list"
@@ -81,6 +81,16 @@ tip() { git -C "$tmp/gh/o/r.git" rev-parse -q --verify "refs/heads/$1" || true; 
 events() { api GET "/v1/sessions/$1/events"; }
 # Through a file: grep -q closing the pipe early would fail curl under pipefail.
 has() { events "$1" > "$tmp/events"; grep -q -- "$2" "$tmp/events"; }
+
+# GET /v1/node reports the node's config: the defaults, then config.json.
+node=$(api GET /v1/node)
+[ "$(jq -r '.config | "\(.image) \(.egress) \(.model_url)"' <<<"$node")" = "full standard openrouter" ] || fail "GET /v1/node config: $node"
+printf '{"v":1,"image":"min","model_url":"http://gateway:8090"}\n' > "$home/.config/pi-container/config.json"
+node=$(api GET /v1/node)
+[ "$(jq -r '.config | "\(.image) \(.model_url)"' <<<"$node")" = "min http://gateway:8090" ] || fail "GET /v1/node after config.json: $node"
+printf '{"v":9}\n' > "$home/.config/pi-container/config.json"
+api GET /v1/node | jq -e '.config_error | contains("needs \"v\": 1")' >/dev/null || fail "GET /v1/node hides a bad config.json"
+rm "$home/.config/pi-container/config.json"
 
 # Turn 1: clone o/r, start from dev, push to fleet/<sid>, report dev as base.
 sid=$(api POST /v1/sessions '{"harness":"pi-ctr","repo":"o/r","branch":"dev","key":"k1","prompt":"write one"}' | jq -r .sid)

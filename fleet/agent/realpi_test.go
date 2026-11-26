@@ -76,7 +76,7 @@ func startProxy(t *testing.T, upstream, key string) *proxy {
 		"PI_PROXY_CA="+p.ca, "PI_PROXY_ADDR_FILE="+filepath.Join(d, "private", "proxy.addr"))
 	if upstream != "" {
 		host, uport, _ := net.SplitHostPort(strings.TrimPrefix(upstream, "http://"))
-		cmd.Env = append(cmd.Env, "PI_PROXY_OPENROUTER_HOST="+host, "PI_PROXY_OPENROUTER_PORT="+uport, "PI_PROXY_OPENROUTER_TLS=0")
+		cmd.Env = append(cmd.Env, "PI_PROXY_MODEL_HOST="+host, "PI_PROXY_MODEL_PORT="+uport)
 	}
 	cmd.Stderr = p
 	if err := cmd.Start(); err != nil {
