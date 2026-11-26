@@ -229,10 +229,10 @@ The product path: build in the container, run on the Mac.
       profile settings file remains.
 - [ ] Create a throwaway clone, then `./clear.sh nuke clones --instance e2e
       --yes` deletes only that instance's clone volumes.
-- [ ] `./clear.sh nuke all` deletes the E2E agent volume plus the E2E profile's
-      proxy and network, the E2E proxy image, `pi-full:local` (the effective
-      image), and builder cache. It keeps other profiles' proxy/network resources, other agent
-      volumes, all clone volumes, and other pack tags.
+- [ ] `./clear.sh nuke all` deletes every E2E agent and clone volume, the E2E
+      profile's proxy, network and proxy image, `pi-full:local` (the
+      effective image), and the builder cache. It keeps other profiles and
+      other pack tags, and refuses `--instance`.
 - [ ] `./clear.sh list` still shows any retained non-E2E instances.
 - [ ] `PI_CONFIG_DIR=$PI_CONFIG_DIR ./clear.sh nuke profile --yes` deletes the
       E2E profile's agent volumes, clone volumes, proxy, network, and proxy

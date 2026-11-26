@@ -6,7 +6,7 @@
 #   clear.sh nuke agent [--instance NAME] [--yes]
 #   clear.sh nuke clones [--instance NAME] [--yes]
 #   clear.sh nuke profile [--yes]
-#   clear.sh nuke all [--instance NAME] [--image PACK] [--yes]
+#   clear.sh nuke all [--image PACK] [--yes]
 #   clear.sh help
 set -euo pipefail
 
@@ -82,8 +82,8 @@ agent_volume="${PI_AGENT_VOLUME:-$(pi_agent_volume "$instance" "$cfg")}"
 usage() {
   cat <<EOF
 Back up sessions and reset pi-container state. Backups go to $backup_root.
-save and nuke accept --instance NAME or PI_INSTANCE=NAME; the default is
-'$pi_default_instance'. list shows every profile and instance.
+save, nuke agent and nuke clones accept --instance NAME or PI_INSTANCE=NAME;
+the default is '$pi_default_instance'. list shows every profile and instance.
 
   clear.sh list
       Show every profile, its instances, agent volumes, session sizes, and
@@ -110,13 +110,10 @@ save and nuke accept --instance NAME or PI_INSTANCE=NAME; the default is
       PI_CONFIG_DIR to target a profile even after its directory is gone. It
       takes no --instance: every instance goes.
 
-  clear.sh nuke all [--instance NAME] [--image PACK] [--yes]
-      Save sessions, then delete the selected instance's agent volume, this
-      profile's proxy ($proxy_name) and network ($network_name), this profile's
-      proxy image, the agent image ($pi_image: --image, else PI_IMAGE,
-      else full), and the builder cache. Other
-      profiles' proxy/network, other agent volumes, and all clone volumes stay.
-      The agent image is global, so other profiles still need to rebuild it.
+  clear.sh nuke all [--image PACK] [--yes]
+      nuke profile, then the agent image ($pi_image: --image, else PI_IMAGE,
+      else full) and the builder cache. Other profiles and other pack tags
+      stay, but the agent image is shared, so other profiles must rebuild it.
 
 Host config stays at $cfg.
 EOF
@@ -402,48 +399,16 @@ cmd_nuke_clones() {
   delete_clone_volumes $vols
 }
 
-cmd_nuke_all() {
-  local yes=0 vol img
-  parse_yes "$@"
-  confirm "Delete $agent_volume, proxy $proxy_name, network $network_name, this profile's proxy image, the shared agent image, and builder cache? Other profiles' proxy/network, clone volumes, and other agent volumes stay; other profiles will need an agent image rebuild."
-
-  if volume_exists "$agent_volume"; then
-    backup_and_delete_agent_volume "$agent_volume"
-  else
-    say "no volume $agent_volume"
-  fi
-
-  for vol in $(agent_volumes); do
-    say "kept: $vol (profile $(volume_label "$vol" pi.profile); use nuke agent --instance $(volume_instance "$vol") with PI_CONFIG_DIR=$(volume_label "$vol" pi.config))"
-  done
-  for vol in $(clone_volumes); do
-    say "kept: $vol (profile $(volume_label "$vol" pi.profile); use nuke clones --instance $(volume_instance "$vol") with PI_CONFIG_DIR=$(volume_label "$vol" pi.config))"
-  done
-
-  delete_profile_proxy
-
-  for img in "$pi_image" "$proxy_image"; do
-    delete_image "$img"
-  done
-
-  if "$cli" builder delete --force >/dev/null 2>&1; then
-    say "deleted: builder cache"
-  else
-    say "builder cache: delete failed (continuing)"
-  fi
-  say "kept: $cfg"
-  say "rebuild the agent image before ./run.sh: $(build_hint)"
-}
-
 # Everything a profile owns, derived from its config path, so this still works
 # after the directory is gone -- the state that otherwise strands a running
-# proxy with the real OpenRouter key in its environment. The shared agent image
-# and the builder cache stay: other profiles would need a rebuild for nothing.
-cmd_nuke_profile() {
-  local yes=0 vol agent_vols clone_vols
+# proxy with the real OpenRouter key in its environment. `nuke all` also
+# deletes the shared agent image and the builder cache.
+nuke_profile() { # profile|all, options...
+  local what=$1 yes=0 vol agent_vols clone_vols
+  shift
   # --instance is parsed before dispatch, so it would otherwise be dropped and
   # this would quietly delete every instance in the profile.
-  [ "$instance_given" = 0 ] || die 'nuke profile deletes every instance in the profile; drop --instance'
+  [ "$instance_given" = 0 ] || die "nuke $what deletes every instance in the profile; drop --instance"
   parse_yes "$@"
   agent_vols=$(profile_agent_volumes)
   clone_vols=$(profile_clone_volumes)
@@ -452,15 +417,31 @@ cmd_nuke_profile() {
   if [ -n "$agent_vols" ]; then printf '  %s\n' $agent_vols; else say "  none"; fi
   say "clone volumes (unpushed work in them is lost):"
   if [ -n "$clone_vols" ]; then printf '  %s\n' $clone_vols; else say "  none"; fi
-  confirm "Delete these, proxy $proxy_name, network $network_name, and image $proxy_image? The shared image $pi_image, the builder cache, and other profiles stay."
+  if [ "$what" = all ]; then
+    confirm "Delete these, proxy $proxy_name, network $network_name, images $proxy_image and $pi_image, and the builder cache? Other profiles stay but must rebuild $pi_image."
+  else
+    confirm "Delete these, proxy $proxy_name, network $network_name, and image $proxy_image? The shared image $pi_image, the builder cache, and other profiles stay."
+  fi
   for vol in $agent_vols; do
     backup_and_delete_agent_volume "$vol"
   done
   delete_clone_volumes $clone_vols
   delete_profile_proxy
   delete_image "$proxy_image"
-  say "kept: $pi_image, builder cache, other profiles"
-  say "kept: $cfg (remove it by hand if the profile is retired)"
+  if [ "$what" = all ]; then
+    delete_image "$pi_image"
+    if "$cli" builder delete --force >/dev/null 2>&1; then
+      say "deleted: builder cache"
+    else
+      say "builder cache: delete failed (continuing)"
+    fi
+    say "kept: other profiles, other pack tags"
+    say "kept: $cfg"
+    say "rebuild the agent image before ./run.sh: $(build_hint)"
+  else
+    say "kept: $pi_image, builder cache, other profiles"
+    say "kept: $cfg (remove it by hand if the profile is retired)"
+  fi
 }
 
 cmd_nuke() {
@@ -469,8 +450,7 @@ cmd_nuke() {
   case $target in
     agent) cmd_nuke_agent "$@" ;;
     clones) cmd_nuke_clones "$@" ;;
-    profile) cmd_nuke_profile "$@" ;;
-    all) cmd_nuke_all "$@" ;;
+    profile | all) nuke_profile "$target" "$@" ;;
     *) die "nuke needs 'agent', 'clones', 'profile', or 'all'" ;;
   esac
 }

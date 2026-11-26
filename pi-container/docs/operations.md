@@ -48,13 +48,13 @@ instances also share the Neovim paths in [Manual mode](manual.md); use the
 ./clear.sh nuke agent --instance work             # save, then delete the profile's work agent volume
 ./clear.sh nuke clones --instance work            # delete work's clone volumes in this profile
 ./clear.sh nuke profile                           # delete the whole profile, keeping the shared image
-./clear.sh nuke all                               # reset this profile's default instance
-./clear.sh nuke all --instance work               # reset this profile's work instance
+./clear.sh nuke all                               # nuke profile, plus the agent image and builder cache
 ```
 
-`nuke` requires `agent`, `clones`, or `all`. `save` and `nuke` accept
-`--instance NAME` or `PI_INSTANCE=NAME`; without either they use the default
-instance in the current profile. `list` shows every profile and instance. Add
+`nuke` requires `agent`, `clones`, `profile`, or `all`. `save`, `nuke agent`
+and `nuke clones` accept `--instance NAME` or `PI_INSTANCE=NAME`; without
+either they use the default instance in the current profile. `nuke profile`
+and `nuke all` cover every instance and refuse `--instance`. `list` shows every profile and instance. Add
 `--yes` for non-interactive use, and set `PI_BACKUP_DIR` to move backups. Host
 config and project files stay.
 
@@ -66,12 +66,11 @@ backup and the output says so, because cleanup must not depend on an image
 another profile may have removed.
 
 `nuke clones` deletes the selected instance's clone volumes in the current
-profile, scoped by volume labels. `nuke all` deletes the selected instance's
-agent volume plus this profile's proxy and network, this profile's proxy image,
-the active image (`--image`, else `PI_IMAGE`, else `pi-full:local`), and the builder cache. It keeps other profiles'
-proxy/network resources, other agent volumes, all clone volumes, and other pack
-tags. The active image is machine-wide, so other profiles using it still need to
-rebuild. It does not delete the Neovim host paths under `$PI_CONFIG_DIR`
+profile, scoped by volume labels. `nuke all` does what `nuke profile` does,
+then deletes the active image (`--image`, else `PI_IMAGE`, else
+`pi-full:local`) and the builder cache. It keeps other profiles and other pack
+tags. The active image is machine-wide, so other profiles using it still need
+to rebuild. It does not delete the Neovim host paths under `$PI_CONFIG_DIR`
 (default `~/.config/pi-container/`). The next `./run.sh` fails until you rebuild
 the active pack:
 
@@ -105,11 +104,10 @@ Run from `pi-container/`, with every `pic` and `pic serve` stopped.
    cp -a ~/.fleet ~/pi-backups/fleet-$(date +%Y%m%d)   # fleet sessions, if you run pic serve
    ```
 3. Delete the profile (every instance's agent volume, saved again first, its
-   clone volumes, proxy, network and proxy image), then the shared agent
-   image and the builder cache:
+   clone volumes, proxy, network and proxy image), the shared agent image and
+   the builder cache:
 
    ```bash
-   ./clear.sh nuke profile --yes
    ./clear.sh nuke all --yes
    container image list                         # other pack tags, e.g. pi-min:local, stay; delete them by hand
    ```

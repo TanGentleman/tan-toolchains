@@ -227,9 +227,9 @@ Changing the egress or model_url recreates `pi-proxy` from the same image.
 | `nuke agent` | Save sessions, then delete the selected instance's agent volume. Without the agent image the backup is skipped, not fatal. |
 | `nuke clones` | Delete the selected instance's clone volumes in this profile. |
 | `nuke profile` | Delete this profile: every instance's agent volume, its clone volumes, proxy, network, and proxy image. The shared image and builder cache stay. |
-| `nuke all` | Delete the selected instance's agent volume plus the effective image and profile resources. See [Operations](operations.md). |
+| `nuke all` | `nuke profile`, then the effective image and the builder cache. See [Operations](operations.md). |
 | `--image PACK` | The image `nuke all` deletes and `save` reads with. Defaults to `PI_IMAGE`, else `full`. |
-| `--instance NAME` | Scope `save` or `nuke`. Defaults to `PI_INSTANCE` or `default`. |
+| `--instance NAME` | Scope `save`, `nuke agent`, or `nuke clones`. Defaults to `PI_INSTANCE` or `default`. `nuke profile` and `nuke all` refuse it. |
 | `--yes` | Skip the `nuke` confirmation. |
 | `help` | Print usage. |
 

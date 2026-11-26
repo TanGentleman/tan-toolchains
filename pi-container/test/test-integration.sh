@@ -617,20 +617,23 @@ case_nuke_profile() {
   find "$t/backups" -name a.jsonl -type f 2>/dev/null | grep -q . && pass || fail "sessions were not backed up"
 }
 
-# --instance is parsed before dispatch, so `nuke profile` must refuse it rather
+# --instance is parsed before dispatch, so `nuke profile` and `nuke all` must refuse it rather
 # than silently deleting every instance in the profile.
 case_nuke_profile_rejects_instance() {
-  new_case nukeprofileinst
-  printf 'pi-agent-home\n' > "$world/volumes.list"
-  vol_json pi-agent-home agent default "$cfg" "$cfg/settings.json" \
-    > "$world/volumes/pi-agent-home.json"
-  run_it env -u PI_CONFIG_DIR HOME="$home" PI_CONFIG_DIR="$cfg" \
-    CONTAINER_CLI="$fake" FAKE_CONTAINER_WORLD="$world" FAKE_CONTAINER_LOG="$logfile" \
-    bash "$clear_sh" nuke profile --instance work --yes
-  expect_status 1 "nuke profile rejects --instance"
-  contains 'drop --instance' "$(e)" "the refusal explains the flag"
-  log_lacks 'volume delete' "nothing is deleted"
-  log_lacks 'delete --force' "the proxy stays"
+  local target
+  for target in profile all; do
+    new_case "nuke${target}inst"
+    printf 'pi-agent-home\n' > "$world/volumes.list"
+    vol_json pi-agent-home agent default "$cfg" "$cfg/settings.json" \
+      > "$world/volumes/pi-agent-home.json"
+    run_it env -u PI_CONFIG_DIR HOME="$home" PI_CONFIG_DIR="$cfg" \
+      CONTAINER_CLI="$fake" FAKE_CONTAINER_WORLD="$world" FAKE_CONTAINER_LOG="$logfile" \
+      bash "$clear_sh" nuke "$target" --instance work --yes
+    expect_status 1 "nuke $target rejects --instance"
+    contains 'drop --instance' "$(e)" "nuke $target: the refusal explains the flag"
+    log_lacks 'volume delete' "nuke $target: nothing is deleted"
+    log_lacks 'delete --force' "nuke $target: the proxy stays"
+  done
 }
 
 # --------------------------------------------------------------- mount guards
@@ -956,17 +959,26 @@ case_option_guards() {
   log_lacks "network create" "help has no side effects"
 }
 
-# ---------------------------------------- nuke all with a failed builder delete
-case_nuke_all_builder_failure() {
+# ------------------------------------------------------- clear.sh nuke all
+# nuke all is nuke profile plus the shared agent image and the builder cache;
+# a failed builder delete is reported and does not stop it.
+case_nuke_all() {
   new_case nukeall
+  local work clone
+  work=$(. "$root/names.sh"; pi_agent_volume work "$cfg")
+  clone=$(. "$root/names.sh"; pi_clone_volume work owner/repo "$cfg")
   image_json 1.4.0 > "$world/images/pi-full_local.json"
   image_json 1.4.0 > "$world/images/pi-proxy_local.json"
   network_json "172.30.240.0/24" > "$world/networks/pi-locked.json"
   printf 'pi-locked\n' > "$world/networks.list"
   proxy_running_json > "$world/containers/pi-proxy.json"
-  printf 'pi-agent-home\n' > "$world/volumes.list"
+  printf 'pi-agent-home\n%s\n%s\npi-agent-x1-home\n' "$work" "$clone" > "$world/volumes.list"
   vol_json pi-agent-home agent default "$cfg" "$cfg/settings.json" \
     > "$world/volumes/pi-agent-home.json"
+  vol_json "$work" agent work "$cfg" "$cfg/settings.json" > "$world/volumes/$work.json"
+  vol_json "$clone" clone work "$cfg" "$cfg/settings.json" owner/repo > "$world/volumes/$clone.json"
+  vol_json pi-agent-x1-home agent default "$t/othercfg" "$t/othercfg/settings.json" "" x1 \
+    > "$world/volumes/pi-agent-x1-home.json"
   mkdir -p "$world/fail"; : > "$world/fail/builder"
   mkdir -p "$t/stream/sessions"
   printf '{"session":1}\n' > "$t/stream/sessions/a.jsonl"
@@ -978,7 +990,16 @@ case_nuke_all_builder_failure() {
   expect_status 0 "nuke all continues when builder delete fails"
   contains 'builder cache: delete failed' "$(o)" "builder failure reported"
   not_contains 'deleted: builder cache' "$(o)" "builder failure is not reported as deleted"
-  log_has "volume delete pi-agent-home" "agent volume deleted"
+  log_has "volume delete pi-agent-home" "default agent volume deleted"
+  log_has "volume delete $work" "every instance's agent volume deleted"
+  log_has "volume delete $clone" "the profile's clone volumes deleted"
+  log_lacks "volume delete pi-agent-x1-home" "another profile's agent volume kept"
+  log_has "delete --force pi-proxy" "profile proxy deleted"
+  log_has "network delete pi-locked" "profile network deleted"
+  log_has "image delete pi-proxy:local" "profile proxy image deleted"
+  log_has "image delete pi-full:local" "the agent image deleted"
+  contains "rebuild the agent image" "$(o)" "rebuild hint printed"
+  find "$t/backups" -name a.jsonl -type f 2>/dev/null | grep -q . && pass || fail "sessions were not backed up"
 }
 
 # ------------------------------------------------ model_url (local model)
@@ -1384,7 +1405,7 @@ for c in case_normal_run case_check_enforcer case_tokenless_run case_tokenless_c
          case_clear_list_dead_profile \
          case_nuke_agent case_nuke_agent_without_image case_nuke_clones_scoped \
          case_nuke_profile case_nuke_profile_rejects_instance \
-         case_option_guards case_nuke_all_builder_failure case_mount_guards case_fleet_state case_pi_ctr_stop \
+         case_option_guards case_nuke_all case_mount_guards case_fleet_state case_pi_ctr_stop \
          case_netlock_modes case_netlock_capability case_proxy_running_no_addr case_model_url \
          case_config_command case_images_command \
          case_min case_enforcer_check_script case_offline_run case_offline_refusals case_offline_check; do
