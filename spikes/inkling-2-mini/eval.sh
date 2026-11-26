@@ -2,7 +2,7 @@
 # eval.sh [--jobs N] [TASK.json ...]   Pi does each task (default: evals/*.json)
 # in a fresh folder through pi.sh, up to N at once, each in its own container
 # instance; the files it leaves are checked on the host.
-# Needs `serve.sh pi` running. Runs: $INKLING_HOME/evals/<time>-<id>/
+# Needs `inkling up pi`. Runs: $INKLING_HOME/evals/<time>-<id>/
 set -euo pipefail
 . "$(dirname "$0")/env.sh"
 [ -x "$venv/bin/python" ] || die "run install.sh first"

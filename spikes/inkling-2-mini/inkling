@@ -1,0 +1,172 @@
+#!/usr/bin/env bash
+# inkling: the local model server in one command. Settings come from env.sh.
+#   inkling install                   install.sh: uv sync, then asks before the 17.3 GB download
+#   inkling uninstall [--keep-model]  down, then uninstall.sh
+#   inkling up [pi]                   serve.sh [pi] in the background; returns once the model is loaded
+#   inkling down                      stop it; returns after mlx_lm.server exits (model unloaded)
+#   inkling status [--json]           up, loading, orphaned or down; pid, port, batching, uptime
+#   inkling check                     serve.sh check
+#   inkling serve [pi]                serve.sh [pi] in the foreground; Ctrl-C stops it
+set -euo pipefail
+. "$(dirname "$0")/env.sh"
+run="$INKLING_HOME/run"
+log="$INKLING_HOME/logs/serve.log"
+
+usage() { sed -n '2,9s/^# \{0,1\}//p' "$0" >&2; exit 2; }
+seconds() { # name value
+  case $2 in ''|0*|*[!0-9]*) die "INKLING_$(echo "$1" | tr a-z A-Z) must be a positive integer, got '$2'" ;; esac
+}
+served_port() { # the port the running serve.sh wrote, else env.sh's
+  local p=""
+  [ -f "$run/serve.json" ] && p=$(jq -r '.port // empty' "$run/serve.json" 2>/dev/null) || true
+  printf '%s\n' "${p:-$port}"
+}
+healthy() { curl -fsS -m 5 -o /dev/null "http://127.0.0.1:$(served_port)/health" 2>/dev/null; }
+leftover() { # pid of an mlx_lm.server or gateway whose serve.sh is gone
+  pid_live "$run/mlx.pid" || pid_live "$run/gateway.pid"
+}
+etime_s() { # pid; seconds since it started, from ps's [[dd-]hh:]mm:ss
+  local e d=0 h=0 m s
+  e=$(ps -p "$1" -o etime= 2>/dev/null) || return 1
+  e=${e//[[:space:]]/}
+  case $e in *-*) d=${e%%-*}; e=${e#*-} ;; esac
+  case $e in
+    *:*:*) h=${e%%:*}; e=${e#*:} ;;
+  esac
+  m=${e%%:*}; s=${e#*:}
+  echo $(( ((10#$d * 24 + 10#$h) * 60 + 10#$m) * 60 + 10#$s ))
+}
+tail_logs() {
+  local f
+  for f in "$log" "$INKLING_HOME/logs/mlx.log"; do
+    [ -s "$f" ] || continue
+    echo "--- last lines of $f" >&2; tail -n 15 "$f" >&2
+  done
+}
+
+cmd_up() {
+  local mode=${1:-} pid started waited=0
+  [ $# -le 1 ] && { [ -z "$mode" ] || [ "$mode" = pi ]; } || usage
+  command -v jq >/dev/null || die "needs jq"
+  seconds up_timeout "$up_timeout"
+  [ -x "$venv/bin/python" ] || die "run install first: $spike_dir/inkling install"
+  if pid=$(pid_live "$run/serve.pid"); then
+    if [ "$mode" = pi ] && [ ! -f "$run/pi" ]; then
+      die "running without pi (pid $pid); run: $spike_dir/inkling down, then: $spike_dir/inkling up pi"
+    fi
+    started=0
+  elif pid=$(leftover); then
+    die "pid $pid is left over from a serve.sh that is gone; run: $spike_dir/inkling down"
+  else
+    mkdir -p "$INKLING_HOME/logs"
+    nohup "$spike_dir/serve.sh" ${mode:+"$mode"} >>"$log" 2>&1 </dev/null &
+    pid=$!
+    started=1
+    echo "serve.sh${mode:+ $mode} pid $pid; loading the model (log: $log)"
+  fi
+  while ! healthy; do
+    if ! pid_alive "$pid"; then
+      tail_logs
+      die "serve.sh exited before the model was ready"
+    fi
+    if [ "$waited" -ge "$up_timeout" ]; then
+      die "still loading after ${up_timeout}s (pid $pid, log: $INKLING_HOME/logs/mlx.log); stop it: $spike_dir/inkling down"
+    fi
+    sleep 1; waited=$((waited + 1))
+  done
+  if [ "$started" = 1 ]; then echo "up: http://127.0.0.1:$(served_port)/v1 (${waited}s)"
+  else echo "already up: pid $pid, http://127.0.0.1:$(served_port)/v1"; fi
+}
+
+wait_gone() { # seconds pid...; 0 once none of them runs
+  local n=$1 p left; shift
+  while :; do
+    left=0
+    for p in "$@"; do pid_alive "$p" && left=1; done
+    [ "$left" = 0 ] && return 0
+    [ "$n" -gt 0 ] || return 1
+    sleep 1; n=$((n - 1))
+  done
+}
+
+cmd_down() {
+  [ $# = 0 ] || usage
+  seconds down_timeout "$down_timeout"
+  local serve mlx gw pids=()
+  serve=$(pid_live "$run/serve.pid") || serve=""
+  mlx=$(pid_live "$run/mlx.pid") || mlx=""
+  gw=$(pid_live "$run/gateway.pid") || gw=""
+  for p in $serve $mlx $gw; do pids+=("$p"); done
+  if [ ${#pids[@]} = 0 ]; then
+    rm -f "$run"/*.pid "$run/pi" "$run/serve.json"
+    echo "already down"; return 0
+  fi
+  # serve.sh stops both children and waits for them; without it, stop them here.
+  if [ -n "$serve" ]; then
+    echo "stopping serve.sh pid $serve"; kill "$serve" 2>/dev/null || true
+  else
+    echo "stopping leftover pid(s) ${pids[*]}"; kill "${pids[@]}" 2>/dev/null || true
+  fi
+  if ! wait_gone "$down_timeout" "${pids[@]}"; then
+    echo "still running after ${down_timeout}s; sending KILL" >&2
+    kill -KILL "${pids[@]}" 2>/dev/null || true
+    wait_gone 10 "${pids[@]}" || die "pid(s) ${pids[*]} survived KILL"
+  fi
+  rm -f "$run"/*.pid "$run/pi" "$run/serve.json"
+  echo "down; mlx_lm.server has exited, the model is unloaded"
+}
+
+status_json() {
+  local state=down pid="" up=null batch=null p pi=false
+  if pid=$(pid_live "$run/serve.pid"); then
+    if healthy; then state=up; else state=loading; fi
+    up=$(etime_s "$pid") || up=null
+    [ -f "$run/pi" ] && pi=true
+    batch=$(jq -c '{decode_concurrency, prompt_concurrency, prompt_cache_size, prompt_cache_gb}' \
+      "$run/serve.json" 2>/dev/null) || batch=null
+  elif pid=$(leftover); then
+    state=orphaned
+  else
+    pid=""
+  fi
+  p=$(served_port)
+  jq -n --arg state "$state" --argjson pid "${pid:-null}" --argjson port "$p" \
+    --argjson pi "$pi" --argjson uptime "$up" --argjson batch "${batch:-null}" \
+    --arg home "$INKLING_HOME" --arg log "$log" \
+    '{v: 1, state: $state, pid: $pid, port: $port, pi: $pi, uptime_s: $uptime,
+      batch: $batch, home: $home, log: $log}'
+}
+
+cmd_status() {
+  command -v jq >/dev/null || die "needs jq"
+  case $# in
+    0) status_json | jq -r '
+         "state   \(.state)",
+         (if .pid then "pid     \(.pid)" else empty end),
+         "port    \(.port)\(if .pi then " and the container network (pi)" else "" end)",
+         (if .batch then "batch   decode \(.batch.decode_concurrency), prompt \(.batch.prompt_concurrency); prompt cache \(.batch.prompt_cache_size) entries, \(.batch.prompt_cache_gb) GB" else empty end),
+         (if .uptime_s then "uptime  \(.uptime_s)s" else empty end),
+         (if .state == "orphaned" then "        serve.sh is gone; stop the rest: inkling down" else empty end),
+         "log     \(.log)"' ;;
+    1) [ "$1" = --json ] || usage; status_json ;;
+    *) usage ;;
+  esac
+}
+
+case ${1:-} in
+  install) shift; exec "$spike_dir/install.sh" "$@" ;;
+  uninstall)
+    shift
+    [ $# = 0 ] || { [ $# = 1 ] && [ "$1" = --keep-model ]; } || usage
+    [ -d "$run" ] && cmd_down
+    exec "$spike_dir/uninstall.sh" "$@" ;;
+  up) shift; cmd_up "$@" ;;
+  down) shift; cmd_down "$@" ;;
+  status) shift; cmd_status "$@" ;;
+  check) shift; [ $# = 0 ] || usage; exec "$spike_dir/serve.sh" check ;;
+  serve)
+    shift
+    [ $# = 0 ] || { [ $# = 1 ] && [ "$1" = pi ]; } || usage
+    exec "$spike_dir/serve.sh" "$@" ;;
+  *) usage ;;
+esac

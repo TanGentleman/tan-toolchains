@@ -7,16 +7,19 @@ on an Apple silicon Mac (32 GB+), as an OpenAI-compatible endpoint on
 With Pi in a container: [GUIDE.md](GUIDE.md).
 
 ```sh
-spikes/inkling-2-mini/install.sh     # uv sync, then asks before the 17.3 GB download
-spikes/inkling-2-mini/serve.sh [pi]  # foreground; Ctrl-C stops both; pi: also listen for pi-proxy
-spikes/inkling-2-mini/serve.sh check # in a second terminal
+spikes/inkling-2-mini/inkling install   # uv sync, then asks before the 17.3 GB download
+spikes/inkling-2-mini/inkling up [pi]   # background; returns once the model is loaded; pi: also listen for pi-proxy
+spikes/inkling-2-mini/inkling check     # one tool call and one stream through the gateway
+spikes/inkling-2-mini/inkling status    # [--json]
+spikes/inkling-2-mini/inkling down      # returns after mlx_lm.server exits: the model is unloaded
 spikes/inkling-2-mini/pi.sh          # run.sh offline: model calls go only to the gateway
 spikes/inkling-2-mini/eval.sh        # small tasks for Pi through pi.sh, checked on the host; [--jobs N]
 spikes/inkling-2-mini/bench.sh       # the evals at --jobs 1, 2, 4: tasks/hour, tokens, p50 TTFT
-spikes/inkling-2-mini/uninstall.sh   # [--keep-model]
+spikes/inkling-2-mini/inkling uninstall # [--keep-model]
 ```
 
-Needs only [uv](https://docs.astral.sh/uv/). Everything goes in
+`inkling serve [pi]` is the foreground form (Ctrl-C stops it) for a second
+terminal. Needs only [uv](https://docs.astral.sh/uv/) and `jq`. Everything goes in
 `~/.local/share/inkling-2-mini` (`INKLING_HOME`): Python, uv cache, venv,
 Hugging Face cache, weights, logs. Uninstall deletes that directory.
 `INKLING_MODEL_DIR=/path/to/mlx-model` serves another local MLX folder

@@ -5,6 +5,7 @@
 # INKLING_DECODE_CONCURRENCY, INKLING_PROMPT_CONCURRENCY, INKLING_PROMPT_CACHE_SIZE
 # and INKLING_PROMPT_CACHE_GB set batching and the prompt cache (GUIDE.md, Memory).
 # No network: Hugging Face is forced offline and the model is a local path.
+# `inkling up` runs this in the background and `inkling down` stops it.
 set -euo pipefail
 . "$(dirname "$0")/env.sh"
 [ -x "$venv/bin/python" ] || die "run install.sh first"
@@ -22,6 +23,16 @@ for v in decode_concurrency prompt_concurrency prompt_cache_size prompt_cache_gb
 done
 listen=(--listen "$host:$port")
 if [ "${1:-}" = pi ]; then listen+=(--listen "$(container_gateway):$port"); fi
+
+mkdir -p "$INKLING_HOME/logs" "$INKLING_HOME/run"
+for f in serve mlx gateway; do
+  if p=$(pid_live "$INKLING_HOME/run/$f.pid"); then
+    die "already running: $f pid $p; stop it: $spike_dir/inkling down"
+  fi
+done
+rm -f "$INKLING_HOME/run/pi"
+if [ "${1:-}" = pi ]; then touch "$INKLING_HOME/run/pi"; fi
+pid_write "$INKLING_HOME/run/serve.pid" $$
 
 pids=()
 # Stopping waits for mlx_lm.server to exit, so the model is unloaded when it returns.
@@ -43,15 +54,14 @@ HF_HUB_OFFLINE=1 "$venv/bin/mlx_lm.server" --model "$model_dir" \
   --decode-concurrency "$decode_concurrency" --prompt-concurrency "$prompt_concurrency" \
   --prompt-cache-size "$prompt_cache_size" --prompt-cache-bytes $((prompt_cache_gb * 1024 * 1024 * 1024)) \
   >>"$INKLING_HOME/logs/mlx.log" 2>&1 &
-pids+=($!); echo $! > "$INKLING_HOME/run/mlx.pid"
+pids+=($!); pid_write "$INKLING_HOME/run/mlx.pid" $!
 echo "mlx_lm.server pid $! loading $model_dir (log: $INKLING_HOME/logs/mlx.log)"
 echo "batch: decode $decode_concurrency, prompt $prompt_concurrency; prompt cache: $prompt_cache_size entries, $prompt_cache_gb GB"
-printf '{"decode_concurrency": %d, "prompt_concurrency": %d, "prompt_cache_size": %d, "prompt_cache_gb": %d}\n' \
-  "$decode_concurrency" "$prompt_concurrency" "$prompt_cache_size" "$prompt_cache_gb" > "$INKLING_HOME/run/serve.json"
+printf '{"decode_concurrency": %d, "prompt_concurrency": %d, "prompt_cache_size": %d, "prompt_cache_gb": %d, "port": %d, "mlx_port": %d}\n' \
+  "$decode_concurrency" "$prompt_concurrency" "$prompt_cache_size" "$prompt_cache_gb" "$port" "$mlx_port" > "$INKLING_HOME/run/serve.json"
 
 "$venv/bin/python" "$spike_dir/gateway.py" "${listen[@]}" \
   --upstream "127.0.0.1:$mlx_port" --log "$INKLING_HOME/logs/requests.jsonl" &
-pids+=($!); echo $! > "$INKLING_HOME/run/gateway.pid"
-if [ "${1:-}" = pi ]; then touch "$INKLING_HOME/run/pi"; fi
+pids+=($!); pid_write "$INKLING_HOME/run/gateway.pid" $!
 # macOS /bin/bash is 3.2, which has no wait -n.
 while kill -0 "${pids[0]}" 2>/dev/null && kill -0 "${pids[1]}" 2>/dev/null; do sleep 1; done

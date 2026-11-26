@@ -22,6 +22,11 @@ prompt_concurrency=${INKLING_PROMPT_CONCURRENCY:-1}
 prompt_cache_size=${INKLING_PROMPT_CACHE_SIZE:-4}
 prompt_cache_gb=${INKLING_PROMPT_CACHE_GB:-4}
 
+# inkling up waits this long for the model to load; inkling down waits this
+# long for a clean exit before it sends KILL.
+up_timeout=${INKLING_UP_TIMEOUT:-600}
+down_timeout=${INKLING_DOWN_TIMEOUT:-60}
+
 # eval.sh and bench.sh: the Pi command (same flags as fleet's turns: JSON
 # events on stdout, prompt on stdin, no repo extensions or skills). eval.py
 # puts the worker's slot (eval-1..eval-N) in {instance}. Eval VMs get 2 GB.
@@ -49,6 +54,35 @@ container_gateway() {
   gw=$(container network inspect default 2>/dev/null | jq -r '.[0].status.ipv4Gateway // empty') || true
   [ -n "$gw" ] || die "no default container network; run: container system start"
   printf '%s\n' "$gw"
+}
+
+# run/*.pid hold a pid and that process's start time, so a pid that the OS
+# has reused for another process is never taken for ours.
+pid_start() { # pid; prints its start time, spaces collapsed
+  local s
+  s=$(ps -p "$1" -o lstart= 2>/dev/null) || return 1
+  [ -n "$s" ] || return 1
+  # Unquoted on purpose: lstart pads with spaces ("Nov  5"); no glob characters.
+  echo $s
+}
+pid_alive() { # pid; a zombie (exited, not yet reaped) counts as gone
+  local st
+  st=$(ps -p "$1" -o stat= 2>/dev/null) || return 1
+  st=${st//[[:space:]]/}
+  [ -n "$st" ] && [ "${st#Z}" = "$st" ]
+}
+pid_write() { # file pid
+  printf '%s\n%s\n' "$2" "$(pid_start "$2" || true)" > "$1"
+}
+pid_live() { # file; prints the pid if the process that wrote it still runs
+  local pid="" start="" now
+  [ -f "$1" ] || return 1
+  { read -r pid; read -r start; } < "$1" || true
+  case $pid in ''|*[!0-9]*) return 1 ;; esac
+  [ -n "$start" ] || return 1
+  now=$(pid_start "$pid") || return 1
+  [ "$now" = "$start" ] && pid_alive "$pid" || return 1
+  printf '%s\n' "$pid"
 }
 
 die() { echo "${0##*/}: $*" >&2; exit 1; }

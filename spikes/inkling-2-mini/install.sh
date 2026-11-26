@@ -39,6 +39,6 @@ fi
 
 echo
 echo "Installed in $INKLING_HOME ($(du -sh "$INKLING_HOME" | cut -f1))."
-echo "Serve:     $spike_dir/serve.sh"
-echo "Check:     $spike_dir/serve.sh check"
-echo "Uninstall: $spike_dir/uninstall.sh"
+echo "Serve:     $spike_dir/inkling up"
+echo "Check:     $spike_dir/inkling check"
+echo "Uninstall: $spike_dir/inkling uninstall"

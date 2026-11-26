@@ -30,7 +30,7 @@ S=spikes/inkling-2-mini
 ## 1. Install and download (asks first)
 
 ```sh
-$S/install.sh
+$S/inkling install
 ```
 
 Answer `y` at the prompt to download 17.3 GB from huggingface.co
@@ -39,23 +39,43 @@ raises rate limits. `export HF_TOKEN=...` first, or an existing `hf auth login`
 token is used. Nothing else in these scripts contacts Hugging Face; serving
 runs offline.
 
-## 2. Serve (terminal 1)
+## 2. Serve
 
 ```sh
-$S/serve.sh pi
+$S/inkling up pi       # background; returns once the model is loaded
+$S/inkling serve pi    # or: foreground in a terminal of its own; Ctrl-C stops it
 ```
 
 Listens on `127.0.0.1:8090` and on the container network's host address
 (`192.168.64.1:8090`, read from `container network inspect default`), not on
 your LAN. macOS adds that address only while a container runs, so the gateway
 waits for it and binds when `pi.sh` starts `pi-proxy`. If macOS asks whether
-Python may accept incoming connections, allow it. Wait for the
-model to load (`$HOME/.local/share/inkling-2-mini/logs/mlx.log`).
-
-## 3. Check (terminal 2)
+Python may accept incoming connections, allow it. `up` waits up to
+`INKLING_UP_TIMEOUT` (600 s) for the model to load
+(`$HOME/.local/share/inkling-2-mini/logs/mlx.log`); `up` again is a no-op
+while it runs. `serve.sh` refuses to start a second server.
 
 ```sh
-$S/serve.sh check   # host -> gateway -> model: one tool call, one stream
+$S/inkling status          # state, pid, port, batching, uptime
+$S/inkling status --json   # the same for scripts; exits 0 in every state
+```
+
+`state` is `up`, `loading`, `down`, or `orphaned` (`serve.sh` was killed
+but `mlx_lm.server` or the gateway still runs; `inkling down` stops them).
+The JSON keys are `v` (1), `state`, `pid` (`serve.sh`, or the leftover
+process), `port`, `pi`, `uptime_s`, `batch` (from `run/serve.json`), `home`
+and `log`. The pid files in `run/` hold each process's start time, so a pid
+the OS has since given to another process is ignored, never killed.
+
+`$S/inkling down` stops the server either way and returns after
+`mlx_lm.server` has exited, so the model is out of memory. A server that has
+not exited after `INKLING_DOWN_TIMEOUT` (60 s) gets KILL. `down` again is a
+no-op.
+
+## 3. Check
+
+```sh
+$S/inkling check    # host -> gateway -> model: one tool call, one stream
 $S/pi.sh check      # mode offline; OpenRouter line passes via the gateway, GitHub refused
 ```
 
@@ -114,11 +134,11 @@ prints tasks/hour, prompt, output and total tokens, and the median time to
 first token (p50 TTFT) of that level's requests. It writes everything to
 `$HOME/.local/share/inkling-2-mini/bench/<time>/` (`bench.json`, `"v": 1`,
 and the run folders under `jobs-N/`). Levels above serve.sh's decode
-concurrency only queue at the model, so start serve.sh for the highest level:
+concurrency only queue at the model, so start the server for the highest level:
 
 ```sh
-INKLING_DECODE_CONCURRENCY=4 $S/serve.sh pi     # terminal 1
-$S/bench.sh                                     # terminal 2; or --jobs 1,2 --repeat 1
+INKLING_DECODE_CONCURRENCY=4 $S/inkling up pi
+$S/bench.sh                                     # or --jobs 1,2 --repeat 1
 ```
 
 Pick the level with the most tasks/hour that does not swap (watch Activity
@@ -127,13 +147,13 @@ Monitor's memory pressure), then use it for `INKLING_DECODE_CONCURRENCY` and
 
 ## 6. Back to OpenRouter
 
-Stop `serve.sh` (Ctrl-C) and run plain `pi-container/run.sh`. It sees the
+`$S/inkling down` (or Ctrl-C on `inkling serve`) and run plain `pi-container/run.sh`. It sees the
 upstream is gone and recreates `pi-proxy` pointing at openrouter.ai.
 
 ## 7. Uninstall
 
 ```sh
-$S/uninstall.sh                  # or --keep-model to keep the 17.3 GB of weights
+$S/inkling uninstall             # stops the server; --keep-model keeps the 17.3 GB of weights
 ```
 
 Then run `pi-container/run.sh check` once so the proxy points at OpenRouter
@@ -141,7 +161,8 @@ again.
 
 ## Memory
 
-`serve.sh` reads these when it starts (restart it to change them):
+`serve.sh` reads these when it starts (`inkling down`, then `inkling up pi`
+to change them):
 
 | Variable | Default | `mlx_lm.server` flag |
 |---|---|---|
@@ -169,7 +190,7 @@ Any local MLX folder works in place of Inkling, with no download:
 
 ```sh
 export INKLING_MODEL_DIR=$HOME/.models/lm-studio/lmstudio-community/LFM2.5-1.2B-Instruct-MLX-8bit
-$S/serve.sh pi
+$S/inkling up pi
 ```
 
 ## Security notes

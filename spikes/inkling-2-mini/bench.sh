@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # bench.sh [--jobs 1,2,4] [--repeat R] [TASK.json ...]   eval.sh's tasks at each
 # --jobs level in turn; prints tasks/hour, tokens and p50 time to first token.
-# Needs `serve.sh pi` running. Output: $INKLING_HOME/bench/<time>/bench.json
+# Needs `inkling up pi`. Output: $INKLING_HOME/bench/<time>/bench.json
 set -euo pipefail
 . "$(dirname "$0")/env.sh"
 [ -x "$venv/bin/python" ] || die "run install.sh first"

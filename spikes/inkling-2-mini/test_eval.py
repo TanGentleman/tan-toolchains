@@ -382,7 +382,7 @@ class Serve(Base):
                 with open(info) as f:
                     self.assertEqual(json.load(f)["decode_concurrency"], int(want[0]))
                 with open(os.path.join(self.home, "run", "mlx.pid")) as f:
-                    mlx = int(f.read())
+                    mlx = int(f.readline())
                 p.send_signal(signal.SIGINT)
                 p.communicate(timeout=20)
                 self.assertEqual(p.returncode, 130)

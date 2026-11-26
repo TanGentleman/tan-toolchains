@@ -12,9 +12,7 @@ case $(cd "$INKLING_HOME" && pwd -P) in /|"$(cd "$HOME" && pwd -P)") die "refusi
 [ -f "$marker" ] || die "$INKLING_HOME has no $(basename "$marker"); not deleting it"
 
 for f in "$INKLING_HOME"/run/*.pid; do
-  [ -f "$f" ] || continue
-  pid=$(cat "$f")
-  if ps -p "$pid" -o command= 2>/dev/null | grep -q "$INKLING_HOME\|gateway.py"; then
+  if pid=$(pid_live "$f"); then
     echo "stopping pid $pid ($(basename "$f" .pid))"; kill "$pid" 2>/dev/null || true
   fi
 done
