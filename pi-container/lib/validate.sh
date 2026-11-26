@@ -39,13 +39,10 @@ pi_repo_valid() { # owner/repo
   return 0
 }
 
-# Egress profile: standard (GitHub and the model route) or offline (the
-# model route only).
+# An egress profile name: a built-in (standard, offline) or NAME for
+# $PI_CONFIG_DIR/egress/NAME.json. lib/egress.sh finds and reads the file.
 pi_egress_valid() { # profile
-  case ${1:-} in
-    standard|offline) return 0 ;;
-  esac
-  return 1
+  [[ ${1:-} =~ ^[a-z][a-z0-9-]{0,31}$ ]]
 }
 
 # A Pi image pack, as config.json and run.sh --image name it.

@@ -1,0 +1,14 @@
+{
+  "v": 1,
+  "about": "GitHub and the model route (openrouter.ai with the real key, or model_url)",
+  "tunnel": [
+    "github.com",
+    "api.github.com",
+    "codeload.github.com",
+    "objects.githubusercontent.com",
+    "raw.githubusercontent.com",
+    "uploads.github.com"
+  ],
+  "model_url": "any",
+  "github_token": true
+}

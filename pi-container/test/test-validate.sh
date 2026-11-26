@@ -29,10 +29,10 @@ for r in '' owner owner/ /repo 'owner//repo' owner/repo/extra owner/. owner/.. o
 done
 
 # Egress profiles.
-for m in standard offline; do
+for m in standard offline lab pypi-only a1; do
   rc 0 "egress [$m] should be valid" pi_egress_valid "$m"
 done
-for m in '' normal Offline online 'offline ' none; do
+for m in '' Offline 'offline ' 1lab a/b ../x a_b "$(printf 'a%.0s' $(seq 33))"; do
   rc 1 "egress [$m] should be invalid" pi_egress_valid "$m"
 done
 

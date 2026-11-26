@@ -1,0 +1,7 @@
+{
+  "v": 1,
+  "about": "Only a local model server; no GitHub, no openrouter.ai",
+  "tunnel": [],
+  "model_url": "private",
+  "github_token": false
+}

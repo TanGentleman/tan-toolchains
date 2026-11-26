@@ -1,5 +1,5 @@
 # The profile's config file, $PI_CONFIG_DIR/config.json:
-#   {"v": 1, "image": "min|full|zig", "egress": "standard|offline",
+#   {"v": 1, "image": "min|full|zig", "egress": "standard|offline|NAME",
 #    "model_url": "openrouter" | "http://HOST:PORT"}
 # Every key is optional. Sourced, never executed; needs jq and lib/validate.sh.
 # Secrets never go here; they stay in the env file.
@@ -46,7 +46,7 @@ pi_config_read() { # file
     return 1
   fi
   if [ -n "$egress" ] && ! pi_egress_valid "$egress"; then
-    printf 'egress must be standard or offline, not "%s"\n' "$egress"
+    printf 'egress must be a profile name (standard, offline, or NAME for egress/NAME.json), not "%s"\n' "$egress"
     return 1
   fi
   if [ -n "$url" ] && ! pi_model_url_split "$url" >/dev/null; then
@@ -65,29 +65,30 @@ pi_config_pick() { # flag-value, file-value, default
   fi
 }
 
-# Refuse an egress/model_url pair that cannot work. offline sends model calls
-# only to an http model_url on gateway or a private IPv4 address. Prints the
-# reason and returns 1.
-pi_config_combo_check() { # egress, model_url
+# Refuse an egress/model_url pair that cannot work. A profile whose model_url
+# rule is "private" (offline) sends model calls only to an http model_url on
+# gateway or a private IPv4 address. Prints the reason and returns 1.
+pi_config_combo_check() { # egress name, its model_url rule, model_url
   local hostport
-  [ "$1" = offline ] || return 0
-  if [ "$2" = openrouter ]; then
-    printf 'egress offline needs model_url http://HOST:PORT (a local model server); openrouter is refused offline\n'
+  [ "$2" = private ] || return 0
+  if [ "$3" = openrouter ]; then
+    printf 'egress %s needs model_url http://HOST:PORT (a local model server); openrouter is refused %s\n' "$1" "$1"
     return 1
   fi
-  hostport=$(pi_model_url_split "$2") || { printf 'bad model_url "%s"\n' "$2"; return 1; }
+  hostport=$(pi_model_url_split "$3") || { printf 'bad model_url "%s"\n' "$3"; return 1; }
   case ${hostport% *} in
     gateway) return 0 ;;
   esac
   pi_offline_upstream_valid "${hostport% *}" && return 0
-  printf 'egress offline needs model_url on gateway or a private IPv4 address (10/8, 172.16/12, 192.168/16, 169.254/16), not %s\n' "${hostport% *}"
+  printf 'egress %s needs model_url on gateway or a private IPv4 address (10/8, 172.16/12, 192.168/16, 169.254/16), not %s\n' "$1" "${hostport% *}"
   return 1
 }
 
 # run.sh config --json.
-pi_config_json() { # path, image, image-source, egress, egress-source, model_url, model_url-source, tag
+pi_config_json() { # path, image, image-source, egress, egress-source, model_url, model_url-source, tag, profile file, tunnel csv, model_url rule, github_token
   jq -cn --arg path "$1" --arg image "$2" --arg is "$3" --arg egress "$4" --arg es "$5" \
-    --arg url "$6" --arg us "$7" --arg tag "$8" \
+    --arg url "$6" --arg us "$7" --arg tag "$8" --arg pf "$9" --arg tunnel "${10}" --arg rule "${11}" --arg token "${12}" \
     '{v: 1, config: $path, image: $image, tag: $tag, egress: $egress, model_url: $url,
-      source: {image: $is, egress: $es, model_url: $us}}'
+      source: {image: $is, egress: $es, model_url: $us},
+      egress_profile: {file: $pf, tunnel: ($tunnel | split(",") | map(select(. != ""))), model_url: $rule, github_token: ($token == "true")}}'
 }

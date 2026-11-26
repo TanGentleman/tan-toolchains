@@ -1,10 +1,13 @@
 #!/usr/bin/env python3
-"""Allowlist proxy: tunnels GitHub, MITMs openrouter.ai to add the key, refuses the rest.
+"""Allowlist proxy: tunnels the egress profile's hosts, MITMs openrouter.ai to add the key, refuses the rest.
 
-PI_PROXY_MODEL_HOST/PORT (run.sh sets them from config.json's model_url) send
-openrouter.ai requests over plain HTTP to that model server instead.
-PI_PROXY_EGRESS=offline removes routes: GitHub is refused too, and model calls
-go only to PI_PROXY_MODEL_HOST, a private IPv4 address, without the real key."""
+run.sh passes the profile (pi-container/egress/*.json, lib/egress.sh):
+PI_PROXY_EGRESS is its name, PI_PROXY_TUNNEL the comma-separated hosts to
+pass through (unset: none), PI_PROXY_MODEL_RULE "any" or "private" (unset:
+private). PI_PROXY_MODEL_HOST/PORT (from config.json's model_url) send
+openrouter.ai requests over plain HTTP to that model server instead, with a
+placeholder key; with "private" model calls go only there, and it must be a
+private IPv4 address."""
 from __future__ import annotations
 
 import asyncio
@@ -17,14 +20,6 @@ import subprocess
 import sys
 import time
 
-GITHUB = {
-    "github.com",
-    "api.github.com",
-    "codeload.github.com",
-    "objects.githubusercontent.com",
-    "raw.githubusercontent.com",
-    "uploads.github.com",
-}
 MAX_BODY = 64 * 1024 * 1024
 ENV_FILE = os.environ.get("PI_ENV_FILE", "")
 CERT = os.environ.get("PI_PROXY_CERT", "/private/openrouter.pem")
@@ -45,7 +40,9 @@ UPSTREAM_HOST = os.environ.get("PI_PROXY_MODEL_HOST", "")
 UPSTREAM_PORT = env_int("PI_PROXY_MODEL_PORT", 80) if UPSTREAM_HOST else 443
 UPSTREAM_TLS = not UPSTREAM_HOST
 LOCKED_CIDR = os.environ.get("PI_PROXY_LOCKED_CIDR", "172.30.240.0/24")
-EGRESS = os.environ.get("PI_PROXY_EGRESS", "standard")
+EGRESS = os.environ.get("PI_PROXY_EGRESS", "")
+TUNNEL = frozenset(h for h in os.environ.get("PI_PROXY_TUNNEL", "").split(",") if h)
+MODEL_RULE = os.environ.get("PI_PROXY_MODEL_RULE", "private")
 # Offline upstreams: the Mac's container bridge, or another host-only address.
 LOCAL_NETS = [ipaddress.ip_network(n) for n in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "169.254.0.0/16")]
 
@@ -87,8 +84,8 @@ def openrouter_key() -> str:
     return check_key(value)
 
 
-def allowed_github(host: str) -> bool:
-    return host.lower().rstrip(".") in GITHUB
+def allowed_tunnel(host: str) -> bool:
+    return host.lower().rstrip(".") in TUNNEL
 
 
 def allowed_openrouter(host: str) -> bool:
@@ -107,14 +104,21 @@ def local_upstream(host: str) -> bool:
 def check_egress() -> None:
     if not 1 <= UPSTREAM_PORT <= 65535:
         raise RuntimeError("PI_PROXY_MODEL_PORT must be between 1 and 65535")
-    if EGRESS == "standard":
+    if not EGRESS or not all(c.islower() or c.isdigit() or c == "-" for c in EGRESS) or len(EGRESS) > 32:
+        raise RuntimeError(f"PI_PROXY_EGRESS must name the egress profile, not {safe(EGRESS, 40)!r}")
+    for host in TUNNEL:
+        if host != host.lower() or not all(c.isalnum() or c in ".-" for c in host) or "." not in host:
+            raise RuntimeError(f"PI_PROXY_TUNNEL has a bad host {safe(host, 80)!r}")
+        if allowed_openrouter(host):
+            raise RuntimeError("PI_PROXY_TUNNEL cannot list openrouter.ai; it is intercepted to add the key")
+    if MODEL_RULE == "any":
         return
-    if EGRESS != "offline":
-        raise RuntimeError(f"PI_PROXY_EGRESS must be standard or offline, not {safe(EGRESS, 40)!r}")
+    if MODEL_RULE != "private":
+        raise RuntimeError(f"PI_PROXY_MODEL_RULE must be any or private, not {safe(MODEL_RULE, 40)!r}")
     if not UPSTREAM_HOST:
-        raise RuntimeError("offline egress needs PI_PROXY_MODEL_HOST, the local model server")
+        raise RuntimeError(f"egress {safe(EGRESS, 40)} needs PI_PROXY_MODEL_HOST, the local model server")
     if not local_upstream(UPSTREAM_HOST):
-        raise RuntimeError("offline egress needs PI_PROXY_MODEL_HOST to be a private IPv4 address "
+        raise RuntimeError(f"egress {safe(EGRESS, 40)} needs PI_PROXY_MODEL_HOST to be a private IPv4 address "
                            f"(10/8, 172.16/12, 192.168/16, 169.254/16), not {safe(UPSTREAM_HOST, 80)!r}")
 
 
@@ -228,7 +232,7 @@ def upstream_context() -> ssl.SSLContext | None:
 async def forward_openrouter(host: str, method: str, target: str, headers: list[bytes], body: bytes, writer: asyncio.StreamWriter) -> None:
     key = openrouter_key()
     upstream = UPSTREAM_HOST or host
-    if EGRESS != "standard" and not local_upstream(upstream):
+    if MODEL_RULE != "any" and not local_upstream(upstream):
         raise PermissionError(upstream)
     pairs = [(n, v) for n, v in header_map(headers) if n.lower() not in {
         "authorization", "proxy-authorization", "proxy-connection", "connection",
@@ -294,7 +298,7 @@ async def handle(reader: asyncio.StreamReader, writer: asyncio.StreamWriter) -> 
             host, _, port = target.partition(":")
             if port != "443" or not host or any(c in host for c in " /\\"):
                 raise PermissionError(target)
-            if allowed_github(host) and EGRESS == "standard":
+            if allowed_tunnel(host):
                 log(f"allow {safe(host)}")
                 await tunnel(reader, writer, host)
                 return

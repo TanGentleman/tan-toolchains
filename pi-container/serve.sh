@@ -71,11 +71,12 @@ else
   fi
 fi
 
-image="" egress="" pack_name=""
+image="" egress="" pack_name="" token=true
 if conf=$("$here/run.sh" config --json 2>&1); then
   image=$(jq -r .tag <<<"$conf")
   pack_name=$(jq -r .image <<<"$conf")
   egress=$(jq -r .egress <<<"$conf")
+  token=$(jq -r .egress_profile.github_token <<<"$conf")
   ok "$(jq -r '"config: image \(.image), egress \(.egress), model_url \(.model_url) (\(.config))"' <<<"$conf")"
 else
   no "config: ${conf#run.sh: }"
@@ -111,7 +112,7 @@ else
   if grep -q '^OPENROUTER_API_KEY=.' "$env_file" && ! grep -q "^OPENROUTER_API_KEY=$placeholder[[:space:]]*$" "$env_file"; then
     ok "OpenRouter key is in $env_file, for the proxy"
   else no "set OPENROUTER_API_KEY in $env_file"; fi
-  if [ "$egress" = offline ]; then ok "egress offline: turns get no GitHub token, so sessions run without a repo"
+  if [ "$token" = false ]; then ok "egress $egress: turns get no GitHub token"
   elif grep -q '^GITHUB_TOKEN=.' "$env_file"; then ok "GITHUB_TOKEN is in $env_file"
   else no "set GITHUB_TOKEN in $env_file: a fine-grained token, selected repos, Contents read and write only"; fi
 fi

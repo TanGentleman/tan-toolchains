@@ -10,6 +10,7 @@ here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 . "$here/lib/inspect.sh"
 . "$here/lib/validate.sh"
 . "$here/lib/config.sh"
+. "$here/lib/egress.sh"
 . "$here/lib/lock.sh"
 . "$here/lib/netlock.sh"
 cfg="${PI_CONFIG_DIR:-$(pi_default_config_dir)}"
@@ -153,7 +154,7 @@ if [ -n "$flag_image" ] && ! pi_pack_tag "$flag_image" >/dev/null; then
   exit 2
 fi
 if [ -n "$flag_egress" ] && ! pi_egress_valid "$flag_egress"; then
-  echo "run.sh: --egress must be standard or offline" >&2
+  echo "run.sh: --egress must be a profile name: standard, offline, or NAME for $cfg/egress/NAME.json" >&2
   exit 2
 fi
 if [ -n "$flag_model_url" ] && ! pi_model_url_split "$flag_model_url" >/dev/null; then
@@ -170,7 +171,16 @@ read -r pack pack_source <<<"$(pi_config_pick "$flag_image" "$file_image" "$pi_c
 read -r egress_mode egress_source <<<"$(pi_config_pick "$flag_egress" "$file_egress" "$pi_config_default_egress")"
 read -r model_url model_url_source <<<"$(pi_config_pick "$flag_model_url" "$file_model_url" "$pi_config_default_model_url")"
 image=$(pi_pack_tag "$pack")
-if ! why=$(pi_config_combo_check "$egress_mode" "$model_url"); then
+if ! egress_file=$(pi_egress_file "$egress_mode" "$here/egress" "$cfg/egress"); then
+  echo "run.sh: egress \"$egress_mode\" is neither built in ($pi_egress_builtin_names) nor $cfg/egress/$egress_mode.json" >&2
+  exit 2
+fi
+if ! egress_raw=$(pi_egress_read "$egress_file"); then
+  echo "run.sh: $egress_file $egress_raw" >&2
+  exit 2
+fi
+IFS=$'\037' read -r egress_tunnel egress_model_rule egress_token <<<"$egress_raw"
+if ! why=$(pi_config_combo_check "$egress_mode" "$egress_model_rule" "$model_url"); then
   echo "run.sh: $why" >&2
   exit 2
 fi
@@ -182,6 +192,12 @@ config_summary() {
   printf 'image      %-26s %s\n' "$pack ($image)" "$pack_source"
   printf 'egress     %-26s %s\n' "$egress_mode" "$egress_source"
   printf 'model_url  %-26s %s\n' "$model_url" "$model_url_source"
+  printf '  profile  %s\n' "$egress_file"
+  printf '  tunnel   %s\n' "${egress_tunnel:-none}"
+  if [ "$egress_model_rule" = private ]; then printf '  models   model_url only, on gateway or a private IPv4 address\n'
+  else printf '  models   openrouter.ai with the key, or model_url\n'; fi
+  if [ "$egress_token" = true ]; then printf '  token    GITHUB_TOKEN from the env file\n'
+  else printf '  token    none\n'; fi
 }
 
 case "${1:-}" in
@@ -199,7 +215,7 @@ case "${1:-}" in
           config_summary ;;
       --json) [ $# -eq 2 ] || { echo "run.sh: config takes only --json" >&2; exit 2; }
           pi_config_json "$config_file" "$pack" "$pack_source" "$egress_mode" "$egress_source" \
-            "$model_url" "$model_url_source" "$image" ;;
+            "$model_url" "$model_url_source" "$image" "$egress_file" "$egress_tunnel" "$egress_model_rule" "$egress_token" ;;
       *) echo "run.sh: config takes only --json" >&2; exit 2 ;;
     esac
     exit 0
@@ -278,17 +294,15 @@ if ! pi_port_valid "$port"; then
   exit 2
 fi
 
-# Offline egress only removes routes: the proxy refuses GitHub, sends model
-# calls only to model_url, and Pi gets no GitHub token.
-if [ "$egress_mode" = offline ]; then
-  if [ "$manual" = 1 ] || [ "$egress" = 1 ]; then
-    echo "run.sh: egress offline needs pi-proxy; --manual and --allow-egress have none (pass --egress standard)" >&2
-    exit 2
-  fi
-  if [ -n "$clone" ]; then
-    echo "run.sh: egress offline has no GitHub route, so --clone cannot clone; mount a folder or pass --egress standard" >&2
-    exit 2
-  fi
+# A profile other than standard is enforced by pi-proxy, which --manual and
+# --allow-egress do not use.
+if [ "$egress_mode" != standard ] && { [ "$manual" = 1 ] || [ "$egress" = 1 ]; }; then
+  echo "run.sh: egress $egress_mode needs pi-proxy; --manual and --allow-egress have none (pass --egress standard)" >&2
+  exit 2
+fi
+if [ -n "$clone" ] && [ "$manual" = 0 ] && [ "$egress" = 0 ] && ! pi_egress_tunnels "$egress_tunnel" github.com; then
+  echo "run.sh: egress $egress_mode has no GitHub route, so --clone cannot clone; mount a folder or pass --egress standard" >&2
+  exit 2
 fi
 if [ "$egress" = 1 ] && [ "$model_url" != openrouter ]; then
   echo "run.sh: --allow-egress calls openrouter.ai directly; model_url $model_url needs pi-proxy (pass --model-url openrouter)" >&2
@@ -508,8 +522,8 @@ write_egress_env() {
   chmod 600 "$egress_env"
 }
 
-# Pi gets only the GitHub token and commit identity; offline mode drops the
-# token. A token is optional: an empty result removes the generated file so a
+# Pi gets only the GitHub token and commit identity; a profile with
+# github_token false (offline) drops the token. A token is optional: an empty result removes the generated file so a
 # removed host token cannot linger.
 write_pi_env() {
   local old_umask tmp found=0 line value
@@ -520,7 +534,7 @@ write_pi_env() {
   umask "$old_umask"
   : > "$tmp"
   for name in GITHUB_TOKEN GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL; do
-    if [ "$name" = GITHUB_TOKEN ] && [ "$egress_mode" = offline ]; then continue; fi
+    if [ "$name" = GITHUB_TOKEN ] && [ "$egress_token" != true ]; then continue; fi
     line=$(grep "^${name}=" "$env_file" | tail -n 1 | tr -d '\r' || true)
     value=${line#*=}
     if [ -n "$value" ]; then
@@ -686,11 +700,11 @@ add_zig_cache_args() { # project path
     -e "ZIG_LOCAL_CACHE_DIR=/root/.cache/zig-local/$key")
 }
 
-# pi-proxy's model route from model_url, and the egress profile. gateway is
-# the default network's gateway: the Mac side of the container bridge.
+# pi-proxy's egress profile and model route from model_url. gateway is the
+# default network's gateway: the Mac side of the container bridge.
 set_model_upstream() {
   local hostport host port gw
-  upstream_env=()
+  upstream_env=(-e "PI_PROXY_EGRESS=$egress_mode" -e "PI_PROXY_TUNNEL=$egress_tunnel" -e "PI_PROXY_MODEL_RULE=$egress_model_rule")
   if [ "$model_url" != openrouter ]; then
     hostport=$(pi_model_url_split "$model_url")
     host=${hostport% *}
@@ -702,14 +716,13 @@ set_model_upstream() {
         exit 1
       fi
       host=$gw
-      if [ "$egress_mode" = offline ] && ! pi_offline_upstream_valid "$host"; then
-        echo "run.sh: gateway is $host, not a private IPv4 address; egress offline refuses it" >&2
+      if [ "$egress_model_rule" = private ] && ! pi_offline_upstream_valid "$host"; then
+        echo "run.sh: gateway is $host, not a private IPv4 address; egress $egress_mode refuses it" >&2
         exit 1
       fi
     fi
     upstream_env+=(-e "PI_PROXY_MODEL_HOST=$host" -e "PI_PROXY_MODEL_PORT=$port")
   fi
-  [ "$egress_mode" != offline ] || upstream_env+=(-e PI_PROXY_EGRESS=offline)
 }
 
 ensure_proxy() {
@@ -988,9 +1001,9 @@ if [ "$1" = check ]; then
   esac
   read -r -d '' script <<'EOF' || true
 s=0
-mode=${2:-standard}
+mode=${2:-standard} token=${3:-true} tunnel=${4:-} rule=${5:-any}
 echo "== egress"
-echo "mode $mode"
+echo "profile $mode: tunnel ${tunnel:-none}, model_url $rule, token $token"
 # Ask pi-proxy itself, so check reports the profile it enforces.
 have=$(curl -fsS -m 5 --noproxy '*' "${HTTPS_PROXY%/}/egress" 2>/dev/null || true)
 if [ "$have" = "$mode" ]; then echo "pi-proxy enforces $mode"
@@ -1012,20 +1025,26 @@ if [ -f /root/.pi/agent/settings.json ]; then
 else
   echo "WARN: settings.json is not mounted"
 fi
-if [ "$mode" = offline ]; then echo "== OpenRouter (offline: pi-proxy sends it to the local upstream only)"
+if [ "$rule" = private ]; then echo "== OpenRouter ($mode: pi-proxy sends it to the local upstream only)"
 else echo "== OpenRouter"; fi
 if r=$(curl -fsS -m 20 --cacert /etc/pi-proxy-ca/ca.pem https://openrouter.ai/api/v1/key); then
   printf '%s\n' "$r" | jq '.data | {label: .label, limit: .limit, remaining: .limit_remaining, usage: .usage}' || s=1
   limit=$(printf '%s\n' "$r" | jq -r '.data.limit // "null"' 2>/dev/null || echo null)
-  if [ "$limit" = null ] && [ "$mode" != offline ]; then echo "WARN: the OpenRouter key has no credit limit"; fi
+  if [ "$limit" = null ] && [ "$rule" != private ]; then echo "WARN: the OpenRouter key has no credit limit"; fi
 else
   echo "FAIL: OpenRouter. See: run.sh proxy"
   s=1
 fi
 echo "== GitHub"
-if [ "$mode" = offline ]; then
-  if [ -n "${GITHUB_TOKEN:-}" ]; then echo "FAIL: GITHUB_TOKEN is in the VM in offline mode"; s=1
+if [ "$token" != true ]; then
+  if [ -n "${GITHUB_TOKEN:-}" ]; then echo "FAIL: GITHUB_TOKEN is in the VM, but egress $mode gives none"; s=1
   else echo "no GitHub token in the VM"; fi
+fi
+case ",$tunnel," in
+  *,github.com,*) gh_route=1 ;;
+  *) gh_route=0 ;;
+esac
+if [ "$gh_route" = 0 ]; then
   for h in github.com api.github.com; do
     code=$(curl -sS -m 10 -o /dev/null -w '%{http_connect}' "https://$h/" 2>/dev/null || true)
     if [ "$code" = 403 ]; then echo "$h refused by pi-proxy"
@@ -1088,7 +1107,7 @@ EOF
   script="$script"$'\n'"$(enforcer_check_script)"
   # The lock's own checks (capabilities, DNS) end the script with exit $s.
   script="$script"$'\n'"$(pi_lock_check_script)"
-  set -- bash -c "$script" check "$check_repo" "$egress_mode"
+  set -- bash -c "$script" check "$check_repo" "$egress_mode" "$egress_token" "$egress_tunnel" "$egress_model_rule"
   args+=(-w /tmp)
 elif [ -n "$fleet_state" ]; then
   args+=(-v "$fleet_state:$fleet_state" -e "FLEET_STATE=$fleet_state" -w /work)

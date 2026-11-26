@@ -1019,7 +1019,8 @@ case_model_url() {
   : > "$logfile"
   (cd "$t/project" && export PI_PROXY_WAIT=0 && pi "$run_sh" --model-url http://10.0.0.5:8000 pi)
   log_has "-e PI_PROXY_MODEL_HOST=10.0.0.5 -e PI_PROXY_MODEL_PORT=8000 -v" "an IPv4 model_url reaches the proxy"
-  log_lacks "PI_PROXY_EGRESS" "standard egress passes no profile"
+  log_has '-e PI_PROXY_EGRESS=standard -e PI_PROXY_TUNNEL=github.com\,api.github.com\,' "standard egress passes its profile"
+  log_has "-e PI_PROXY_MODEL_RULE=any -e PI_PROXY_MODEL_HOST=10.0.0.5" "standard egress allows any model_url"
   : > "$logfile"
   (cd "$t/project" && export PI_PROXY_WAIT=0 && pi "$run_sh" pi)
   log_has "-e PI_PROXY_MODEL_HOST=192.168.64.1 -e PI_PROXY_MODEL_PORT=8090 -v" "gateway resolves to the default network's gateway"
@@ -1219,14 +1220,14 @@ case_offline_run() {
   rm -f "$world/containers/pi-proxy.json"
   : > "$logfile"
   (cd "$t/project" && export PI_PROXY_WAIT=0 && pi "$run_sh" pi)
-  log_has "-e PI_PROXY_MODEL_HOST=192.168.64.1 -e PI_PROXY_MODEL_PORT=8090 -e PI_PROXY_EGRESS=offline" "offline reaches the proxy"
+  log_has "-e PI_PROXY_EGRESS=offline -e PI_PROXY_TUNNEL= -e PI_PROXY_MODEL_RULE=private -e PI_PROXY_MODEL_HOST=192.168.64.1 -e PI_PROXY_MODEL_PORT=8090" "offline reaches the proxy"
   log_lacks "build -t pi-proxy" "a new offline proxy reuses the image"
   # Back to standard: the proxy is recreated without the profile, the token returns.
   proxy_running_json > "$world/containers/pi-proxy.json"
   : > "$logfile"
   (cd "$t/project" && export PI_PROXY_WAIT=0 && pi "$run_sh" --egress standard pi)
   log_has "delete --force pi-proxy" "turning offline off recreates the proxy"
-  log_lacks "PI_PROXY_EGRESS" "standard proxy gets no offline profile"
+  log_lacks "PI_PROXY_EGRESS=offline" "standard proxy gets no offline profile"
   log_lacks "build -t pi-proxy" "turning offline off does not rebuild the proxy image"
   contains "GITHUB_TOKEN=ghp_test" "$(cat "$cfg/pi.env")" "standard pi.env has the GitHub token again"
 }
@@ -1256,7 +1257,24 @@ case_offline_refusals() {
   : > "$logfile"
   (cd "$t/project" && pi "$run_sh" --egress Offline pi)
   expect_status 2 "unknown egress refused"
-  contains '--egress must be standard or offline' "$(e)" "unknown egress named"
+  contains '--egress must be a profile name' "$(e)" "bad egress name named"
+  : > "$logfile"
+  (cd "$t/project" && pi "$run_sh" --egress lab pi)
+  expect_status 2 "absent profile refused"
+  contains "egress \"lab\" is neither built in" "$(e)" "absent profile named"
+  log_lacks "CALL run" "absent profile starts nothing"
+  mkdir -p "$cfg/egress"
+  printf '{"v":1,"tunnel":["openrouter.ai"],"model_url":"any","github_token":false}\n' > "$cfg/egress/lab.json"
+  : > "$logfile"
+  (cd "$t/project" && pi "$run_sh" --egress lab pi)
+  expect_status 2 "bad profile refused"
+  contains "cannot list openrouter.ai" "$(e)" "bad profile names why"
+  printf '{"v":1,"tunnel":["pypi.org"],"model_url":"any","github_token":false}\n' > "$cfg/egress/lab.json"
+  : > "$logfile"
+  (cd "$t/project" && pi "$run_sh" --egress lab config --json)
+  expect_status 0 "user profile config"
+  eq 'lab ["pypi.org"] false' "$(o | jq -r '"\(.egress) \(.egress_profile.tunnel | tojson) \(.egress_profile.github_token)"')" "user profile in config --json"
+  rm -rf "$cfg/egress"
   # The pre-config variables are gone: setting them changes nothing.
   : > "$logfile"
   (cd "$t/project" && export PI_EGRESS=offline PI_IMAGE=pi-min:local PI_PROXY_OPENROUTER_HOST=10.0.0.9 && pi "$run_sh" pi)
@@ -1309,7 +1327,7 @@ case_offline_check() {
   )
   local out
   out=$(o)
-  contains 'mode offline' "$out" "check reports the mode"
+  contains 'profile offline: tunnel none, model_url private, token false' "$out" "check reports the profile"
   contains 'pi-proxy enforces offline' "$out" "check confirms the proxy's mode"
   contains 'no GitHub token in the VM' "$out" "check asserts the token is absent"
   contains 'github.com refused by pi-proxy' "$out" "check asserts github.com is refused"

@@ -24,7 +24,10 @@ def load(**env: str):
     return mod
 
 
-OFFLINE = {"PI_PROXY_EGRESS": "offline", "PI_PROXY_MODEL_HOST": "192.168.64.1", "PI_PROXY_MODEL_PORT": "8090"}
+GITHUB = "github.com,api.github.com,codeload.github.com,objects.githubusercontent.com,raw.githubusercontent.com,uploads.github.com"
+STANDARD = {"PI_PROXY_EGRESS": "standard", "PI_PROXY_TUNNEL": GITHUB, "PI_PROXY_MODEL_RULE": "any"}
+OFFLINE = {"PI_PROXY_EGRESS": "offline", "PI_PROXY_TUNNEL": "", "PI_PROXY_MODEL_RULE": "private",
+           "PI_PROXY_MODEL_HOST": "192.168.64.1", "PI_PROXY_MODEL_PORT": "8090"}
 
 
 class Writer:
@@ -73,7 +76,7 @@ GITHUB_HOSTS = ["github.com", "api.github.com", "codeload.github.com", "objects.
 
 class Normal(unittest.TestCase):
     def setUp(self) -> None:
-        self.mod = load()
+        self.mod = load(**STANDARD)
 
     def test_github_tunnels(self) -> None:
         for host in GITHUB_HOSTS:
@@ -98,13 +101,13 @@ class Normal(unittest.TestCase):
         self.mod.check_egress()
 
     def test_model_host_is_plain_http(self) -> None:
-        mod = load(PI_PROXY_MODEL_HOST="192.168.64.1", PI_PROXY_MODEL_PORT="8090")
+        mod = load(**STANDARD, PI_PROXY_MODEL_HOST="192.168.64.1", PI_PROXY_MODEL_PORT="8090")
         self.assertEqual((mod.UPSTREAM_HOST, mod.UPSTREAM_PORT, mod.UPSTREAM_TLS), ("192.168.64.1", 8090, False))
         self.assertIsNone(mod.upstream_context())
         self.assertEqual((self.mod.UPSTREAM_PORT, self.mod.UPSTREAM_TLS), (443, True))
 
     def test_model_host_never_gets_the_key(self) -> None:
-        mod = load(PI_PROXY_MODEL_HOST="192.168.64.1", PI_PROXY_MODEL_PORT="8090")
+        mod = load(**STANDARD, PI_PROXY_MODEL_HOST="192.168.64.1", PI_PROXY_MODEL_PORT="8090")
         mod.openrouter_key = lambda: REAL_KEY
         sent = Writer()
 
@@ -189,19 +192,49 @@ class Offline(unittest.TestCase):
             with self.assertRaises(RuntimeError, msg=host):
                 mod.check_egress()
 
-    def test_check_egress_rejects_unknown_mode(self) -> None:
-        for mode in ["", "normal", "Offline", "online"]:
-            with self.assertRaises(RuntimeError, msg=mode):
-                load(PI_PROXY_EGRESS=mode).check_egress()
+    def test_check_egress_rejects_unknown_rule(self) -> None:
+        for rule in ["", "local", "Private", "none"]:
+            with self.assertRaises(RuntimeError, msg=rule):
+                load(**{**STANDARD, "PI_PROXY_MODEL_RULE": rule}).check_egress()
+        for name in ["", "Offline", "a b", "x" * 33]:
+            with self.assertRaises(RuntimeError, msg=name):
+                load(**{**STANDARD, "PI_PROXY_EGRESS": name}).check_egress()
 
     @unittest.skipIf(sys.version_info < (3, 11), "proxy.py main() needs Python 3.11")
     def test_main_refuses_to_start_without_upstream(self) -> None:
         with tempfile.TemporaryDirectory() as d:
-            mod = load(PI_PROXY_EGRESS="offline", PI_PROXY_ADDR_FILE=os.path.join(d, "proxy.addr"))
+            mod = load(PI_PROXY_EGRESS="offline", PI_PROXY_MODEL_RULE="private", PI_PROXY_ADDR_FILE=os.path.join(d, "proxy.addr"))
             mod.openrouter_key = mock.Mock(side_effect=AssertionError("key read before the egress check"))
             with self.assertRaises(SystemExit) as cm:
                 mod.main()
-            self.assertIn("offline egress needs PI_PROXY_MODEL_HOST", str(cm.exception))
+            self.assertIn("egress offline needs PI_PROXY_MODEL_HOST", str(cm.exception))
+
+
+class Profiles(unittest.TestCase):
+    def test_unset_profile_tunnels_nothing_and_is_private(self) -> None:
+        mod = load(PI_PROXY_EGRESS="x")
+        self.assertEqual((mod.TUNNEL, mod.MODEL_RULE), (frozenset(), "private"))
+        for host in GITHUB.split(","):
+            resp, routes = request(mod, connect(host))
+            self.assertTrue(resp.startswith(b"HTTP/1.1 403"), host)
+            self.assertEqual(routes, [], host)
+
+    def test_custom_tunnel(self) -> None:
+        mod = load(PI_PROXY_EGRESS="pypi", PI_PROXY_TUNNEL="pypi.org,files.pythonhosted.org", PI_PROXY_MODEL_RULE="any")
+        mod.check_egress()
+        for host in ["pypi.org", "files.pythonhosted.org"]:
+            _, routes = request(mod, connect(host))
+            self.assertEqual(routes, ["tunnel " + host], host)
+        for host in ["github.com", "evil.pypi.org"]:
+            resp, routes = request(mod, connect(host))
+            self.assertTrue(resp.startswith(b"HTTP/1.1 403"), host)
+        _, routes = request(mod, connect("openrouter.ai"))
+        self.assertEqual(routes, ["mitm openrouter.ai"])
+
+    def test_bad_tunnel_refused(self) -> None:
+        for tunnel in ["openrouter.ai", "api.openrouter.ai", "GitHub.com", "localhost", "a b.com", "x/y.com"]:
+            with self.assertRaises(RuntimeError, msg=tunnel):
+                load(**{**STANDARD, "PI_PROXY_TUNNEL": tunnel}).check_egress()
 
 
 if __name__ == "__main__":

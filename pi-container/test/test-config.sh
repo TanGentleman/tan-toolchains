@@ -52,7 +52,9 @@ read_bad '{"v":1,"image":null}' "one-line strings" "null is not absent"
 read_bad '{"v":1,"model_url":"http://a:1\nb"}' "one-line strings" "newline in a value"
 read_bad '{"v":1,"image":"agent"}' 'image must be min, full or zig, not "agent"' "removed pack"
 read_bad '{"v":1,"image":"editor"}' 'image must be min, full or zig' "non-Pi pack"
-read_bad '{"v":1,"egress":"normal"}' 'egress must be standard or offline, not "normal"' "old egress name"
+read_ok '{"v":1,"egress":"pypi"}' "|pypi|" "a user profile name"
+read_bad '{"v":1,"egress":"Offline"}' 'egress must be a profile name' "bad egress name"
+read_bad '{"v":1,"egress":"../x"}' 'egress must be a profile name' "egress path"
 read_bad '{"v":1,"model_url":"https://x:1"}' 'model_url must be' "https model_url"
 mkdir "$tmp/dir.json"
 contains "not a readable file" "$(pi_config_read "$tmp/dir.json")" "a directory is refused"
@@ -65,17 +67,21 @@ eq "zig file" "$(pi_config_pick '' zig full)" "file beats default"
 eq "full default" "$(pi_config_pick '' '' full)" "default last"
 eq "full standard openrouter" "$pi_config_default_image $pi_config_default_egress $pi_config_default_model_url" "built-in defaults"
 
-rc 0 "standard with openrouter" pi_config_combo_check standard openrouter
-rc 0 "standard with a public model_url" pi_config_combo_check standard http://models.example:80
-rc 0 "offline with gateway" pi_config_combo_check offline http://gateway:8090
-rc 0 "offline with a private IPv4" pi_config_combo_check offline http://192.168.64.1:8090
+rc 0 "standard with openrouter" pi_config_combo_check standard any openrouter
+rc 0 "standard with a public model_url" pi_config_combo_check standard any http://models.example:80
+rc 0 "offline with gateway" pi_config_combo_check offline private http://gateway:8090
+rc 0 "offline with a private IPv4" pi_config_combo_check offline private http://192.168.64.1:8090
 for u in openrouter http://1.1.1.1:80 http://127.0.0.1:8090 http://models.lan:8090; do
-  rc 1 "offline refuses [$u]" pi_config_combo_check offline "$u"
+  rc 1 "offline refuses [$u]" pi_config_combo_check offline private "$u"
 done
-contains "openrouter is refused offline" "$(pi_config_combo_check offline openrouter)" "offline openrouter reason"
-contains "not 127.0.0.1" "$(pi_config_combo_check offline http://127.0.0.1:8090)" "offline loopback reason"
+contains "openrouter is refused offline" "$(pi_config_combo_check offline private openrouter)" "offline openrouter reason"
+contains "not 127.0.0.1" "$(pi_config_combo_check offline private http://127.0.0.1:8090)" "offline loopback reason"
+contains "egress lab needs model_url" "$(pi_config_combo_check lab private openrouter)" "a user profile is named"
 
-json=$(pi_config_json /c/config.json min file offline flag http://gateway:8090 default pi-min:local)
+json=$(pi_config_json /c/config.json min file offline flag http://gateway:8090 default pi-min:local /p/offline.json "" private false)
+eq '{"file":"/p/offline.json","tunnel":[],"model_url":"private","github_token":false}' "$(jq -c .egress_profile <<<"$json")" "json egress profile"
+json2=$(pi_config_json /c/config.json full default standard default openrouter default pi-full:local /p/standard.json "a.com,b.com" any true)
+eq '["a.com","b.com"]' "$(jq -c .egress_profile.tunnel <<<"$json2")" "json tunnel list"
 eq 1 "$(jq -r .v <<<"$json")" "json v"
 eq "min offline http://gateway:8090 pi-min:local /c/config.json" \
   "$(jq -r '"\(.image) \(.egress) \(.model_url) \(.tag) \(.config)"' <<<"$json")" "json values"
