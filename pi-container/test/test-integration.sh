@@ -1012,6 +1012,67 @@ case_proxy_upstream() {
   log_has "-e PI_PROXY_OPENROUTER_HOST=192.168.64.1 -e PI_PROXY_OPENROUTER_PORT=8090 -e PI_PROXY_OPENROUTER_TLS=0" "override reaches the proxy"
 }
 
+# ------------------------------------------------- agent-min: no enforcer
+# agent-min records netlock and pi but not enforcer. Every locked mode still
+# runs it; check gates its enforcer probe on the capability instead of
+# refusing the image.
+case_agent_min() {
+  new_case agentmin
+  fleet_world
+  image_json 1.4.0 "netlock,pi" > "$world/images/pi-agent-min_local.json"
+  local st cmd
+  mkdir -p "$home/.fleet/sessions/s1/state"
+  st=$(cd "$home/.fleet/sessions/s1/state" && pwd -P)
+  for cmd in "pi" "check owner/repo" "--fleet-state $st --clone owner/repo pi --mode json"; do
+    : > "$logfile"
+    # shellcheck disable=SC2086
+    (cd "$t/project" && run_it env HOME="$home" PI_ENV_FILE="$cfg/env" PI_IMAGE=pi-agent-min:local \
+      CONTAINER_CLI="$fake" FAKE_CONTAINER_WORLD="$world" FAKE_CONTAINER_LOG="$logfile" bash "$run_sh" $cmd)
+    expect_status 0 "agent-min: $cmd runs"
+    contains 'image=pi-agent-min:local pack=agent-min capabilities=netlock,pi' "$(e)" "agent-min: $cmd announces the pack"
+    not_contains "lacks capability" "$(e)" "agent-min: $cmd refuses nothing"
+    log_has "--cap-add NET_ADMIN" "agent-min: $cmd runs behind the egress lock"
+  done
+}
+
+# check's enforcer probe, run here: it trusts the image's capabilities, and an
+# image without them is legacy and must have enforcer.
+case_enforcer_check_script() {
+  new_case enforcercheck
+  local script bin code out
+  script=$(HOME="$home" PI_SOURCE_ONLY=1 bash -c '. "$1" && enforcer_check_script' _ "$run_sh")
+  bash -n <(printf 's=0\n%s\n' "$script") && pass || fail "enforcer check script parses"
+  bin="$t/bin"
+  mkdir -p "$bin"
+  printf '#!/bin/sh\n[ "$1" = hook ] || exit 1\ngrep -q ghp_ && exit 2\nexit 0\n' > "$bin/enforcer"
+  chmod +x "$bin/enforcer"
+  probe() { # PATH, [capabilities]
+    code=0
+    if [ $# -gt 1 ]; then
+      out=$(env -i PATH="$1" PI_CONTAINER_CAPABILITIES="$2" bash -c "s=0
+$script
+exit \$s" 2>&1) || code=$?
+    else
+      out=$(env -i PATH="$1" bash -c "s=0
+$script
+exit \$s" 2>&1) || code=$?
+    fi
+  }
+  probe "/usr/bin:/bin" "netlock,pi"
+  eq 0 "$code" "no enforcer capability: no failure"
+  contains "not in this pack" "$out" "no enforcer capability: reported as not in this pack"
+  probe "$bin:/usr/bin:/bin" "enforcer,netlock,pi"
+  eq 0 "$code" "enforcer capability: probe passes"
+  contains "blocks ghp_" "$out" "enforcer capability: blocking rule checked"
+  probe "/usr/bin:/bin" "enforcer,netlock,pi"
+  eq 1 "$code" "enforcer listed but missing fails"
+  contains "FAIL: enforcer is missing" "$out" "listed but missing is named"
+  probe "/usr/bin:/bin"
+  eq 1 "$code" "legacy image without enforcer fails"
+  probe "$bin:/usr/bin:/bin"
+  eq 0 "$code" "legacy image with enforcer passes"
+}
+
 # ------------------------------------------------------------------- drivers
 for c in case_normal_run case_check_enforcer case_tokenless_run case_tokenless_check case_pack_missing_pi \
          case_egress_run case_egress_clone case_egress_refusals case_egress_requires_key \
@@ -1022,7 +1083,8 @@ for c in case_normal_run case_check_enforcer case_tokenless_run case_tokenless_c
          case_nuke_agent case_nuke_agent_without_image case_nuke_clones_scoped \
          case_nuke_profile case_nuke_profile_rejects_instance \
          case_option_guards case_nuke_all_builder_failure case_mount_guards case_fleet_state case_pi_ctr_stop \
-         case_netlock_modes case_netlock_capability case_proxy_running_no_addr case_proxy_upstream; do
+         case_netlock_modes case_netlock_capability case_proxy_running_no_addr case_proxy_upstream \
+         case_agent_min case_enforcer_check_script; do
   "$c"
 done
 

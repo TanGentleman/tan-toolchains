@@ -51,6 +51,7 @@ the remaining checks by hand; the script lists them at the end.
 ### Build and keys
 - [ ] `./build.sh full`
 - [ ] `./build.sh agent`
+- [ ] `./build.sh agent-min` builds no Zig stage (the log has no `zig` or `enforcer` step).
 - [ ] `./build.sh zig`
 - [ ] `./build.sh editor`
 - [ ] `PI_IMAGE=pi-editor:local ./run.sh --manual sh -c 'nvim --version | head -n 1; zls --version; command -v enforcer; ! command -v pi; ! command -v gh'`
@@ -66,6 +67,13 @@ the remaining checks by hand; the script lists them at the end.
       reports GitHub as skipped rather than failed.
 - [ ] `PI_IMAGE=pi-agent-lite:local ./run.sh bash -c 'command -v enforcer; pi --version; ! command -v gh; ! command -v zig'`
       succeeds; `enforcer on` still writes into the instance's agent volume.
+- [ ] With the key-only env file,
+      `PI_IMAGE=pi-agent-min:local ./run.sh check "$owner/tan-toolchains-e2e"`
+      reports enforcer as not in this pack and no failure.
+- [ ] `PI_IMAGE=pi-agent-min:local ./run.sh bash -c 'pi --version && git --version && jq --version && rg --version && fd --version && ! command -v enforcer && ! command -v gh && ! command -v zig'`
+      succeeds.
+- [ ] `container image list` shows `pi-agent-min:local` smaller than
+      `pi-agent-lite:local`.
 
 ### First check
 - [ ] `./run.sh check "$owner/tan-toolchains-e2e"` builds the E2E profile's

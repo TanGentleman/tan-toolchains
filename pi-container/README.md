@@ -4,7 +4,7 @@ Run [Pi](https://pi.dev) on OpenRouter in an Apple [`container`](https://github.
 
 `pi-proxy` tunnels GitHub, adds your OpenRouter key, and refuses everything else. Pi shares only a host-only `pi-locked` network with it, and the egress lock inside Pi's VM lets it send only to the proxy ([network boundary](../README.md#network-boundary)). The default profile uses one proxy for every instance; a non-default `PI_CONFIG_DIR` is a separate profile with its own proxy, network, and subnet.
 
-The default `full` image has Pi, git, gh, ripgrep, fd, jq, and enforcer. The `zig` pack adds Zig 0.17.0, zigpeek, Neovim 0.12.6, and ZLS 0.17.0, with Zig's cache prewarmed; see [Image packs](docs/configuration.md#image-packs). Images are aarch64-only and fail early on other architectures.
+The default `full` image has Pi, git, gh, ripgrep, fd, jq, and enforcer. The `agent-min` pack drops gh and enforcer, so its build skips Zig. The `zig` pack adds Zig 0.17.0, zigpeek, Neovim 0.12.6, and ZLS 0.17.0, with Zig's cache prewarmed; see [Image packs](docs/configuration.md#image-packs). Images are aarch64-only and fail early on other architectures.
 
 ## Setup
 
@@ -26,7 +26,7 @@ mkdir -p ~/.config/pi-container
 cat > ~/.config/pi-container/env <<'EOF'
 OPENROUTER_API_KEY=
 
-# Optional: GitHub and commit identity. The agent/editor packs do not need these.
+# Optional: GitHub and commit identity. The agent-min/agent/editor packs do not need these.
 # Token scope: docs/configuration.md#host-env-file
 # GITHUB_TOKEN=
 # GIT_AUTHOR_NAME=
@@ -40,7 +40,7 @@ open -e ~/.config/pi-container/env
 ```
 
 `build.sh` builds from the repo root (`..`), not `pi-container/`, because the
-image compiles `../enforcer` (and, for the Zig packs, `../zigpeek`) from source. `run.sh` does not
+image compiles `../enforcer` (except `agent-min`) and, for the Zig packs, `../zigpeek` from source. `run.sh` does not
 build the agent image for you; it only rebuilds the profile's proxy image
 (`pi-proxy:local` in the default profile), and it cannot tell that the image
 predates an edit to the `Dockerfile`, `zigpeek/`, or `enforcer/`, so re-run
@@ -57,7 +57,8 @@ PI_IMAGE=pi-agent-zig:local ./run.sh
 ```
 
 `agent` is `full` without `gh`. It works without `GITHUB_TOKEN`; `check` skips
-the GitHub checks when the token is absent.
+the GitHub checks when the token is absent. `agent-min` (`pi-agent-min:local`)
+is `agent` without enforcer; `check` reports enforcer as not in this pack.
 
 The first `check` in a profile builds that profile's proxy image and spends no OpenRouter credits.
 
@@ -113,6 +114,7 @@ for contents and tags.
 | Pi with `gh` | `pic --clone you/your-repo` |
 | Pi with Zig, zigpeek, Neovim and ZLS | `PI_IMAGE=pi-agent-zig:local pic --clone you/your-repo` |
 | No `gh`, tokenless | `PI_IMAGE=pi-agent-lite:local pic --clone you/your-repo` |
+| Smallest Pi image: no `gh`, enforcer or Zig build | `PI_IMAGE=pi-agent-min:local pic --clone you/your-repo` |
 | Neovim and ZLS only | `PI_IMAGE=pi-editor:local pic --manual` |
 | Separate state for a project | `PI_INSTANCE=work PI_IMAGE=pi-agent-lite:local pic --clone you/your-repo` |
 
@@ -139,7 +141,7 @@ The default mode mounts the current folder. Use it only for repos you trust; use
 
 ## Limits
 
-- Normal Pi mode allows GitHub hosts, `openrouter.ai`, and its subdomains. Everything else is refused. The `agent` and `editor` packs omit `gh`; the proxy still allows GitHub.
+- Normal Pi mode allows GitHub hosts, `openrouter.ai`, and its subdomains. Everything else is refused. The `agent-min`, `agent` and `editor` packs omit `gh`; the proxy still allows GitHub.
 - `--allow-egress` runs Pi on the default network and passes the real OpenRouter key into the VM. Any host and protocol is reachable, including the Mac's services and Tailscale's resolver, and anything the agent runs can read the key and the agent volume. See [Egress mode](docs/egress.md).
 - `--manual` uses the default container network, not a profile network or `pi-proxy`, so it reaches any host, including the Mac's services and Tailscale's resolver. When cloning, it refreshes `pi.env` from the host env file if that file exists; without a token only public clones work.
 - Normal mode, `check`, and `--fleet-state` run behind the egress lock; `--manual` and `--allow-egress` do not. See the [network boundary](../README.md#network-boundary). An image without the `netlock` capability is refused; rebuild it with `./build.sh`.

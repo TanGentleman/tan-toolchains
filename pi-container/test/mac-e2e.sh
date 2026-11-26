@@ -5,7 +5,7 @@
 #
 # Phases, in the order to run them:
 #   ci       the CI checks from AGENTS.md; no container
-#   build    build.sh full, agent, zig and editor; a ZLS/Zig mismatch must fail
+#   build    build.sh full, agent, agent-min, zig and editor; a ZLS/Zig mismatch must fail
 #   auto     E2E.md checks that need no TUI, in an isolated "e2e" profile
 #   cleanup  E2E.md's Cleanup section. Needs --destroy: it deletes the
 #            shared pi-agent:local image and the builder cache, then rebuilds
@@ -161,7 +161,7 @@ phase_ci() {
 phase_build() {
   section "Build"
   local p
-  for p in full agent zig editor; do
+  for p in full agent agent-min zig editor; do
     step "build-$p" in_dir "$pc" ./build.sh "$p"
     check "./build.sh $p" is "$code" 0
   done
@@ -213,6 +213,17 @@ phase_auto() {
     check "lite has enforcer and pi, no gh or zig" is "$code" 0
   else
     skip "lite checks: pi-agent-lite:local missing (run the build phase)"
+  fi
+  if image_exists pi-agent-min:local; then
+    (umask 077 && printf 'OPENROUTER_API_KEY=%s\n' "$key" >"$cfg/env-keyonly")
+    step min-check in_dir "$proj" env PI_IMAGE=pi-agent-min:local PI_ENV_FILE="$cfg/env-keyonly" "$run" check "$repo"
+    check "agent-min check with key only exits 0" is "$code" 0
+    check "agent-min check skips enforcer" has "not in this pack (build.sh agent or full has it)"
+    rm -f "$cfg/env-keyonly"
+    step min-tools in_dir "$proj" env PI_IMAGE=pi-agent-min:local "$run" bash -c 'pi --version && git --version && jq --version && rg --version && fd --version && ! command -v enforcer && ! command -v gh && ! command -v zig'
+    check "agent-min has pi, git, jq, rg, fd; no enforcer, gh or zig" is "$code" 0
+  else
+    skip "agent-min checks: pi-agent-min:local missing (run the build phase)"
   fi
   step full-tools in_dir "$proj" "$run" bash -c 'command -v enforcer && command -v gh && ! command -v zig && ! command -v zigpeek && ! command -v nvim && ! command -v zls'
   check "the default image has enforcer and gh; no zig, zigpeek, nvim or zls" is "$code" 0
