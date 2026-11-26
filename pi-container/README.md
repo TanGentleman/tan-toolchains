@@ -8,6 +8,8 @@ Three settings decide a run: the image (`min`, `full`, `zig`), the egress profil
 
 ## Setup
 
+The [playbooks](../docs/playbooks.md) cover setup and the common uses; this is the reference.
+
 Requires macOS 26, Apple silicon, Homebrew, `container`, and `jq`; nothing
 else on the Mac. The image builds its own tools.
 

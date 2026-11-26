@@ -179,8 +179,22 @@ volume mounted, unlike `--manual`. `run.sh bash` is therefore the way to run
 
 ### Egress profiles
 
-Both profiles run behind `pi-proxy` and the egress lock; `offline` only
-removes routes:
+A profile is a file: the built-ins are `egress/standard.json` and
+`egress/offline.json`; your own is `$PI_CONFIG_DIR/egress/NAME.json` (a
+built-in name always means the built-in). `lib/egress.sh` checks it:
+
+```json
+{"v": 1, "about": "one line", "tunnel": ["github.com"], "model_url": "any", "github_token": true}
+```
+
+- `tunnel`: exact host names `pi-proxy` passes through on port 443; never
+  `openrouter.ai`, which it intercepts to add the key. Everything else is
+  refused.
+- `model_url`: `any`, or `private` (model calls only to an http `model_url`
+  on `gateway` or a private IPv4 address).
+- `github_token`: whether Pi gets `GITHUB_TOKEN`.
+
+Every profile runs behind `pi-proxy` and the egress lock. The built-ins:
 
 | Route | `standard` | `offline` |
 | --- | --- | --- |
@@ -192,7 +206,11 @@ removes routes:
 `offline` needs an http `model_url` on `gateway` or a private IPv4 address
 (10/8, 172.16/12, 192.168/16, 169.254/16); `openrouter`, a name, loopback or
 a public address is refused before anything starts, and `pi-proxy` refuses
-to start without one. It refuses `--manual`, `--allow-egress` and `--clone`.
+to start without one. Any profile but `standard` refuses `--manual` and
+`--allow-egress`. Without `github.com` in `tunnel`, `--clone O/R` clones
+from `$PI_CONFIG_DIR/mirrors/O/R.git` (make it with `git clone --mirror`),
+mounted read-only, and fleet turns keep their commits in the session's
+`repo.bundle` instead of pushing.
 Changing the egress or model_url recreates `pi-proxy` from the same image.
 `check` asks `pi-proxy` which profile it enforces and fails on a mismatch.
 

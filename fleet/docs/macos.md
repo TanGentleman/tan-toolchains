@@ -226,8 +226,9 @@ pic serve --check                # ok config: image min, egress offline ...; no 
 - [ ] Spawn a scratch session (repo empty) with `Say hi`. It answers from
       the local model; `~/.fleet/sessions/$sid/stderr-1.log` shows
       `image=pi-min:local pack=min` and `egress=offline`.
-- [ ] Spawn with a repo: the turn fails with `egress offline has no GitHub
-      route, so --clone cannot clone`.
+- [ ] Spawn with a repo and no mirror: the turn fails, and
+      `stderr-1.log` names the `git clone --mirror` command. Run it, spawn
+      again: the turn commits to `state/repo.bundle` and pushes nothing.
 - [ ] Stop `pic serve`, then restore: `mv $cfg.bak $cfg` (or `rm $cfg` if
       there was none).
 

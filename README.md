@@ -9,9 +9,9 @@ You need an Apple silicon Mac on macOS 26 with Homebrew, `container` and `jq`,
 and an OpenRouter key. Nothing else goes on the Mac: no Zig, Go or Node; the
 images build everything.
 
-- Pi in a VM: [pi-container setup](pi-container/README.md#setup).
-- Pi sessions from your phone, which adds Tailscale:
-  [fleet on macOS](fleet/docs/macos.md), every step with a check.
+Start with the [playbooks](docs/playbooks.md): setup once, then Pi on a
+repo, several chats from your phone on the `min` image, or offline with a
+local model.
 
 ## Docs
 
@@ -29,7 +29,7 @@ Working on the repo: [AGENTS.md](AGENTS.md).
 Pi's VM runs behind the egress lock in pi-container's normal mode, `run.sh
 check`, and fleet turns.
 
-- **Allowed:** `pi-proxy` only, with one of two egress profiles set in
+- **Allowed:** `pi-proxy` only, with an egress profile set in
   `pi-container`'s `config.json` or `--egress`
   ([configuration](pi-container/docs/configuration.md#config-file)):
   - `standard` (default): it tunnels GitHub and sends model calls (Pi's
@@ -41,7 +41,11 @@ check`, and fleet turns.
     `model_url` (on `gateway` or a private IPv4 address, required), and Pi
     gets no GitHub token.
 
-  Either way Pi cannot reach the Mac directly; the egress lock is the same.
+  - your own, `$PI_CONFIG_DIR/egress/NAME.json`: the hosts it tunnels,
+    whether model calls must stay private, and whether Pi gets the GitHub
+    token ([egress profiles](pi-container/docs/configuration.md#egress-profiles)).
+
+  Pi cannot reach the Mac directly under any profile; the egress lock is the same.
 - **Blocked:** the Mac and its services (for example Continuity's
   `rapportd`), Tailscale's DNS resolver at `100.100.100.100` and with it your
   tailnet names, the tailnet, and the internet, over IPv4 and IPv6.

@@ -94,7 +94,7 @@ Every route needs an owner's `Tailscale-User-Login`. Bodies are JSON.
 | `POST /v1/sessions` | `{key,prompt,repo,branch,model,title}` spawn; a repeated `key` returns the same session |
 | `GET /v1/sessions/{sid}` | folded state: `running`, `run`, `repo`, `branch`, `base`, `commit`, ... |
 | `GET /v1/sessions/{sid}/events?after=N` | raw lines (JSONL; live SSE with `Accept: text/event-stream`) |
-| `POST /v1/sessions/{sid}/inputs` | `{key,text}` run one turn; 409 while a turn runs |
+| `POST /v1/sessions/{sid}/inputs` | `{key,text}` run one turn; 409 while a turn runs; 503 while the node runs 2 turns |
 | `POST /v1/sessions/{sid}/abort` | stop the running turn |
 | `POST /v1/sessions/{sid}/fork` | `{key}` new session from the last checkpoint and the last pushed commit |
 
@@ -121,6 +121,8 @@ state); each rule has a test:
   the session list names it as unreadable with the reason.
 - **Retries are free.** Spawn, input and fork carry a caller key; a repeated
   key returns the original result.
+- **What a turn ran with.** The `input` event records the node `config`
+  (`image`, `egress`, `model_url`), and the turn gets exactly that.
 - **One turn at a time.** Another input before `exited` gets 409, never a
   queue.
 - **No silent re-run.** A turn that dies with `fleetd` is recorded as
