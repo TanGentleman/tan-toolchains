@@ -26,7 +26,8 @@ unset PI_INSTANCE PI_CLONE PI_PROXY_PORT PI_PROXY_NAME PI_NETWORK_NAME \
   PI_PROXY_IMAGE PI_LOCKED_SUBNET PI_AGENT_VOLUME PI_SETTINGS_FILE \
   PI_SKIP_HOST_SETUP PI_SKIP_PROXY_IP PI_BACKUP_DIR PI_CONFIG_DIR PI_ENV_FILE \
   PI_IMAGE PI_NVIM_CONFIG PI_NVIM_DATA PI_NVIM_STATE PI_NVIM_CACHE \
-  PI_CPUS PI_MEMORY PI_PROXY_WAIT PI_LOCK_WAIT PI_SOURCE_ONLY TZ COLORTERM
+  PI_CPUS PI_MEMORY PI_PROXY_WAIT PI_LOCK_WAIT PI_SOURCE_ONLY TZ COLORTERM \
+  PI_EGRESS PI_PROXY_OPENROUTER_HOST PI_PROXY_OPENROUTER_PORT PI_PROXY_OPENROUTER_TLS
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -1073,6 +1074,188 @@ exit \$s" 2>&1) || code=$?
   eq 0 "$code" "legacy image with enforcer passes"
 }
 
+# ----------------------------------------------------------- offline egress
+offline_world() { # name
+  new_case "$1"
+  image_json 1.4.0 > "$world/images/pi-agent_local.json"
+  image_json 1.4.0 > "$world/images/pi-proxy_local.json"
+  network_json "172.30.240.0/24" > "$world/networks/pi-locked.json"
+  printf 'pi-locked\n' > "$world/networks.list"
+  proxy_running_json > "$world/containers/pi-proxy.json"
+  printf '172.30.240.2\n' > "$cfg/private/proxy.addr"
+  printf 'GH_TOKEN=ghp_other\nGITHUB_PAT=ghp_pat\n' >> "$cfg/env"
+}
+
+offline_pi() { # args...
+  (
+    cd "$t/project" || exit 1
+    export PI_EGRESS=offline PI_PROXY_OPENROUTER_HOST=192.168.64.1 PI_PROXY_OPENROUTER_PORT=8090 PI_PROXY_OPENROUTER_TLS=0
+    pi "$run_sh" "$@"
+  )
+}
+
+case_offline_run() {
+  offline_world offline
+  (
+    cd "$t/project" || exit 1
+    export PI_PROXY_OPENROUTER_HOST=192.168.64.1 PI_PROXY_OPENROUTER_PORT=8090 PI_PROXY_OPENROUTER_TLS=0
+    pi "$run_sh" pi
+  )
+  expect_status 0 "local upstream run without offline"
+  contains "GITHUB_TOKEN=ghp_test" "$(cat "$cfg/pi.env")" "normal pi.env has the GitHub token"
+  : > "$logfile"
+  offline_pi pi
+  expect_status 0 "offline run succeeds"
+  contains 'mode=offline' "$(e)" "offline run announces the mode"
+  log_has "delete --force pi-proxy" "turning offline on recreates the proxy"
+  log_lacks "build -t pi-proxy" "turning offline on does not rebuild the proxy image"
+  log_lacks "build -t pi-agent" "turning offline on does not build the agent image"
+  log_has "run --rm -i --init --network pi-locked" "offline Pi runs on the locked network"
+  log_has "--cap-add NET_ADMIN" "offline Pi still sets up the egress lock"
+  log_has "OPENROUTER_API_KEY=sk-or-v1-placeholder" "offline Pi gets the placeholder key"
+  log_lacks "sk-or-v1-real" "real key never appears in argv offline"
+  log_lacks "ghp_" "no GitHub token in argv offline"
+  [ -f "$cfg/pi.env" ] && pass || fail "offline pi.env was not written"
+  eq 600 "$(stat -Lc %a "$cfg/pi.env" 2>/dev/null || stat -Lf %Lp "$cfg/pi.env")" "offline pi.env is mode 600"
+  not_contains "ghp_" "$(cat "$cfg/pi.env")" "offline pi.env has no GitHub credential"
+  not_contains "TOKEN" "$(cat "$cfg/pi.env")" "offline pi.env has no token variable"
+  contains "GIT_AUTHOR_NAME=Test" "$(cat "$cfg/pi.env")" "offline pi.env keeps the commit identity"
+  : > "$logfile"
+  offline_pi pi
+  expect_status 0 "second offline run succeeds"
+  log_lacks "delete --force pi-proxy" "same offline settings keep the proxy"
+  # Absent proxy: the new one gets the mode and the upstream. The fake
+  # publishes no address, so the run then fails on the address wait.
+  rm -f "$world/containers/pi-proxy.json"
+  : > "$logfile"
+  (
+    cd "$t/project" || exit 1
+    export PI_EGRESS=offline PI_PROXY_OPENROUTER_HOST=192.168.64.1 PI_PROXY_OPENROUTER_PORT=8090 PI_PROXY_OPENROUTER_TLS=0 PI_PROXY_WAIT=0
+    pi "$run_sh" pi
+  )
+  log_has "-e PI_PROXY_OPENROUTER_HOST=192.168.64.1 -e PI_PROXY_OPENROUTER_PORT=8090 -e PI_PROXY_OPENROUTER_TLS=0 -e PI_PROXY_EGRESS=offline" "offline mode reaches the proxy"
+  log_lacks "build -t pi-proxy" "a new offline proxy reuses the image"
+  # Back to normal: the proxy is recreated without the mode, the token returns.
+  proxy_running_json > "$world/containers/pi-proxy.json"
+  : > "$logfile"
+  (
+    cd "$t/project" || exit 1
+    export PI_PROXY_WAIT=0
+    pi "$run_sh" pi
+  )
+  log_has "delete --force pi-proxy" "turning offline off recreates the proxy"
+  log_lacks "PI_PROXY_EGRESS" "normal proxy gets no offline mode"
+  log_lacks "build -t pi-proxy" "turning offline off does not rebuild the proxy image"
+  contains "GITHUB_TOKEN=ghp_test" "$(cat "$cfg/pi.env")" "normal pi.env has the GitHub token again"
+}
+
+case_offline_refusals() {
+  offline_world offlinerefuse
+  local h
+  for h in '' openrouter.ai github.com 1.1.1.1 127.0.0.1 localhost; do
+    : > "$logfile"
+    (
+      cd "$t/project" || exit 1
+      export PI_EGRESS=offline PI_PROXY_OPENROUTER_HOST=$h
+      pi "$run_sh" pi
+    )
+    expect_status 2 "offline refuses upstream [$h]"
+    contains 'PI_EGRESS=offline needs PI_PROXY_OPENROUTER_HOST' "$(e)" "offline names the missing upstream [$h]"
+    log_lacks "CALL run" "offline [$h] starts nothing"
+  done
+  : > "$logfile"
+  (
+    cd "$t/project" || exit 1
+    export PI_EGRESS=Offline PI_PROXY_OPENROUTER_HOST=192.168.64.1
+    pi "$run_sh" pi
+  )
+  expect_status 2 "unknown PI_EGRESS refused"
+  contains 'PI_EGRESS must be normal or offline' "$(e)" "unknown PI_EGRESS named"
+  for flag in --allow-egress --manual; do
+    : > "$logfile"
+    offline_pi "$flag"
+    expect_status 2 "offline refuses $flag"
+    contains 'PI_EGRESS=offline needs pi-proxy' "$(e)" "offline $flag message"
+    log_lacks "CALL run" "offline $flag starts nothing"
+  done
+  : > "$logfile"
+  (
+    cd "$t/project" || exit 1
+    export PI_EGRESS=normal
+    pi "$run_sh" pi
+  )
+  expect_status 0 "PI_EGRESS=normal is the default mode"
+  log_lacks "PI_PROXY_EGRESS" "PI_EGRESS=normal passes no mode"
+}
+
+# A fake VM curl for check. The VM environment is only what run.sh passes, so
+# the answers live next to the stub: pi-proxy reports DIR/egress (offline) and
+# answers GitHub's CONNECT with DIR/connect (403); nothing else answers.
+fake_vm_curl() { # dir
+  mkdir -p "$1"
+  cat > "$1/curl" <<'CURL'
+#!/usr/bin/env bash
+url="" w=""
+while [ $# -gt 0 ]; do
+  case $1 in
+    -w) w=$2; shift 2 ;;
+    -m|-o|--cacert|--noproxy) shift 2 ;;
+    -*) shift ;;
+    *) url=$1; shift ;;
+  esac
+done
+case $url in
+  */egress) cat "$(dirname "$0")/egress" 2>/dev/null || echo offline ;;
+  https://openrouter.ai/api/v1/key) printf '{"data":{"label":"local","limit":null}}\n' ;;
+  https://github.com/|https://api.github.com/)
+    [ "$w" != '%{http_connect}' ] || cat "$(dirname "$0")/connect" 2>/dev/null || printf 403; exit 56 ;;
+  *) [ -z "$w" ] || printf '000'; exit 7 ;;
+esac
+CURL
+  chmod +x "$1/curl"
+}
+
+case_offline_check() {
+  offline_world offlinecheck
+  fake_vm_curl "$t/vmbin"
+  mkdir -p "$t/disk"
+  offline_pi check
+  log_has "check '' offline" "check passes the mode to the VM"
+  log_lacks "ghp_test" "offline check mounts no token"
+  : > "$logfile"
+  (
+    cd "$t/project" || exit 1
+    export PI_EGRESS=offline PI_PROXY_OPENROUTER_HOST=192.168.64.1 PI_PROXY_OPENROUTER_PORT=8090 PI_PROXY_OPENROUTER_TLS=0
+    export FAKE_CONTAINER_EXEC="$t/disk" FAKE_CONTAINER_PATH="$t/vmbin"
+    pi "$run_sh" check
+  )
+  local out
+  out=$(o)
+  contains 'mode offline' "$out" "check reports the mode"
+  contains 'pi-proxy enforces offline' "$out" "check confirms the proxy's mode"
+  contains 'no GitHub token in the VM' "$out" "check asserts the token is absent"
+  contains 'github.com refused by pi-proxy' "$out" "check asserts github.com is refused"
+  contains 'api.github.com refused by pi-proxy' "$out" "check asserts api.github.com is refused"
+  contains '"label": "local"' "$out" "check reaches the local upstream"
+  not_contains 'skipping GitHub checks' "$out" "offline check does not skip GitHub"
+  not_contains 'no credit limit' "$out" "offline check does not warn about OpenRouter credit"
+  not_contains 'FAIL: pi-proxy' "$out" "offline check has no proxy failures"
+  not_contains 'FAIL: GITHUB_TOKEN' "$out" "offline check sees no token"
+  : > "$logfile"
+  printf 'normal\n' > "$t/vmbin/egress"
+  printf 200 > "$t/vmbin/connect"
+  (
+    cd "$t/project" || exit 1
+    export PI_EGRESS=offline PI_PROXY_OPENROUTER_HOST=192.168.64.1 PI_PROXY_OPENROUTER_PORT=8090 PI_PROXY_OPENROUTER_TLS=0
+    export FAKE_CONTAINER_EXEC="$t/disk" FAKE_CONTAINER_PATH="$t/vmbin"
+    pi "$run_sh" check
+  )
+  out=$(o)
+  contains "FAIL: pi-proxy reports egress 'normal', not offline" "$out" "check fails when the proxy is not offline"
+  contains 'FAIL: pi-proxy did not refuse github.com (CONNECT 200)' "$out" "check fails when GitHub is reachable"
+  [ "$(s)" != 0 ] && pass || fail "offline check exits nonzero on failures"
+}
+
 # ------------------------------------------------------------------- drivers
 for c in case_normal_run case_check_enforcer case_tokenless_run case_tokenless_check case_pack_missing_pi \
          case_egress_run case_egress_clone case_egress_refusals case_egress_requires_key \
@@ -1084,7 +1267,7 @@ for c in case_normal_run case_check_enforcer case_tokenless_run case_tokenless_c
          case_nuke_profile case_nuke_profile_rejects_instance \
          case_option_guards case_nuke_all_builder_failure case_mount_guards case_fleet_state case_pi_ctr_stop \
          case_netlock_modes case_netlock_capability case_proxy_running_no_addr case_proxy_upstream \
-         case_agent_min case_enforcer_check_script; do
+         case_agent_min case_enforcer_check_script case_offline_run case_offline_refusals case_offline_check; do
   "$c"
 done
 

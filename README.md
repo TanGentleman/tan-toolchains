@@ -34,6 +34,11 @@ check`, and fleet turns.
   `PI_PROXY_OPENROUTER_HOST` set (`spikes/inkling-2-mini/pi.sh`), it sends
   those model calls to that host instead, such as a model server on this Mac;
   Pi still cannot reach the Mac directly.
+- **Offline:** `PI_EGRESS=offline` (what `spikes/inkling-2-mini/pi.sh` sets)
+  only removes routes: `pi-proxy` refuses GitHub and `openrouter.ai`'s own
+  servers, sends model calls only to `PI_PROXY_OPENROUTER_HOST` (a private
+  IPv4 address, required) without the real key, and Pi gets no GitHub token.
+  The egress lock is unchanged.
 - **Blocked:** the Mac and its services (for example Continuity's
   `rapportd`), Tailscale's DNS resolver at `100.100.100.100` and with it your
   tailnet names, the tailnet, and the internet, over IPv4 and IPv6.

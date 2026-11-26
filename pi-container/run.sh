@@ -16,6 +16,7 @@
 #   PI_INSTANCE=NAME                        default for --instance
 #   PI_CLONE=O/R                            default for --clone
 #   PI_IMAGE=IMAGE                          image to run; packs: build.sh --help
+#   PI_EGRESS=offline                       no GitHub; model calls only to PI_PROXY_OPENROUTER_HOST
 set -euo pipefail
 
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
@@ -78,6 +79,8 @@ Run Pi inside Apple's container, on a host-only network.
   PI_INSTANCE=NAME                        default for --instance
   PI_CLONE=O/R                            default for --clone
   PI_IMAGE=IMAGE                          image to run; packs: build.sh --help
+  PI_EGRESS=offline                       no GitHub route or token; model calls go only to
+                                             PI_PROXY_OPENROUTER_HOST, a private IPv4 address
 EOF
 }
 
@@ -191,6 +194,25 @@ if ! pi_port_valid "$port"; then
     *) echo "run.sh: PI_PROXY_PORT must be between 1 and 65535" >&2 ;;
   esac
   exit 2
+fi
+
+# Offline egress only removes routes: the proxy refuses GitHub, sends model
+# calls only to the local upstream, and Pi gets no GitHub token.
+egress_mode=${PI_EGRESS:-normal}
+if ! pi_egress_valid "$egress_mode"; then
+  echo "run.sh: PI_EGRESS must be normal or offline" >&2
+  exit 2
+fi
+if [ "$egress_mode" = offline ]; then
+  if [ "$manual" = 1 ] || [ "$egress" = 1 ]; then
+    echo "run.sh: PI_EGRESS=offline needs pi-proxy; --manual and --allow-egress have none" >&2
+    exit 2
+  fi
+  if ! pi_offline_upstream_valid "${PI_PROXY_OPENROUTER_HOST:-}"; then
+    echo "run.sh: PI_EGRESS=offline needs PI_PROXY_OPENROUTER_HOST set to the local model server's private IPv4 address (spikes/inkling-2-mini/pi.sh sets it)" >&2
+    exit 2
+  fi
+  upstream_env+=(-e PI_PROXY_EGRESS=offline)
 fi
 
 # Path and permission helpers live in lib/paths.sh so the mount guard can be
@@ -408,8 +430,9 @@ write_egress_env() {
   chmod 600 "$egress_env"
 }
 
-# Pi gets only the GitHub token and commit identity. A token is optional: an
-# empty result removes the generated file so a removed host token cannot linger.
+# Pi gets only the GitHub token and commit identity; offline mode drops the
+# token. A token is optional: an empty result removes the generated file so a
+# removed host token cannot linger.
 write_pi_env() {
   local old_umask tmp found=0 line value
   mkdir -p "$cfg"
@@ -419,6 +442,7 @@ write_pi_env() {
   umask "$old_umask"
   : > "$tmp"
   for name in GITHUB_TOKEN GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL; do
+    if [ "$name" = GITHUB_TOKEN ] && [ "$egress_mode" = offline ]; then continue; fi
     line=$(grep "^${name}=" "$env_file" | tail -n 1 | tr -d '\r' || true)
     value=${line#*=}
     if [ -n "$value" ]; then
@@ -859,6 +883,13 @@ if [ "$1" = check ]; then
   esac
   read -r -d '' script <<'EOF' || true
 s=0
+mode=${2:-normal}
+echo "== egress"
+echo "mode $mode"
+# Ask pi-proxy itself, so check reports the profile it enforces.
+have=$(curl -fsS -m 5 --noproxy '*' "${HTTPS_PROXY%/}/egress" 2>/dev/null || true)
+if [ "$have" = "$mode" ]; then echo "pi-proxy enforces $mode"
+else echo "FAIL: pi-proxy reports egress '${have:-nothing}', not $mode. See: run.sh proxy"; s=1; fi
 echo "== OpenRouter key"
 if [ "$OPENROUTER_API_KEY" = "sk-or-v1-placeholder" ]; then echo "Pi has the placeholder"
 else echo "FAIL: the real OpenRouter key is in the Pi container"; s=1; fi
@@ -876,17 +907,26 @@ if [ -f /root/.pi/agent/settings.json ]; then
 else
   echo "WARN: settings.json is not mounted"
 fi
-echo "== OpenRouter"
+if [ "$mode" = offline ]; then echo "== OpenRouter (offline: pi-proxy sends it to the local upstream only)"
+else echo "== OpenRouter"; fi
 if r=$(curl -fsS -m 20 --cacert /etc/pi-proxy-ca/ca.pem https://openrouter.ai/api/v1/key); then
   printf '%s\n' "$r" | jq '.data | {label: .label, limit: .limit, remaining: .limit_remaining, usage: .usage}' || s=1
   limit=$(printf '%s\n' "$r" | jq -r '.data.limit // "null"' 2>/dev/null || echo null)
-  if [ "$limit" = null ]; then echo "WARN: the OpenRouter key has no credit limit"; fi
+  if [ "$limit" = null ] && [ "$mode" != offline ]; then echo "WARN: the OpenRouter key has no credit limit"; fi
 else
   echo "FAIL: OpenRouter. See: run.sh proxy"
   s=1
 fi
 echo "== GitHub"
-if [ -z "${GITHUB_TOKEN:-}" ]; then
+if [ "$mode" = offline ]; then
+  if [ -n "${GITHUB_TOKEN:-}" ]; then echo "FAIL: GITHUB_TOKEN is in the VM in offline mode"; s=1
+  else echo "no GitHub token in the VM"; fi
+  for h in github.com api.github.com; do
+    code=$(curl -sS -m 10 -o /dev/null -w '%{http_connect}' "https://$h/" 2>/dev/null || true)
+    if [ "$code" = 403 ]; then echo "$h refused by pi-proxy"
+    else echo "FAIL: pi-proxy did not refuse $h (CONNECT ${code:-no reply})"; s=1; fi
+  done
+elif [ -z "${GITHUB_TOKEN:-}" ]; then
   echo "WARN: GITHUB_TOKEN is not set; skipping GitHub checks"
 elif ! command -v gh >/dev/null 2>&1; then
   echo "FAIL: GITHUB_TOKEN is set but gh is missing from the image"; s=1
@@ -943,7 +983,7 @@ EOF
   script="$script"$'\n'"$(enforcer_check_script)"
   # The lock's own checks (capabilities, DNS) end the script with exit $s.
   script="$script"$'\n'"$(pi_lock_check_script)"
-  set -- bash -c "$script" check "$check_repo"
+  set -- bash -c "$script" check "$check_repo" "$egress_mode"
   args+=(-w /tmp)
 elif [ -n "$fleet_state" ]; then
   args+=(-v "$fleet_state:$fleet_state" -e "FLEET_STATE=$fleet_state" -w /work)
@@ -970,6 +1010,6 @@ if [ "$egress" != 1 ]; then
   set -- bash -c "$(pi_netlock_script)" netlock "$proxy_ip_value" "$port" "$@"
 fi
 mode=""
-if [ "$egress" = 1 ]; then mode=egress; fi
+if [ "$egress" = 1 ]; then mode=egress; elif [ "$egress_mode" = offline ]; then mode=offline; fi
 announce_run "$image_caps" "$mode"
 exec "$cli" "${args[@]}" "${PI_IMAGE:-pi-agent:local}" "$@"

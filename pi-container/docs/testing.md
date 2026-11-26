@@ -14,6 +14,8 @@ It covers naming and validation, the image pack catalog, the mount guard's path
 algebra, the JSON parsers in `lib/inspect.sh`, and the orchestration in
 `run.sh`/`clear.sh` driven against `test/fake-container.sh`. The fake CLI serves
 inspect payloads and captures the exact `container` argv the scripts build.
+`test-proxy.sh` runs `test/test_proxy.py`, unit tests for `proxy.py`'s routes
+in normal and offline egress (needs `python3` 3.9 or newer).
 
 Separate CI jobs run `enforcer` unit/CLI tests and a headless Pi integration
 test against the Pi version in `pi-container/Dockerfile`. The integration test
