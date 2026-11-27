@@ -110,7 +110,8 @@ check_volumes() { # image
     got=$(printf '%s\n' "$got" | jq -c '.[0].configuration.labels // {} | {k: ."pi.kind", i: ."pi.instance", p: ."pi.profile", r: ."pi.repo", m: ."pi.managed"}')
     [ "$want" = "$got" ] || { fail "$vol: labels $got, exported $want"; continue; }
     case $("$cli" volume inspect "$vol" | jq -r '.[0].configuration.labels."pi.config" // ""') in
-      "${HOME%/}/.config/pi-container"*) fail "$vol: pi.config still names the v7 path" ; continue ;;
+      # v8 reads default-profile volumes either way; only clear.sh import rewrites labels.
+      "${HOME%/}/.config/pi-container"*) echo "INFO $vol: pi.config still names the v7 path (fine; import rewrites it)" ;;
     esac
     tar_n=$(tar -tf "$export_dir/$vol.tar" 2>/dev/null | grep -vc '^\./$')
     tar_j=$(tar -tf "$export_dir/$vol.tar" 2>/dev/null | grep -c '\.jsonl$')
