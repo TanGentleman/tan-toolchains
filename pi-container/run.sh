@@ -170,9 +170,9 @@ if [ -e "$legacy_config" ] || [ -L "$legacy_config" ]; then
   echo "run.sh: $legacy_config is no longer read; set ${legacy:-PI_IMAGE, PI_EGRESS or PI_MODEL_URL} in your alias or shell instead, then delete the file" >&2
   exit 2
 fi
-legacy=$(pi_legacy_paths "${PI_BACKUP_DIR:-}")
+legacy=$(pi_legacy_message "${PI_BACKUP_DIR:-}")
 if [ -n "$legacy" ]; then
-  echo "run.sh: pi-container now keeps its files in $(pi_pic_home); run pic migrate to move" $legacy >&2
+  echo "run.sh: $legacy" >&2
   exit 2
 fi
 if [ -n "${PI_IMAGE:-}" ] && ! pi_pi_pack_valid "$PI_IMAGE"; then

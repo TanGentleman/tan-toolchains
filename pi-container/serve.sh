@@ -29,6 +29,8 @@ root=$(CDPATH= cd -- "$here/.." && pwd -P)
 . "$here/lib/inspect.sh"
 . "$here/lib/config.sh"
 pi_overrides_load "$(pi_pic_home)/overrides.env" || { echo "pic serve: $pi_overrides_error" >&2; exit 2; }
+legacy=$(pi_legacy_message "${PI_BACKUP_DIR:-}")
+[ -z "$legacy" ] || { echo "pic serve: $legacy" >&2; exit 2; }
 cfg="${PI_CONFIG_DIR:-$(pi_default_config_dir)}"
 env_file="${PI_ENV_FILE:-$cfg/env}"
 cli="${CONTAINER_CLI:-container}"

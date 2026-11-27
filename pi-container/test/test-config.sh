@@ -45,7 +45,6 @@ eq "min offline http://gateway:8090 pi-min:local null" \
   "$(jq -r '"\(.image) \(.egress) \(.model_url) \(.tag) \(.config)"' <<<"$json")" "json values, no config file"
 eq "env flag default" "$(jq -r '"\(.source.image) \(.source.egress) \(.source.model_url)"' <<<"$json")" "json sources"
 
-finish
 
 o="$tmp/overrides.env"
 load() { # content -> "status|PI_BACKUP_DIR|PI_ENV_FILE|error"
@@ -64,3 +63,6 @@ printf '# pic overrides v1\n' > "$o"; chmod 644 "$o"
 pi_overrides_load "$o" && fail "a mode-644 overrides.env was read" || pass
 ln -s "$o" "$tmp/link.env"
 pi_overrides_load "$tmp/link.env" && fail "a symlinked overrides.env was read" || pass
+eq "0|$HOME/b|$HOME|" "$(load '# pic overrides v1\nPI_BACKUP_DIR=$HOME/b\nPI_ENV_FILE=$HOME\n')" "overrides.env expands a leading \$HOME"
+case $(load '# pic overrides v1\nPI_BACKUP_DIR=$HOMEX/b\n') in 1*) pass ;; *) fail "overrides.env accepted \$HOMEX" ;; esac
+finish

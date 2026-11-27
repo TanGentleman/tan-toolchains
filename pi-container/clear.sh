@@ -78,8 +78,8 @@ read -r pi_pack _ <<<"$(pi_config_pick "$flag_image" "${PI_IMAGE:-}" "$pi_config
 if [ -e "$cfg/config.json" ] || [ -L "$cfg/config.json" ]; then
   die "$cfg/config.json is no longer read; set PI_IMAGE in your alias or shell instead, then delete the file"
 fi
-legacy=$(pi_legacy_paths "$backup_root")
-[ -z "$legacy" ] || die "pi-container now keeps its files in $(pi_pic_home); run pic migrate to move" $legacy
+legacy=$(pi_legacy_message "$backup_root")
+[ -z "$legacy" ] || die "$legacy"
 pi_image=$(pi_pack_tag "$pi_pack")
 agent_volume="${PI_AGENT_VOLUME:-$(pi_agent_volume "$instance" "$cfg")}"
 

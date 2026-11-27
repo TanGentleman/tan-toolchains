@@ -66,6 +66,27 @@ pi_mirror_ready() { # path
 
 # The v7 locations pic migrate moves into $PIC_HOME. Prints each that still
 # exists, except the backup dir in use (kept by overrides.env or PI_BACKUP_DIR).
+# Paths below the home folder as $HOME/..., so messages and generated files
+# don't spell out the user's home folder.
+pi_show() { # text
+  local s=$1 h=${HOME%/} out=""
+  [ -n "$h" ] && [ "$h" != / ] || { printf '%s\n' "$s"; return 0; }
+  while :; do
+    case $s in *"$h/"*) ;; *) break ;; esac
+    out=$out${s%%"$h/"*}'$HOME/'
+    s=${s#*"$h/"}
+  done
+  printf '%s\n' "$out$s"
+}
+
+# The v7 paths still present, as one $HOME/... line.
+pi_legacy_message() { # backup dir in use
+  local legacy
+  legacy=$(pi_legacy_paths "$1" | tr '\n' ' ')
+  [ -n "$legacy" ] || return 0
+  pi_show "pi-container now keeps its files in $(pi_pic_home); run pic migrate to move ${legacy% }"
+}
+
 pi_legacy_paths() { # backup dir in use
   local h=${HOME%/} p
   for p in "$h/.config/pi-container" "$h/pi-backups" "$h/.fleet"; do

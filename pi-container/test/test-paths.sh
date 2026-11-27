@@ -44,4 +44,7 @@ eq 600 "$(pi_file_mode "$tmp/link-file")" "file_mode follows symlink"
 chmod 644 "$tmp/real/file"
 eq 644 "$(pi_file_mode "$tmp/real/file")" "file_mode reads 644"
 
+eq '$HOME/a and $HOME/b/c' "$(HOME=/u/t pi_show "/u/t/a and /u/t/b/c")" "pi_show writes \$HOME for the home folder"
+eq '/u/tx/a /u/t' "$(HOME=/u/t pi_show "/u/tx/a /u/t")" "pi_show leaves look-alikes alone"
+eq '/a' "$(HOME=/ pi_show "/a")" "pi_show leaves HOME=/ alone"
 finish

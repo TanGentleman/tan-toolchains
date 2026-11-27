@@ -268,7 +268,8 @@ keeps the default names (`pi-proxy`, `pi-locked`, `pi-agent-home`); another
 root's `config/` hashes its path like any other profile.
 
 `overrides.env` (mode 600) starts with `# pic overrides v1`, then holds
-`PI_BACKUP_DIR=` or `PI_ENV_FILE=` lines with absolute paths. An env var of
+`PI_BACKUP_DIR=` or `PI_ENV_FILE=` lines with absolute paths; a leading
+`$HOME` is expanded, and `pic migrate` writes paths that way. An env var of
 the same name wins. `run.sh`, `clear.sh` and `pic serve` refuse any other key,
 version or mode.
 

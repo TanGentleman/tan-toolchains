@@ -1406,7 +1406,8 @@ case_pic_home() {
     mkdir -p "$home/$old"
     pi "$run_sh" config
     expect_status 2 "run.sh refuses a leftover ~/$old"
-    contains "run pic migrate to move $home/$old" "$(e)" "the refusal names ~/$old"
+    contains "run pic migrate to move \$HOME/$old" "$(e)" "the refusal names \$HOME/$old"
+    not_contains "$home" "$(e)" "the refusal does not spell out the home folder"
     pi "$clear_sh" list
     expect_status 1 "clear.sh refuses a leftover ~/$old"
     contains "pic migrate" "$(e)" "clear.sh names pic migrate for ~/$old"
@@ -1457,7 +1458,7 @@ case_migrate() {
   expect_status 0 "migrate moves a v7 layout"
   contains "is already listed" "$(e)" "a found profile typed again is listed once"
   contains "rel is not an absolute path" "$(e)" "a relative profile path is asked again"
-  contains "$home/nope is not a directory" "$(e)" "a missing profile path is asked again"
+  contains "\$HOME/nope is not a directory" "$(e)" "a missing profile path is asked again"
   contains "control characters" "$(e)" "a path with an arrow-key escape is asked again"
   eq 1 "$(e | grep -c 'move profile')" "one question per profile"
   [ -f "$home/.pic/config/env" ] && pass || fail "the env file moved with the default profile"
@@ -1469,7 +1470,8 @@ case_migrate() {
   eq 700 "$(pi_file_mode "$home/.pic")" "~/.pic is mode 700"
   eq 600 "$(pi_file_mode "$home/.pic/overrides.env")" "overrides.env is mode 600"
   contains "# pic overrides v1, written " "$(head -n 1 "$home/.pic/overrides.env")" "overrides.env has the v1 header"
-  contains "# moved $home/.config/pi-container-dev -> $home/.pic/profiles/dev" "$(cat "$home/.pic/overrides.env")" "overrides.env records the moves"
+  contains "# moved \$HOME/.config/pi-container-dev -> \$HOME/.pic/profiles/dev" "$(cat "$home/.pic/overrides.env")" "overrides.env records the moves"
+  not_contains "$home" "$(o)$(e)$(cat "$home/.pic/overrides.env")" "migrate never spells out the home folder"
   not_contains "PI_BACKUP_DIR" "$(cat "$home/.pic/overrides.env")" "nothing kept, nothing overridden"
   not_contains "sk-or-v1-real" "$(o)$(e)" "migrate prints no key"
   run_it env HOME="$home" PI_ENV_FILE="$home/.pic/config/env" bash "$run_sh" config
@@ -1482,7 +1484,7 @@ case_migrate() {
   migrate '\n\ny\n\n-\nn\ny\n'
   expect_status 0 "migrate keeps the backups when asked"
   [ -f "$home/pi-backups/20260101/s.jsonl" ] && pass || fail "kept backups stay"
-  contains "PI_BACKUP_DIR=$home/pi-backups" "$(cat "$home/.pic/overrides.env")" "overrides.env names the kept backups"
+  contains "PI_BACKUP_DIR=\$HOME/pi-backups" "$(cat "$home/.pic/overrides.env")" "overrides.env names the kept backups"
   [ -d "$home/.config/pi-container-dev" ] && pass || fail "a declined profile stays"
   run_it env HOME="$home" PI_ENV_FILE="$home/.pic/config/env" bash "$run_sh" config
   expect_status 0 "kept backups don't block run.sh"

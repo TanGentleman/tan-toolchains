@@ -20,6 +20,13 @@ Read `README.md`, `pi-container/README.md` and the docs under
 Do not merge or tag before `pi-container/E2E.md` (through its Release
 section) and `fleet/docs/macos.md` step 8 pass on macOS.
 
+## Paths
+
+- Docs write the checkout as `$T` (`T=~/path/to/tan-toolchains`) and the
+  local-model spike as `$S`, never a real home or checkout path.
+- Messages and generated files (`overrides.env`) show paths below the home
+  folder as `$HOME/...`: pass them through `pi_show` in `lib/paths.sh`.
+
 ## Commands
 
 ```sh

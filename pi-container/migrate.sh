@@ -30,8 +30,8 @@ cli="${CONTAINER_CLI:-container}"
 pic=$(pi_pic_home)
 h=${HOME%/}
 
-die() { printf 'pic migrate: %s\n' "$*" >&2; exit 1; }
-say() { printf '%s\n' "$*"; }
+die() { pi_show "pic migrate: $*" >&2; exit 1; }
+say() { pi_show "$*"; }
 
 case ${1:-} in
   '') ;;
@@ -56,9 +56,9 @@ fi
 ask() { # prompt
   local a=""
   if [ -t 0 ]; then
-    IFS= read -e -r -p "$1" a || a=""
+    IFS= read -e -r -p "$(pi_show "$1")" a || a=""
   else
-    printf '%s' "$1" >&2
+    printf '%s' "$(pi_show "$1")" >&2
     IFS= read -r a || a=""
   fi
   printf '%s\n' "$a"
@@ -73,6 +73,7 @@ ask_path() { # what, default
     -) a="" ;;
     "~") a=$h ;;
     "~/"*) a=$h/${a#\~/} ;;
+    '$HOME'|'$HOME/'*) a=$h${a#\$HOME} ;;
   esac
   printf '%s\n' "${a%/}"
 }
@@ -161,9 +162,9 @@ commit=$(git -C "$here" rev-parse --short HEAD 2>/dev/null || echo unknown)
   umask 077
   {
     printf '# pic overrides v1, written %s by pic migrate at %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$commit"
-    for i in ${srcs[@]+"${!srcs[@]}"}; do printf '# moved %s -> %s\n' "${srcs[$i]}" "${dsts[$i]}"; done
-    for i in ${movers[@]+"${!movers[@]}"}; do printf '# moved %s -> %s/profiles/%s\n' "${movers[$i]}" "$pic" "${names[$i]}"; done
-    [ -z "$kept" ] || printf 'PI_BACKUP_DIR=%s\n' "$kept"
+    for i in ${srcs[@]+"${!srcs[@]}"}; do pi_show "# moved ${srcs[$i]} -> ${dsts[$i]}"; done
+    for i in ${movers[@]+"${!movers[@]}"}; do pi_show "# moved ${movers[$i]} -> $pic/profiles/${names[$i]}"; done
+    [ -z "$kept" ] || pi_show "PI_BACKUP_DIR=$kept"
   } > "$pic/overrides.env"
 )
 chmod 600 "$pic/overrides.env"
@@ -172,7 +173,8 @@ say "wrote $pic/overrides.env"
 [ ${#movers[@]} -eq 0 ] || mkdir -m 700 "$pic/profiles"
 for i in ${movers[@]+"${!movers[@]}"}; do
   d=${movers[$i]} to="$pic/profiles/${names[$i]}"
-  PIC_HOME=$pic PI_CONFIG_DIR=$d "$here/clear.sh" nuke profile --yes ||
+  PIC_HOME=$pic PI_CONFIG_DIR=$d "$here/clear.sh" nuke profile --yes 2>&1 |
+    while IFS= read -r line; do pi_show "$line"; done ||
     die "nuke profile failed for $d; nothing else moved. Finish by hand: PI_CONFIG_DIR=$d $here/clear.sh nuke profile && mv $d $to"
   mv "$d" "$to"
   say "moved $d -> $to"

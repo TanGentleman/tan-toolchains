@@ -60,6 +60,7 @@ pi_overrides_error=""
 
 pi_overrides_load() { # file
   local f=$1 line n=0 k v
+  pi_overrides_error=""
   [ -e "$f" ] || [ -L "$f" ] || return 0
   if [ -L "$f" ] || [ ! -f "$f" ]; then pi_overrides_error=$(printf '%s must be a regular file' "$f"); return 1; fi
   case $(pi_file_mode "$f") in
@@ -82,7 +83,8 @@ pi_overrides_load() { # file
     esac || { pi_overrides_error=$(printf '%s:%d: only %s may be set here' "$f" "$n" "$pi_overrides_keys"); return 1; }
     case $v in
       /*) ;;
-      *) pi_overrides_error=$(printf '%s:%d: %s must be an absolute path' "$f" "$n" "$k"); return 1 ;;
+      '$HOME'|'$HOME/'*) v=${HOME%/}${v#\$HOME} ;;
+      *) pi_overrides_error=$(printf '%s:%d: %s must be an absolute path or start with $HOME' "$f" "$n" "$k"); return 1 ;;
     esac
     [ -n "${!k:-}" ] || printf -v "$k" '%s' "$v"
   done < "$f"
