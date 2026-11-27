@@ -4,7 +4,8 @@ Every JSON file here models a payload from Apple's `container` CLI that
 `pi-container/lib/inspect.sh` parses. A test fails when the parser and a fixture
 disagree, so a shape change shows up in CI instead of during a run.
 
-The recorded fixtures use the observed `container` 1.6.1 (`macOS 26`) shapes:
+The recorded fixtures use the shapes observed on the `container` version in
+`provenance.txt` (1.6.1 first, now 1.7.1, both `macOS 26`):
 arrays, proxy state at `[0].status.state`, network subnets at
 `[0].configuration.ipv4Subnet` / `[0].status.ipv4Subnet`, image config at
 `[0].variants[0].config.config`, and volume labels at

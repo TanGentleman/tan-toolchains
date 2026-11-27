@@ -60,7 +60,8 @@ eq 1.4.0 "$(printf '%s' "$(image_json '"Labels":{"pi-container.pi-version":"1.4.
 eq 'zig,zigpeek,enforcer,pi' "$(printf '%s' "$(image_json '"Env":["PI_CONTAINER_CAPABILITIES=zig,zigpeek,enforcer,pi"]' '')" | pi_image_capabilities_from_json)" "capabilities from nested Env"
 eq '' "$(printf '%s' "$(image_json '"Env":["PATH=/usr/bin"]' '')" | pi_image_capabilities_from_json)" "legacy image has no capabilities"
 eq '' "$(printf '%s' '{"Env":["PI_CONTAINER_CAPABILITIES=pi"]}' | pi_image_capabilities_from_json)" "top-level Env is ignored"
-eq '' "$(pi_image_capabilities_from_json < "$fixtures/image/inspect.json")" "recorded image fixture stays legacy"
+eq 'enforcer,netlock,pi,gh' "$(pi_image_capabilities_from_json < "$fixtures/image/inspect.json")" "recorded pi-full image capabilities"
+neq "" "$(pi_image_version_from_json < "$fixtures/image/inspect.json")" "recorded pi-full image version"
 
 # --- network verdict -------------------------------------------------------
 network_host_only_json='[{"configuration":{"name":"pi-locked","mode":"hostOnly","ipv4Subnet":"172.30.240.0/24","labels":{}},"status":{"ipv4Subnet":"172.30.240.0/24","ipv4Gateway":"172.30.240.1"}}]'
