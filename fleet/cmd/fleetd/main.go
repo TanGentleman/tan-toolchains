@@ -35,11 +35,15 @@ func main() {
 		fmt.Println(commit)
 		return
 	}
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		log.Fatal(err)
+	}
+	// The one data directory: run.sh only mounts session state from below it.
+	data := filepath.Join(home, ".fleet")
 	var owners list
 	name := flag.String("name", "", "node name (required)")
 	url := flag.String("url", "", "this node's tailnet URL, e.g. https://laptop.tailnet.ts.net; its host is accepted in Host")
-	data := flag.String("data", filepath.Join(home, ".fleet"), "data directory")
 	listen := flag.String("listen", "127.0.0.1:7433", "loopback address; put `tailscale serve` in front")
 	flag.Var(&owners, "owner", "tailnet login allowed to use this node; nobody else is (repeatable)")
 	flag.Parse()
@@ -57,7 +61,7 @@ func main() {
 	// The one harness: Pi in pi-container, whose proxy holds the real key,
 	// so the turn never gets a copy from fleetd's environment.
 	n, err := node.New(node.Config{
-		Name: *name, URL: *url, Data: *data, Owners: owners,
+		Name: *name, URL: *url, Data: data, Owners: owners,
 		Harnesses: map[string]node.Harness{"pi-ctr": node.Exec{
 			Argv: []string{exe, "pi-ctr"}, StopArgv: []string{exe, "pi-ctr", "-stop"}, Drop: []string{"OPENROUTER_API_KEY"}}},
 		Hosts:    []string{*listen, net.JoinHostPort("localhost", port)},

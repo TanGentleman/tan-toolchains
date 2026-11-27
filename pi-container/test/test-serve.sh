@@ -144,7 +144,7 @@ extra="OPENROUTER_API_KEY=sk-or-v1-placeholder"
 (exec env HOME="$home" PATH="$bin:$PATH" TS_STATUS="$tmp/status.json" TS_CALLS="$tmp/calls" \
   CONTAINER_CLI="$here/fake-container.sh" FAKE_CONTAINER_WORLD="$world" FLEETD="$bin/fleetd" \
   FLEET_PORT="$port" FAKE_FLEETD_OUT="$tmp/fleetd.out" $extra \
-  bash "$root/run.sh" serve -data "$tmp/data") > "$tmp/out" 2>&1 &
+  bash "$root/run.sh" serve -extra flag) > "$tmp/out" 2>&1 &
 bg=$!
 extra=""
 for _ in $(seq 100); do [ -s "$tmp/fleetd.out" ] && grep -q 'tailscale serve' "$tmp/calls" && break; sleep 0.05; done
@@ -157,7 +157,8 @@ ARG -url
 ARG https://mac1.example-tailnet.ts.net
 ARG -owner
 ARG you@github
-ARG -data" "$got" "fleetd flags from Tailscale"
+ARG -extra
+ARG flag" "$got" "fleetd flags from Tailscale"
 contains "FLEET_PI_CTR_BIN=$root/pi-ctr" "$got" "fleetd finds pi-ctr"
 not_contains "OPENROUTER_API_KEY" "$got" "fleetd holds no OpenRouter key"
 not_contains "github_pat_test" "$got" "fleetd holds no GitHub token"
