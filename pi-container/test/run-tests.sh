@@ -12,7 +12,7 @@ here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 fail=0
 
 command -v jq >/dev/null 2>&1 || {
-  printf 'run-tests.sh: jq is required (install with: brew install jq)\n' >&2
+  printf 'run-tests.sh: jq is required; macOS 26 ships /usr/bin/jq, so check PATH (Linux: apt-get install jq)\n' >&2
   exit 1
 }
 

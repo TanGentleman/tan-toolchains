@@ -313,7 +313,9 @@ file with its final owner and mode, so the key is never readable by others.
 ### 3. Test account
 
 Switch to T with Fast User Switching (Control Center, then your name). In
-Terminal, follow [README.md](README.md) setup literally. For its env file
+Terminal, follow [README.md](README.md) setup literally. The Command Line Tools and
+`container` are machine-wide, so they are already installed in T; check
+`git --version` and `container --version` instead of installing. For its env file
 step, use `cp ~/release.env ~/.config/pi-container/env` instead of the
 heredoc. After `git clone`, check out the SHA:
 

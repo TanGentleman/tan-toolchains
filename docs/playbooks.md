@@ -5,11 +5,12 @@ linked at the end.
 
 ## Set up once
 
-An Apple silicon Mac on macOS 26 with Homebrew, an OpenRouter key, and
-nothing else: the images build every tool.
+An Apple silicon Mac on macOS 26 with the Command Line Tools and Apple
+`container` installed ([Setup](../README.md#setup)), and an OpenRouter key.
+The images build every other tool.
 
 ```sh
-brew install container jq && container system start
+container system start
 git clone https://github.com/TanGentleman/tan-toolchains ~/src/tan-toolchains
 echo "alias pic=$HOME/src/tan-toolchains/pi-container/run.sh" >> ~/.zshrc && source ~/.zshrc
 mkdir -p ~/.config/pi-container

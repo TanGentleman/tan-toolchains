@@ -10,16 +10,11 @@ Three settings decide a run: the image (`min`, `full`, `zig`), the egress profil
 
 The [playbooks](../docs/playbooks.md) cover setup and the common uses; this is the reference.
 
-Requires macOS 26, Apple silicon, Homebrew, `container`, and `jq`; nothing
-else on the Mac. The image builds its own tools.
-
-In a new account on a Mac where another user installed Homebrew, `brew` is not
-on `PATH`. Add it first:
-`echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile`, then open a
-new terminal. Only the admin who owns `/opt/homebrew` can `brew install`.
+Install what the [root README's Setup](../README.md#setup) lists for every
+run: the Command Line Tools and Apple `container` (`jq` ships with macOS 26).
+Nothing else goes on the Mac; the image builds its own tools.
 
 ```bash
-brew install container jq
 container system start
 git clone https://github.com/TanGentleman/tan-toolchains
 cd tan-toolchains/pi-container

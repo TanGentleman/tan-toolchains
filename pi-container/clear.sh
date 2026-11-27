@@ -131,7 +131,7 @@ require_cli() {
 
 require_jq() {
   command -v jq >/dev/null 2>&1 && return 0
-  die "jq not found; install it (brew install jq)"
+  die "jq not found; macOS 26 ships /usr/bin/jq, so check PATH (Linux: apt-get install jq)"
 }
 
 # A command on PATH is not a running runtime. `volume list` proves it answered,

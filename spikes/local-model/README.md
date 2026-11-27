@@ -17,7 +17,8 @@ spikes/local-model/eval.sh [TASK.json ...]       # small tasks for Pi, checked o
 so Pi can use it: `pi-container/run.sh --egress offline --model-url http://gateway:8090`.
 Guide: [GUIDE.md](GUIDE.md).
 
-Needs [uv](https://docs.astral.sh/uv/) and `jq`. Everything goes in
+Needs [uv](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`);
+`jq` ships with macOS 26. uv installs Python 3.12 itself. Everything goes in
 `~/.local/share/local-model` (`LOCAL_MODEL_HOME`): Python, uv cache, venv,
 Hugging Face cache, weights (`models/<name>/`), logs, evals.
 

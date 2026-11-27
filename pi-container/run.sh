@@ -161,7 +161,7 @@ if [ -n "$flag_model_url" ] && ! pi_model_url_split "$flag_model_url" >/dev/null
   echo "run.sh: --model-url must be openrouter or http://HOST:PORT" >&2
   exit 2
 fi
-command -v jq >/dev/null 2>&1 || { echo "run.sh: jq not found; install it (brew install jq)" >&2; exit 1; }
+command -v jq >/dev/null 2>&1 || { echo "run.sh: jq not found; macOS 26 ships /usr/bin/jq, so check PATH (Linux: apt-get install jq)" >&2; exit 1; }
 if [ -e "$legacy_config" ] || [ -L "$legacy_config" ]; then
   legacy=$(pi_config_legacy "$legacy_config")
   echo "run.sh: $legacy_config is no longer read; set ${legacy:-PI_IMAGE, PI_EGRESS or PI_MODEL_URL} in your alias or shell instead, then delete the file" >&2
@@ -332,7 +332,7 @@ require_cli() {
 
 require_jq() {
   command -v jq >/dev/null 2>&1 && return 0
-  echo "run.sh: jq not found; install it (brew install jq)" >&2
+  echo "run.sh: jq not found; macOS 26 ships /usr/bin/jq, so check PATH (Linux: apt-get install jq)" >&2
   exit 1
 }
 

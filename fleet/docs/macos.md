@@ -2,8 +2,9 @@
 
 From a clean Mac to spawning Pi sessions from your phone. Each turn runs Pi
 in pi-container's VM on a fresh clone of the repo you pick and pushes to a
-`fleet/<session>` branch. The Mac needs Homebrew, Apple `container` and
-Tailscale; no Go, Node or agent CLIs. What a session and a turn are, and the
+`fleet/<session>` branch. The Mac needs the Command Line Tools, Apple
+`container` and Tailscale; no Homebrew, Go, Node or agent CLIs (the full list
+is the [root README's Setup](../../README.md#setup)). What a session and a turn are, and the
 security model: [the fleet README](../README.md).
 
 Run each block in Terminal (zsh), in order, and don't go on until its check
@@ -28,18 +29,18 @@ without it, zsh passes a trailing `# comment` to the command.
 | Sessions | `~/.fleet`; each turn's errors in `~/.fleet/sessions/<sid>/stderr-N.log` |
 | Code | branch `fleet/<sid>` in the repo you picked |
 
-## 1. Homebrew, container, jq
+## 1. Command Line Tools and container
 
 ```sh
-xcode-select --install          # skip if already installed
-/bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-echo 'eval "$(/opt/homebrew/bin/brew shellenv)"' >> ~/.zprofile
-eval "$(/opt/homebrew/bin/brew shellenv)"
-brew install container jq
+xcode-select --install          # skip if `git --version` works
+V=1.7.1                         # or the newest at github.com/apple/container/releases
+curl -fLo /tmp/container.pkg "https://github.com/apple/container/releases/download/$V/container-$V-installer-signed.pkg"
+sudo installer -pkg /tmp/container.pkg -target /
 container system start
 ```
 
-Check: `container system status` succeeds.
+Check: `container system status` succeeds and `jq --version` prints a
+version (macOS 26 ships `/usr/bin/jq`).
 
 ## 2. Repo
 

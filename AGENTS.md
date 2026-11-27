@@ -56,6 +56,11 @@ explicitly that `run.sh check` and the E2E checklist were not run.
 
 ## Hard boundaries
 
+- The root README's Setup table is the complete list of what the Mac needs.
+  A new host tool goes in that table first, with what needs it; no
+  Homebrew-only install steps, since the `.pkg` and macOS's own tools work in
+  every account.
+
 - Shipped tools make no network requests. A separate process owns any network
   layer; do not add network code to a shipped binary. `fleetd` is such a
   process: it listens on loopback only, behind `tailscale serve`, and dials

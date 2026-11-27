@@ -3,10 +3,9 @@
 Run commands from `pi-container/`.
 
 CI runs the whole suite without Apple `container` or a network. It requires
-`jq`:
+`jq`, which macOS 26 ships as `/usr/bin/jq` (on Linux, `apt-get install jq`):
 
 ```bash
-brew install jq   # or your package manager
 ./test/run-tests.sh
 ```
 

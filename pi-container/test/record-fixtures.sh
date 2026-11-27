@@ -42,7 +42,7 @@ command -v "$cli" >/dev/null 2>&1 || {
   exit 1
 }
 command -v jq >/dev/null 2>&1 || {
-  printf 'record-fixtures.sh: jq not found; install it first (brew install jq)\n' >&2
+  printf 'record-fixtures.sh: jq not found; macOS 26 ships /usr/bin/jq, so check PATH (Linux: apt-get install jq)\n' >&2
   exit 1
 }
 
