@@ -34,15 +34,11 @@ after capturing and reports `SHAPE CHANGED` if Apple moved one:
 git diff test/fixtures/container   # a changed shape is what the tests catch
 ```
 
-The recorder checks every path the parsers use and reports `shape ok` or
-`SHAPE CHANGED`, so a capture that moves a field fails loudly instead of being
-committed. It writes a fixture only after the capture parses as JSON, and
-leaves an existing fixture untouched when a capture fails. Since `container`
-1.4.1, captures use plain slashes; older escaped fixtures still pin that form.
-
-That replace-in-place is the only capture path. To explore a new CLI version
-without touching the repo, copy `test/fixtures/container/` aside first, or run
-the recorder and revert with `git checkout -- test/fixtures/container`.
+It writes a fixture only after the capture parses as JSON and leaves an
+existing fixture untouched when a capture fails. Since `container` 1.4.1,
+captures use plain slashes; older escaped fixtures still pin that form. To
+explore a new CLI version, record and then revert with
+`git checkout -- test/fixtures/container`.
 
 `run.sh check`, real volume creation, and the Neovim/ZLS paths still need the
 [E2E checklist](../E2E.md) on macOS; Apple `container` is not available in CI.

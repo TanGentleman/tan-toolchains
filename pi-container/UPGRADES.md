@@ -19,11 +19,8 @@ binaries run on macOS and do not use its network.
   egress. Prefer a dedicated key with a low credit limit for that mode, or
   replace the env-file injection with a proxy that tunnels any `CONNECT` but
   still rewrites OpenRouter. Scope the key per run if the mode becomes routine.
-- Separate keys work by running with a different `PI_CONFIG_DIR`: the proxy,
-  network, subnet, proxy image, agent volumes, and clone volumes are derived
-  from it. The active agent image and builder cache remain shared, so `nuke all`
-  in one profile still deletes the active image for every profile. Other
-  pack tags are left behind.
+- The agent image and builder cache are machine-wide, so `nuke all` in one
+  profile deletes the active image for every profile.
 
 ## Enforcer
 
@@ -61,19 +58,6 @@ binaries run on macOS and do not use its network.
 
 ## Quality
 
-- CI runs `test/run-tests.sh`: naming, validation, the image pack catalog, path
-  guards, the jq-based JSON parsers in `lib/inspect.sh`, and `run.sh`/`clear.sh`
-  against a fake `container` CLI. This covers orchestration decisions without Apple
-  `container`. Real volume/network/proxy behaviour and `run.sh check` still
-  need the [E2E checklist](E2E.md) on macOS.
-- `jq` is a hard dependency for `run.sh` normal/check/proxy, `clear.sh`
-  list/nuke, and the test suite. Those paths fail early with an install hint
-  when it is missing.
-- The fixtures under `test/fixtures/container/` are either recorded from Apple
-  or hand-built to pin a parser branch. Run `test/record-fixtures.sh` on a Mac
-  to refresh captures; it only replaces a fixture after the output parses as
-  JSON. Exact expectations are inline, so re-recording does not rewrite them,
-  and a changed shape should fail a smoke test instead of a run.
 - Image packs are built manually with `./build.sh PACK`; CI does not build
   Dockerfile targets. The `min`, `tools` and `editor` packs deliberately omit `gh`, so
   a `check` with `GITHUB_TOKEN` set fails on those images instead of silently
@@ -82,10 +66,6 @@ binaries run on macOS and do not use its network.
   wired up yet.
 - Add CI checks for the Neovim/ZLS pins and for `ZLS_VERSION == ZIG_VERSION`
   after the local-development flow settles.
-- Run the [E2E checklist](E2E.md) on macOS before calling a branch stable. This
-  stays manual because Apple `container` is not available on GitHub Actions.
-- Base images are pinned to multi-arch digests; keep tool versions pinned via
-  `ARG`.
 
 ## Fleet
 
