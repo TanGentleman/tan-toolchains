@@ -1,1 +1,143 @@
-[{"configuration":{"name":"pi-proxy","image":"pi-proxy:local","labels":{}},"id":"pi-proxy","status":{"networks":[{"hostname":"pi-proxy","ipv4Address":"172.30.240.4/24","ipv4Gateway":"172.30.240.1","network":"pi-locked","variant":"reserved"}],"startedDate":"2026-10-26T00:10:21Z","state":"running"}}]
+[
+  {
+    "configuration": {
+      "capAdd": [],
+      "capDrop": [],
+      "creationDate": "2026-11-27T07:39:51Z",
+      "dns": {
+        "nameservers": [],
+        "options": [],
+        "searchDomains": []
+      },
+      "id": "pi-proxy",
+      "image": {
+        "descriptor": {
+          "annotations": {
+            "com.apple.containerization.image.name": "docker.io/library/pi-proxy:local",
+            "io.containerd.image.name": "docker.io/library/pi-proxy:local",
+            "org.opencontainers.image.created": "2026-11-27T07:39:50Z",
+            "org.opencontainers.image.ref.name": "local"
+          },
+          "digest": "sha256:5fa3dd1fa70e331b109f86bce990f6b380e5bb35cd698c49cb7f439c5821e1b8",
+          "mediaType": "application/vnd.oci.image.index.v1+json",
+          "size": 375
+        },
+        "reference": "docker.io/library/pi-proxy:local"
+      },
+      "initProcess": {
+        "arguments": [
+          "-u",
+          "/usr/local/bin/proxy.py"
+        ],
+        "environment": [
+          "PI_PROXY_MODEL_RULE=redacted",
+          "PI_PROXY_CA=redacted",
+          "PI_PROXY_EGRESS=redacted",
+          "PI_PROXY_KEY=redacted",
+          "PYTHON_SHA256=redacted",
+          "PI_PROXY_LOCKED_CIDR=redacted",
+          "PYTHON_VERSION=redacted",
+          "PI_PROXY_CERT=redacted",
+          "PI_PROXY_PORT=redacted",
+          "GPG_KEY=redacted",
+          "PI_PROXY_ADDR_FILE=redacted",
+          "PI_ENV_FILE=redacted",
+          "PATH=/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+          "PI_PROXY_TUNNEL=redacted",
+          "LANG=redacted"
+        ],
+        "executable": "python3",
+        "rlimits": [],
+        "supplementalGroups": [],
+        "terminal": false,
+        "user": {
+          "id": {
+            "gid": 0,
+            "uid": 0
+          }
+        },
+        "workingDirectory": "/"
+      },
+      "labels": {},
+      "mounts": [
+        {
+          "destination": "/private",
+          "options": [],
+          "source": "$HOME/.pic/config/private",
+          "type": {
+            "virtiofs": {}
+          }
+        },
+        {
+          "destination": "/certs",
+          "options": [],
+          "source": "$HOME/.pic/config/certs",
+          "type": {
+            "virtiofs": {}
+          }
+        }
+      ],
+      "networks": [
+        {
+          "network": "default",
+          "options": {
+            "hostname": "pi-proxy",
+            "mtu": 1280
+          }
+        },
+        {
+          "network": "pi-locked",
+          "options": {
+            "hostname": "pi-proxy",
+            "mtu": 1280
+          }
+        }
+      ],
+      "platform": {
+        "architecture": "arm64",
+        "os": "linux"
+      },
+      "publishedPorts": [],
+      "publishedSockets": [],
+      "readOnly": false,
+      "resources": {
+        "cpuOverhead": 1,
+        "cpus": 1,
+        "memoryInBytes": 1073741824
+      },
+      "rosetta": false,
+      "runtimeHandler": "container-runtime-linux",
+      "ssh": false,
+      "sysctls": {},
+      "useInit": true,
+      "virtualization": false
+    },
+    "id": "pi-proxy",
+    "status": {
+      "networks": [
+        {
+          "hostname": "pi-proxy",
+          "ipv4Address": "192.168.64.11/24",
+          "ipv4Gateway": "192.168.64.1",
+          "ipv6Address": "2001:db8::/64",
+          "macAddress": "02:00:00:00:00:00",
+          "mtu": 1280,
+          "network": "default",
+          "variant": "reserved"
+        },
+        {
+          "hostname": "pi-proxy",
+          "ipv4Address": "172.30.240.2/24",
+          "ipv4Gateway": "172.30.240.1",
+          "ipv6Address": "2001:db8::/64",
+          "macAddress": "02:00:00:00:00:00",
+          "mtu": 1280,
+          "network": "pi-locked",
+          "variant": "reserved"
+        }
+      ],
+      "startedDate": "2026-11-27T17:24:44Z",
+      "state": "running"
+    }
+  }
+]

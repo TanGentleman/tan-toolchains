@@ -1,22 +1,22 @@
 [
   {
     "configuration": {
-      "creationDate": "2026-10-26T00:00:00Z",
+      "creationDate": "2026-11-27T18:05:51Z",
       "driver": "local",
       "format": "ext4",
       "labels": {
+        "pi.config": "$HOME/.pic/config",
+        "pi.instance": "default",
+        "pi.kind": "agent",
         "pi.managed": "true",
         "pi.profile": "default",
-        "pi.config": "/Users/dev/.config/pi-container",
-        "pi.settings": "/Users/dev/.config/pi-container/settings.json",
-        "pi.instance": "default",
-        "pi.kind": "agent"
+        "pi.settings": "$HOME/.pic/config/settings.json"
       },
-      "name": "pi-agent-home",
+      "name": "pi-fixture-85206",
       "options": {},
-      "sizeInBytes": 123,
-      "source": "/tmp/pi-agent-home"
+      "sizeInBytes": 549755813888,
+      "source": "$HOME/Library/Application Support/com.apple.container/volumes/pi-fixture-85206/volume.img"
     },
-    "id": "pi-agent-home"
+    "id": "pi-fixture-85206"
   }
 ]

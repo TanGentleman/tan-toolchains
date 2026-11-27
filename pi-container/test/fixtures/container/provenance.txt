@@ -1,4 +1,26 @@
-These fixtures use observed Apple container shapes. Run ../../record-fixtures.sh
-on macOS to refresh the recorded captures; it writes each fixture only after the
-output parses as JSON and is scrubbed by test/fixture-scrub.jq. A recorded run replaces this file with the date, CLI
-version, and commands used. See README.md for which files are hand-built.
+Captured 2026-11-27T18:05:51Z
+CLI: container CLI version 1.7.1 (build: release, commit: a15b460)
+Profile: $HOME/.pic/config
+
+## Networks
+wrote network/host-only.json  <- container network inspect pi-locked
+
+## Images
+wrote image/inspect.json  <- container image inspect pi-full:local
+
+## Proxy container
+wrote inspect/proxy-running.json  <- container inspect pi-proxy
+
+## Volume labels
+wrote volume/labelled.json  <- container volume inspect pi-fixture-85206
+
+## Shapes
+shape ok network/host-only.json  (configuration.mode)
+shape ok network/host-only.json  (status.ipv4Subnet)
+shape ok image/inspect.json  (variants[0].config.config)
+shape ok image/inspect.json  (variants[0].config.history)
+shape ok inspect/proxy-running.json  (status.state)
+shape ok volume/labelled.json  (pi.* labels)
+
+Done. If a capture was skipped, check 'container system start' and the resource names.
+Next: ./test/run-tests.sh
