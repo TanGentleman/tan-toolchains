@@ -1453,8 +1453,13 @@ migrate() { # answers
 case_migrate() {
   v7_home migrate
   # profile, backups, keep?, fleet, another profile, move dev?, go ahead?
-  migrate '\n\nn\n\n-\ny\ny\n'
+  migrate "\\n\\nn\\n\\n$home/.config/pi-container-dev/\\nrel\\n$home/nope\\n\\033[D$home\\n-\\ny\\ny\\n"
   expect_status 0 "migrate moves a v7 layout"
+  contains "is already listed" "$(e)" "a found profile typed again is listed once"
+  contains "rel is not an absolute path" "$(e)" "a relative profile path is asked again"
+  contains "$home/nope is not a directory" "$(e)" "a missing profile path is asked again"
+  contains "control characters" "$(e)" "a path with an arrow-key escape is asked again"
+  eq 1 "$(e | grep -c 'move profile')" "one question per profile"
   [ -f "$home/.pic/config/env" ] && pass || fail "the env file moved with the default profile"
   [ -f "$home/.pic/backups/20260101/s.jsonl" ] && pass || fail "backups moved"
   [ -d "$home/.pic/fleet/sessions/s1" ] && pass || fail "fleet data moved"

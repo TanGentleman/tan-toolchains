@@ -52,11 +52,22 @@ if json=$("$cli" inspect pi-proxy 2>/dev/null); then
   esac
 fi
 
+# Read a line, with line editing on a terminal.
+ask() { # prompt
+  local a=""
+  if [ -t 0 ]; then
+    IFS= read -e -r -p "$1" a || a=""
+  else
+    printf '%s' "$1" >&2
+    IFS= read -r a || a=""
+  fi
+  printf '%s\n' "$a"
+}
+
 # Read a path. Prints "" for "-"; expands a leading ~.
 ask_path() { # what, default
   local a
-  printf '%s [%s]: ' "$1" "${2:--}" >&2
-  IFS= read -r a || a=""
+  a=$(ask "$1 [${2:--}]: ")
   a=${a:-${2:--}}
   case $a in
     -) a="" ;;
@@ -67,10 +78,7 @@ ask_path() { # what, default
 }
 
 ask_yes() { # question
-  local a
-  printf '%s [y/N]: ' "$1" >&2
-  IFS= read -r a || a=""
-  case $a in y|Y|yes) return 0 ;; esac
+  case $(ask "$1 [y/N]: ") in y|Y|yes) return 0 ;; esac
   return 1
 }
 
@@ -107,9 +115,19 @@ for d in "$h"/.config/pi-container-*; do
   [ -d "$d" ] && [ ! -L "$d" ] || continue
   others+=("$d")
 done
+[ ${#others[@]} -eq 0 ] || say "found profiles: ${others[*]}"
 while :; do
   extra=$(ask_path "another profile to move (- when done)" -)
   [ -n "$extra" ] || break
+  case $extra in
+    *[[:cntrl:]]*) say "  that has control characters (arrow keys?); type it again" >&2; continue ;;
+    /*) ;;
+    *) say "  $extra is not an absolute path" >&2; continue ;;
+  esac
+  [ -d "$extra" ] && [ ! -L "$extra" ] || { say "  $extra is not a directory" >&2; continue; }
+  dup=""
+  for d in ${others[@]+"${others[@]}"}; do [ "$d" != "$extra" ] || dup=1; done
+  [ -z "$dup" ] || { say "  $extra is already listed" >&2; continue; }
   others+=("$extra")
 done
 movers=() names=()
