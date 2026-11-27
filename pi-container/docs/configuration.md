@@ -243,13 +243,39 @@ Most runs need only `PI_IMAGE`, `PI_EGRESS`, `PI_MODEL_URL`
 
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `PI_CONFIG_DIR` | `~/.config/pi-container` | Profile directory. A different path gets its own proxy, network, subnet, settings, env file, and volumes. |
+| `PIC_HOME` | `~/.pic` | Root for the default profile, backups, fleet data, the lock and `overrides.env`. Profiles under another root don't share this root's lock. |
+| `PI_CONFIG_DIR` | `~/.pic/config` | Profile directory. A different path gets its own proxy, network, subnet, settings, env file, and volumes. |
 | `PI_ENV_FILE` | `$PI_CONFIG_DIR/env` | Host env file. |
 | `PI_SETTINGS_FILE` | `$PI_CONFIG_DIR/settings.json` | Host settings file. |
 | `PI_AGENT_VOLUME` | Profile/instance-derived | Override the agent volume name. |
-| `PI_BACKUP_DIR` | `~/pi-backups` | `clear.sh` backup root. |
+| `PI_BACKUP_DIR` | `~/.pic/backups` | `clear.sh` backup root. |
 | `PI_INSTANCE` | `default` | Default for `--instance`. |
 | `PI_CLONE` | Unset | Default for `--clone`. |
+
+Everything pi-container and fleetd write is below `PIC_HOME`:
+
+| Path | Holds |
+| --- | --- |
+| `config/` | The default profile: `env`, `pi.env`, `settings.json`, `certs/`, `egress/`, `mirrors/`, `nvim*/`, `private/` |
+| `profiles/NAME/` | Other profiles, by convention; `PI_CONFIG_DIR` may name any path |
+| `backups/` | `clear.sh` session backups |
+| `fleet/` | fleetd sessions, blobs and logs; `run.sh --fleet-state` mounts only from `fleet/sessions/` |
+| `lock` | Serializes image, network and builder-cache changes |
+| `overrides.env` | Paths `pic migrate` left in place |
+
+`run.sh` refuses to mount a project inside `PIC_HOME`. Only `~/.pic/config`
+keeps the default names (`pi-proxy`, `pi-locked`, `pi-agent-home`); another
+root's `config/` hashes its path like any other profile.
+
+`overrides.env` (mode 600) starts with `# pic overrides v1`, then holds
+`PI_BACKUP_DIR=` or `PI_ENV_FILE=` lines with absolute paths. An env var of
+the same name wins. `run.sh`, `clear.sh` and `pic serve` refuse any other key,
+version or mode.
+
+While a v7 path (`~/.config/pi-container`, `~/pi-backups` or `~/.fleet`)
+exists and isn't kept by `overrides.env`, `run.sh`, `clear.sh` and `pic serve`
+exit 2 and name `pic migrate`; see
+[operations.md](operations.md#moving-from-v7).
 
 ### Names and network
 

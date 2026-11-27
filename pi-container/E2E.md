@@ -30,7 +30,7 @@ export PI_INSTANCE=e2e
 unset PI_AGENT_VOLUME PI_SETTINGS_FILE PI_CLONE
 unset PI_NVIM_CONFIG PI_NVIM_DATA PI_NVIM_STATE PI_NVIM_CACHE
 unset PI_PROXY_NAME PI_NETWORK_NAME PI_PROXY_IMAGE PI_LOCKED_SUBNET
-cp ~/.config/pi-container/env "$PI_ENV_FILE"
+cp ~/.pic/config/env "$PI_ENV_FILE"
 unset PI_IMAGE PI_EGRESS PI_MODEL_URL  # the defaults: full, standard, openrouter
 # edit "$PI_ENV_FILE": set GITHUB_TOKEN to the test token
 chmod 600 "$PI_ENV_FILE"
@@ -45,7 +45,7 @@ Run these from `pi-container/` unless noted.
 
 `test/mac-e2e.sh --repo "$owner/tan-toolchains-e2e" ci build auto` runs every
 check that needs no Pi TUI, in the profile that `PI_CONFIG_DIR` names
-(unset: `~/.config/pi-container-e2e-test`). It
+(unset: `~/.pic/profiles/e2e-test`). It
 prints one line per check and keeps a log for each. Run
 `cleanup --destroy` last: it deletes and then rebuilds `pi-full:local`. Do
 the remaining checks by hand; the script lists them at the end.
@@ -165,7 +165,7 @@ Needs `./build.sh min`. The refusal and routing checks need nothing on port
 - [ ] `run.sh` refuses `~`, `/`, ancestors, secrets dirs, and config overlaps.
 - [ ] `run.sh` refuses `~/Library` because it contains `Library/Keychains`.
 - [ ] With a custom `PI_CONFIG_DIR`, `run.sh` still refuses a project that
-      overlaps the default `~/.config/pi-container` directory.
+      overlaps the default `~/.pic/config` directory.
 - [ ] `./run.sh --clone "$owner/tan-toolchains-e2e"` creates a clone volume.
 - [ ] `./run.sh --clone "$owner/tan-toolchains-e2e.git"` reuses that clone
       volume instead of trying to clone `.git.git`.
@@ -318,7 +318,7 @@ Switch to U with Fast User Switching (Control Center, then your name). In
 Terminal, follow [README.md](README.md) setup literally. The Command Line Tools and
 `container` are machine-wide, so they are already installed in U; check
 `git --version` and `container --version` instead of installing. For its env file
-step, use `cp ~/release.env ~/.config/pi-container/env` instead of the
+step, use `cp ~/release.env ~/.pic/config/env` instead of the
 heredoc. After `git clone`, check out the SHA:
 
 ```sh

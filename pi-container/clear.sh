@@ -16,7 +16,9 @@ here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 . "$here/lib/inspect.sh"
 . "$here/lib/lock.sh"
 . "$here/lib/validate.sh"
+. "$here/lib/paths.sh"
 . "$here/lib/config.sh"
+pi_overrides_load "$(pi_pic_home)/overrides.env" || { printf 'clear.sh: %s\n' "$pi_overrides_error" >&2; exit 2; }
 cli="${CONTAINER_CLI:-container}"
 cfg="${PI_CONFIG_DIR:-$(pi_default_config_dir)}"
 proxy_name="${PI_PROXY_NAME:-$(pi_proxy_name "$cfg")}"
@@ -24,7 +26,7 @@ proxy_image="${PI_PROXY_IMAGE:-$(pi_proxy_image "$cfg")}"
 network_name="${PI_NETWORK_NAME:-$(pi_network_name "$cfg")}"
 profile=$(pi_profile_label "$cfg")
 settings_file="${PI_SETTINGS_FILE:-$(pi_settings_file "$cfg")}"
-backup_root="${PI_BACKUP_DIR:-$HOME/pi-backups}"
+backup_root="${PI_BACKUP_DIR:-$(pi_backup_dir)}"
 lock_dir="$(pi_lock_dir)"
 stamp=$(date +%Y%m%d-%H%M%S)
 
@@ -76,6 +78,8 @@ read -r pi_pack _ <<<"$(pi_config_pick "$flag_image" "${PI_IMAGE:-}" "$pi_config
 if [ -e "$cfg/config.json" ] || [ -L "$cfg/config.json" ]; then
   die "$cfg/config.json is no longer read; set PI_IMAGE in your alias or shell instead, then delete the file"
 fi
+legacy=$(pi_legacy_paths "$backup_root")
+[ -z "$legacy" ] || die "pi-container now keeps its files in $(pi_pic_home); run pic migrate to move" $legacy
 pi_image=$(pi_pack_tag "$pi_pack")
 agent_volume="${PI_AGENT_VOLUME:-$(pi_agent_volume "$instance" "$cfg")}"
 
@@ -317,8 +321,13 @@ cmd_list() {
     [ -n "$vol_profile" ] || vol_profile=-
     size=$(session_size "$vol")
     config=$(volume_label "$vol" pi.config)
+    # The default profile's names don't depend on its folder, so its volumes
+    # outlive a move (pic migrate) and label the old path.
+    [ "$vol_profile" != default ] || config="${HOME%/}/.pic/config"
     if [ "$config" = "$cfg" ]; then
       settings=$settings_file
+    elif [ "$vol_profile" = default ]; then
+      settings=$(pi_settings_file "$config")
     else
       settings=$(volume_label "$vol" pi.settings)
     fi

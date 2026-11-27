@@ -13,6 +13,7 @@ here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 . "$here/lib/egress.sh"
 . "$here/lib/lock.sh"
 . "$here/lib/netlock.sh"
+pi_overrides_load "$(pi_pic_home)/overrides.env" || { echo "run.sh: $pi_overrides_error" >&2; exit 2; }
 cfg="${PI_CONFIG_DIR:-$(pi_default_config_dir)}"
 env_file="${PI_ENV_FILE:-$cfg/env}"
 settings_file="${PI_SETTINGS_FILE:-$cfg/settings.json}"
@@ -46,7 +47,7 @@ Run Pi inside Apple's container, on a host-only network.
                                              Pi or COMMAND with full network egress
   run.sh --fleet-state DIR [--fleet-name NAME] [--clone O/R] COMMAND [ARG...]
                                              one headless fleet turn: DIR, a session
-                                             dir below ~/.fleet/sessions, is mounted
+                                             dir below ~/.pic/fleet/sessions, is mounted
                                              read-write at the same path; the clone
                                              and Pi's agent dir live on the
                                              container's own disk. NAME (fleet-...)
@@ -58,6 +59,7 @@ Run Pi inside Apple's container, on a host-only network.
                                              and where each came from
   run.sh images                           packs, their tags, which are built, capabilities
   run.sh serve [--check] [FLEETD FLAGS]   run fleetd (harness pi-ctr) behind tailscale serve
+  run.sh migrate                          move v7 files into ~/.pic, once (migrate.sh --help)
   run.sh proxy                            follow the proxy container's logs
   run.sh proxy-stop                       stop the proxy container
   run.sh --help                           show this text
@@ -147,6 +149,7 @@ case "${1:-}" in
     shift
     exec "$here/serve.sh" "$@"
     ;;
+  migrate) shift; exec "$here/migrate.sh" "$@" ;;
 esac
 
 if [ -n "$flag_image" ] && ! pi_pack_tag "$flag_image" >/dev/null; then
@@ -165,6 +168,11 @@ command -v jq >/dev/null 2>&1 || { echo "run.sh: jq not found; macOS 26 ships /u
 if [ -e "$legacy_config" ] || [ -L "$legacy_config" ]; then
   legacy=$(pi_config_legacy "$legacy_config")
   echo "run.sh: $legacy_config is no longer read; set ${legacy:-PI_IMAGE, PI_EGRESS or PI_MODEL_URL} in your alias or shell instead, then delete the file" >&2
+  exit 2
+fi
+legacy=$(pi_legacy_paths "${PI_BACKUP_DIR:-}")
+if [ -n "$legacy" ]; then
+  echo "run.sh: pi-container now keeps its files in $(pi_pic_home); run pic migrate to move" $legacy >&2
   exit 2
 fi
 if [ -n "${PI_IMAGE:-}" ] && ! pi_pi_pack_valid "$PI_IMAGE"; then
@@ -431,9 +439,8 @@ require_env() {
   fi
 }
 
-# Refuse a project directory that contains the current config, the default
-# config (which holds the global lock), the env file, or either config's
-# parent. Used for project mounts.
+# Refuse a directory that contains the current config, the default config,
+# the env file, or either config's parent.
 refuse_config_overlap() { # $1 project dir, physical
   local cfg_phys env_phys default_phys settings_phys
   cfg_phys=$(pi_physical_path "$cfg")
@@ -645,6 +652,11 @@ guard_mount() {
   local pwd_phys home_phys secret
   pwd_phys=$(pi_physical_dir "$PWD") || { echo "run.sh: cannot resolve $PWD" >&2; exit 1; }
   refuse_config_overlap "$pwd_phys"
+  pic_phys=$(pi_physical_path "$(pi_pic_home)")
+  if pi_path_within "$pic_phys" "$pwd_phys" || pi_path_within "$pwd_phys" "$pic_phys"; then
+    echo "run.sh: refusing to mount $pwd_phys; it overlaps $(pi_pic_home), which holds every profile's keys" >&2
+    exit 1
+  fi
   home_phys=$(pi_physical_dir "$HOME") || home_phys=$HOME
   if [ "$pwd_phys" = / ] || pi_path_within "$pwd_phys" "$home_phys"; then
     echo "run.sh: refusing to mount $pwd_phys; choose a project below $home_phys" >&2
@@ -659,11 +671,12 @@ guard_mount() {
 }
 
 # A fleet session's state dir is mounted read-write. Allow only a real
-# directory strictly below ~/.fleet/sessions, with no symlink on the way.
+# directory strictly below $PIC_HOME/fleet/sessions, with no symlink on the way.
 guard_fleet_state() {
-  local root_phys dir_phys
-  root_phys=$(pi_physical_dir "$HOME/.fleet/sessions") || {
-    echo "run.sh: --fleet-state: $HOME/.fleet/sessions does not exist" >&2; exit 1; }
+  local root_phys dir_phys sessions
+  sessions="$(pi_fleet_dir)/sessions"
+  root_phys=$(pi_physical_dir "$sessions") || {
+    echo "run.sh: --fleet-state: $sessions does not exist" >&2; exit 1; }
   case $fleet_state in
     /*) ;;
     *) echo "run.sh: --fleet-state needs an absolute path" >&2; exit 1 ;;

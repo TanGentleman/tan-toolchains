@@ -14,9 +14,9 @@ container system start
 T=~/src/tan-toolchains     # your checkout; later blocks use $T
 git clone https://github.com/TanGentleman/tan-toolchains $T
 echo "alias pic=$T/pi-container/run.sh" >> ~/.zshrc && source ~/.zshrc
-mkdir -p ~/.config/pi-container
-printf 'OPENROUTER_API_KEY=\n# GITHUB_TOKEN=\n# GIT_AUTHOR_NAME=\n# GIT_AUTHOR_EMAIL=\n' > ~/.config/pi-container/env
-chmod 600 ~/.config/pi-container/env && open -e ~/.config/pi-container/env
+mkdir -p ~/.pic/config
+printf 'OPENROUTER_API_KEY=\n# GITHUB_TOKEN=\n# GIT_AUTHOR_NAME=\n# GIT_AUTHOR_EMAIL=\n' > ~/.pic/config/env
+chmod 600 ~/.pic/config/env && open -e ~/.pic/config/env
 ```
 
 Pick the image, egress profile and model route with env vars, best in
@@ -88,9 +88,9 @@ For a repo, make a local mirror first; offline turns clone it and keep
 their commits in the session's `repo.bundle` (nothing is pushed):
 
 ```sh
-git clone --mirror https://github.com/you/your-repo.git ~/.config/pi-container/mirrors/you/your-repo.git
-git -C ~/.config/pi-container/mirrors/you/your-repo.git fetch --prune     # refresh later
-git fetch ~/.fleet/sessions/<sid>/state/repo.bundle 'refs/heads/*:refs/remotes/offline/*'   # take the work out
+git clone --mirror https://github.com/you/your-repo.git ~/.pic/config/mirrors/you/your-repo.git
+git -C ~/.pic/config/mirrors/you/your-repo.git fetch --prune     # refresh later
+git fetch ~/.pic/fleet/sessions/<sid>/state/repo.bundle 'refs/heads/*:refs/remotes/offline/*'   # take the work out
 ```
 
 For fleet, export the three env vars before `pic serve`.
@@ -98,7 +98,7 @@ For fleet, export the three env vars before `pic serve`.
 ## Your own egress profile
 
 Copy a built-in from `pi-container/egress/` to
-`~/.config/pi-container/egress/NAME.json`, edit `tunnel` (hosts Pi may
+`~/.pic/config/egress/NAME.json`, edit `tunnel` (hosts Pi may
 reach), `model_url` (`any` or `private`) and `github_token`, then use
 `PI_EGRESS=NAME`. `pic config` prints the hosts; `pic check` tests them.
 

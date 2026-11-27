@@ -8,14 +8,31 @@
 
 pi_default_instance=default
 
+# Everything pi-container and fleetd write lives below one root: the default
+# profile in config/, other profiles in profiles/<name>, clear.sh backups in
+# backups/, fleetd data in fleet/, the lock, and overrides.env.
+pi_pic_home() {
+  local h=${PIC_HOME:-${HOME%/}/.pic}
+  printf '%s\n' "${h%/}"
+}
+
 pi_default_config_dir() {
-  printf '%s/.config/pi-container\n' "${HOME%/}"
+  printf '%s/config\n' "$(pi_pic_home)"
+}
+
+pi_backup_dir() {
+  printf '%s/backups\n' "$(pi_pic_home)"
+}
+
+pi_fleet_dir() {
+  printf '%s/fleet\n' "$(pi_pic_home)"
 }
 
 # One lock serializes proxy/image/network changes across profiles because the
-# agent image and builder cache are machine-wide.
+# agent image and builder cache are machine-wide. Profiles under another
+# PIC_HOME use that root's lock.
 pi_lock_dir() {
-  printf '%s/private/host-setup.lock\n' "$(pi_default_config_dir)"
+  printf '%s/lock\n' "$(pi_pic_home)"
 }
 
 # Lowercase letters, digits, and hyphens. "home" is reserved because the
@@ -29,10 +46,11 @@ pi_instance_valid() {
   [[ $name =~ ^[a-z0-9][a-z0-9-]{0,23}$ ]]
 }
 
-# Empty for the default profile, otherwise an 8-character path hash.
+# Empty for the default profile, otherwise an 8-character path hash. Only
+# ~/.pic/config is the default: another PIC_HOME's config gets its own names.
 pi_profile_id() { # cfg
   local cfg=${1%/}
-  [ "$cfg" = "$(pi_default_config_dir)" ] && return 0
+  [ "$cfg" = "${HOME%/}/.pic/config" ] && return 0
   printf '%s\n' "$(printf '%s' "$cfg" | pi_sha256 | cut -c1-8)"
 }
 

@@ -58,7 +58,7 @@ The UI fills in a title from the prompt and a fresh retry key.
   `pi-ctr` refuses a real one.
 - **The VM gets one writable folder:** the session's state folder
   (transcript and `agent.json`), plus read-only `settings.json` and the
-  proxy's CA. Not `~/.fleet`, not other sessions, not your home.
+  proxy's CA. Not `~/.pic/fleet`, not other sessions, not your home.
 - **A turn can reach only `pi-proxy`:** the egress lock blocks the Mac,
   Tailscale's resolver, the tailnet and the internet
   ([network boundary](../README.md#network-boundary)).
@@ -81,7 +81,7 @@ The UI fills in a title from the prompt and a fresh retry key.
   name or the listen address (`421` otherwise, so DNS rebinding fails) and
   POSTs must be `application/json` (`415` otherwise, so a cross-site form
   fails).
-- **`~/.fleet` is private:** 0700 folders, 0600 files.
+- **`~/.pic/fleet` is private:** 0700 folders, 0600 files.
 
 ## API
 
@@ -106,10 +106,10 @@ or the reason a push was refused.
 
 ## Event log
 
-Each session is `~/.fleet/sessions/<sid>/events.jsonl`, one JSON event per
+Each session is `~/.pic/fleet/sessions/<sid>/events.jsonl`, one JSON event per
 line: `seq`, `sid`, `node`, `run` (turn), `t`, `by`, `kind`, `key`, `data`.
 Kinds: `created`, `input`, `out` (or `out.b64` for bytes that are not
-UTF-8), `checkpoint` (state files by SHA-256, stored in `~/.fleet/blobs`),
+UTF-8), `checkpoint` (state files by SHA-256, stored in `~/.pic/fleet/blobs`),
 `exited` (code, reason, pushed `commit`). `core` holds the rules as two pure
 functions, `Decide` (command to event) and `Apply` (fold an event into
 state); each rule has a test:

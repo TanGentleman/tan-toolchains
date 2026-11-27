@@ -57,7 +57,13 @@ expect "pi-agent-$profile_id-home" "$(pi_agent_volume default "$custom_cfg")" "c
 expect "pi-agent-$profile_id-work" "$(pi_agent_volume work "$custom_cfg")" "custom named agent volume"
 expect "$default_cfg/settings.json" \
   "$(pi_settings_file "$default_cfg")" "profile settings file"
-expect "$default_cfg/private/host-setup.lock" "$(pi_lock_dir)" "global lock path"
+expect "$HOME/.pic/config" "$default_cfg" "default profile is ~/.pic/config"
+expect "$HOME/.pic/lock" "$(pi_lock_dir)" "global lock path"
+expect "$HOME/.pic/backups" "$(pi_backup_dir)" "backup dir"
+expect "$HOME/.pic/fleet" "$(pi_fleet_dir)" "fleet dir"
+expect /elsewhere/lock "$(PIC_HOME=/elsewhere/ pi_lock_dir)" "PIC_HOME moves the lock"
+expect /elsewhere/config "$(PIC_HOME=/elsewhere pi_default_config_dir)" "PIC_HOME moves the default profile"
+[ -n "$(pi_profile_id /elsewhere/config)" ] || fail "another PIC_HOME's config must not take the default names"
 
 work_clone=$(pi_clone_volume work owner/repo "$default_cfg")
 default_clone=$(pi_clone_volume default owner/repo "$default_cfg")

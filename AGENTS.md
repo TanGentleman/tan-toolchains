@@ -167,8 +167,10 @@ Move these together:
 - `lib/*.sh` and `test/lib.sh` are sourced, never executed. They must not set
   shell options or call `exit`; return a status and let the caller decide.
 - Keep parsing in `lib/inspect.sh`, naming in `names.sh`, validation in
-  `lib/validate.sh`, run-setting precedence in `lib/config.sh`,
-  the pack catalog in `images.sh`, and path/security logic in `lib/paths.sh`.
+  `lib/validate.sh`, run-setting precedence and `overrides.env` in
+  `lib/config.sh`, the pack catalog in `images.sh`, path/security logic in
+  `lib/paths.sh`, and the v7 move in `migrate.sh`. Host paths derive from
+  `PIC_HOME` in `names.sh`; don't add another root.
 - Zig targets the pinned version and uses the standard library only. Keep
   zigpeek command parsing in `cli.zig`, indexing in `stdlib.zig`, builtins in
   `builtins.zig`, and rendering in `info.zig`/`get.zig`. Keep enforcer command

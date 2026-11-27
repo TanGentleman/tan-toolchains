@@ -10,7 +10,7 @@ unset PI_INSTANCE PI_CLONE PI_CONFIG_DIR PI_ENV_FILE PI_IMAGE PI_EGRESS PI_MODEL
 tmp=$(mktemp -d)
 bg=""
 trap '[ -z "$bg" ] || kill "$bg" 2>/dev/null; rm -rf "$tmp"' EXIT
-home=$tmp/home cfg=$tmp/home/.config/pi-container world=$tmp/world bin=$tmp/bin
+home=$tmp/home cfg=$tmp/home/.pic/config world=$tmp/world bin=$tmp/bin
 mkdir -p "$cfg" "$world/images" "$bin"
 image() { # capabilities (empty: none recorded)
   local env='[]'

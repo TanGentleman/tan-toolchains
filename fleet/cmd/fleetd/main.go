@@ -40,7 +40,11 @@ func main() {
 		log.Fatal(err)
 	}
 	// The one data directory: run.sh only mounts session state from below it.
-	data := filepath.Join(home, ".fleet")
+	pic := os.Getenv("PIC_HOME")
+	if pic == "" {
+		pic = filepath.Join(home, ".pic")
+	}
+	data := filepath.Join(pic, "fleet")
 	var owners list
 	name := flag.String("name", "", "node name (required)")
 	url := flag.String("url", "", "this node's tailnet URL, e.g. https://laptop.tailnet.ts.net; its host is accepted in Host")

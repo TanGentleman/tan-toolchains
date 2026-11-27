@@ -22,7 +22,7 @@ case $repo in
   */* ) ;;
   *) die "usage: test/fleet-e2e.sh OWNER/REPO" ;;
 esac
-env_file=${PI_ENV_FILE:-${PI_CONFIG_DIR:-$HOME/.config/pi-container}/env}
+env_file=${PI_ENV_FILE:-${PI_CONFIG_DIR:-$HOME/.pic/config}/env}
 ctr=${CONTAINER_CLI:-container}
 timeout=${TURN_TIMEOUT:-300}
 URL=${FLEET_URL:-https://$(tailscale status --json | jq -r '.Self.DNSName | rtrimstr(".")')}

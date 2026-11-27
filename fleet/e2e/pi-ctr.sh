@@ -20,8 +20,8 @@ go build -o "$tmp/fleetd" ./cmd/fleetd
 
 real=sk-or-v1-REALKEY0123456789
 token=testtoken-0123456789abcdef
-home=$tmp/home cfg=$tmp/home/.config/pi-container world=$tmp/world disk=$tmp/disk
-mkdir -p "$home/.fleet" "$cfg/certs" "$cfg/private" "$world/images" "$world/networks" "$world/containers" "$disk" "$tmp/bin" "$tmp/gh/o"
+home=$tmp/home cfg=$tmp/home/.pic/config world=$tmp/world disk=$tmp/disk
+mkdir -p "$home/.pic/fleet" "$cfg/certs" "$cfg/private" "$world/images" "$world/networks" "$world/containers" "$disk" "$tmp/bin" "$tmp/gh/o"
 : > "$cfg/certs/ca.pem"
 printf 'OPENROUTER_API_KEY=%s\nGITHUB_TOKEN=%s\nGIT_AUTHOR_NAME=Test\nGIT_AUTHOR_EMAIL=test@example.com\n' "$real" "$token" > "$cfg/env"
 chmod 600 "$cfg/env"
@@ -65,7 +65,7 @@ start_fleetd() {
 }
 restart_fleetd() { kill "$pid"; wait "$pid" 2>/dev/null || true; start_fleetd "$@"; }
 start_fleetd
-fail() { echo "pi-ctr: FAIL: $*"; echo "--- fleetd log"; tail -20 "$tmp/fleetd.log"; tail -n 15 "$home"/.fleet/sessions/*/stderr-*.log; exit 1; }
+fail() { echo "pi-ctr: FAIL: $*"; echo "--- fleetd log"; tail -20 "$tmp/fleetd.log"; tail -n 15 "$home"/.pic/fleet/sessions/*/stderr-*.log; exit 1; }
 idle() { # sid
   for _ in $(seq 200); do
     st=$(api GET "/v1/sessions/$1")
@@ -94,9 +94,9 @@ node=$(api GET /v1/node)
 restart_fleetd PI_IMAGE=agent
 api GET /v1/node | jq -e '.config_error | contains("PI_IMAGE must be")' >/dev/null || fail "GET /v1/node hides a bad PI_IMAGE"
 restart_fleetd
-printf '{"v":1,"image":"min"}\n' > "$home/.config/pi-container/config.json"
+printf '{"v":1,"image":"min"}\n' > "$home/.pic/config/config.json"
 api GET /v1/node | jq -e '.config_error | contains("no longer read")' >/dev/null || fail "GET /v1/node hides a leftover config.json"
-rm "$home/.config/pi-container/config.json"
+rm "$home/.pic/config/config.json"
 
 # Turn 1: clone o/r, start from dev, push to fleet/<sid>, report dev as base.
 sid=$(api POST /v1/sessions '{"harness":"pi-ctr","repo":"o/r","branch":"dev","key":"k1","prompt":"write one"}' | jq -r .sid)
@@ -141,7 +141,7 @@ has "$sid" 'over the 1000 byte cap' || fail "size cap not explained"
 
 # Only agent.json and pi/sessions/*.jsonl survive into the checkpoint.
 say "$sid" i4 ext
-left=$(cd "$home/.fleet/sessions/$sid/state" && find . -mindepth 1 | sort | tr '\n' ' ')
+left=$(cd "$home/.pic/fleet/sessions/$sid/state" && find . -mindepth 1 | sort | tr '\n' ' ')
 case $left in
   "./agent.json ./pi ./pi/sessions ./pi/sessions/2026-01-01_"*".jsonl ") ;;
   *) fail "state kept more than agent.json and the session file: $left" ;;
@@ -159,8 +159,8 @@ has "$sid" '"aborted"' || fail "abort not recorded"
 say "$sid" i6 "write three"
 c4=$(tip "fleet/$sid")
 [ "$(git -C "$tmp/gh/o/r.git" rev-parse "$c4^")" = "$c3" ] || fail "turn after abort did not continue"
-[ "$(ls "$home/.fleet/sessions/$sid/state/pi/sessions" | wc -l)" -eq 1 ] || fail "pi started a second session file"
-[ "$(grep -c '"type":"message"' "$home/.fleet/sessions/$sid/state/pi/sessions/"*.jsonl)" = 9 ] || fail "transcript should hold 9 turns (the aborted one is dropped)"
+[ "$(ls "$home/.pic/fleet/sessions/$sid/state/pi/sessions" | wc -l)" -eq 1 ] || fail "pi started a second session file"
+[ "$(grep -c '"type":"message"' "$home/.pic/fleet/sessions/$sid/state/pi/sessions/"*.jsonl)" = 9 ] || fail "transcript should hold 9 turns (the aborted one is dropped)"
 
 # A fork starts from the parent's last pushed commit, on its own branch.
 fid=$(api POST "/v1/sessions/$sid/fork" '{"key":"f1"}' | jq -r .sid)
@@ -206,7 +206,7 @@ start_fleetd
 has "$sid" 'node restarted' || fail "the dead turn was not recorded"
 say "$sid" i8 "write four"
 [ "$(git -C "$tmp/gh/o/r.git" rev-parse "$(tip "fleet/$sid")^")" = "$before" ] || fail "turn after restart did not continue the branch"
-[ "$(ls "$home/.fleet/sessions/$sid/state/pi/sessions" | wc -l)" -eq 1 ] || fail "restart started a second session file"
+[ "$(ls "$home/.pic/fleet/sessions/$sid/state/pi/sessions" | wc -l)" -eq 1 ] || fail "restart started a second session file"
 
 # pi-container/test/fleet-e2e.sh, the release's step 8, against this fleetd.
 printf '#!/bin/sh\necho "isolation: ok"\n' > "$tmp/bin/isolation"
@@ -231,7 +231,7 @@ idle "$osid"
 o1=$(st "$osid" commit)
 [ -n "$o1" ] || fail "offline turn recorded no commit: $(events "$osid" | tail -5)"
 [ -z "$(tip "fleet/$osid")" ] || fail "offline turn pushed to GitHub"
-b="$home/.fleet/sessions/$osid/state/repo.bundle"
+b="$home/.pic/fleet/sessions/$osid/state/repo.bundle"
 [ "$(git bundle list-heads "$b" | awk '{print $1}')" = "$o1" ] || fail "repo.bundle does not hold the turn's commit"
 say "$osid" off2 "write off2"
 o2=$(st "$osid" commit)

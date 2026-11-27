@@ -25,8 +25,8 @@ without it, zsh passes a trailing `# comment` to the command.
 | `fleetd` | `$T/fleet/bin/fleetd`, built by `build.sh fleet` |
 | Agent image | `pi-full:local`, built by `build.sh full`; `PI_IMAGE=min` or `zig` picks another |
 | Node config | `PI_IMAGE`, `PI_EGRESS`, `PI_MODEL_URL` in the shell that runs `pic serve`; `pic config` prints it, `GET /v1/node` serves it |
-| OpenRouter key, GitHub token | `~/.config/pi-container/env`, mode 600; only the proxy and the VM read them |
-| Sessions | `~/.fleet` (fixed); each turn's errors in `~/.fleet/sessions/<sid>/stderr-N.log` |
+| OpenRouter key, GitHub token | `~/.pic/config/env`, mode 600; only the proxy and the VM read them |
+| Sessions | `~/.pic/fleet` (fixed); each turn's errors in `~/.pic/fleet/sessions/<sid>/stderr-N.log` |
 | Code | branch `fleet/<sid>` in the repo you picked |
 
 ## 1. Command Line Tools and container
@@ -77,10 +77,10 @@ Contents: Read and write, nothing else. The token is inside the VM, so
 anything a turn runs can use it.
 
 ```sh
-mkdir -p ~/.config/pi-container
-printf 'OPENROUTER_API_KEY=\nGITHUB_TOKEN=\nGIT_AUTHOR_NAME=\nGIT_AUTHOR_EMAIL=\n' > ~/.config/pi-container/env
-chmod 600 ~/.config/pi-container/env
-open -e ~/.config/pi-container/env      # fill in the four values, save
+mkdir -p ~/.pic/config
+printf 'OPENROUTER_API_KEY=\nGITHUB_TOKEN=\nGIT_AUTHOR_NAME=\nGIT_AUTHOR_EMAIL=\n' > ~/.pic/config/env
+chmod 600 ~/.pic/config/env
+open -e ~/.pic/config/env      # fill in the four values, save
 pic check you/your-repo
 ```
 
@@ -122,7 +122,7 @@ URL=https://$(tailscale status --json | jq -r '.Self.DNSName | rtrimstr(".")')
 sessions() { curl -sS --fail-with-body "$URL/v1/sessions" | jq -r '.[] | .sid + "  " + (.title // "")'; }
 st() { curl -sS --fail-with-body "$URL/v1/sessions/${1:?usage: st SID}" | jq '{repo, branch, base, commit, running}'; }
 # GitHub API with the token from the env file (passed on stdin, not in ps):
-ghapi() { sed -n 's/^GITHUB_TOKEN=/Authorization: Bearer /p' ~/.config/pi-container/env |
+ghapi() { sed -n 's/^GITHUB_TOKEN=/Authorization: Bearer /p' ~/.pic/config/env |
   curl -sS --fail-with-body -H @- -H 'Accept: application/vnd.github+json' "https://api.github.com/repos/$1"; }
 tip() { ghapi "$1/git/ref/heads/$2" | jq -r .object.sha; }                                  # tip REPO BRANCH
 ghcat() { ghapi "$1/contents/$3?ref=$2" | jq -r '.content | gsub("\n"; "") | @base64d'; }   # ghcat REPO BRANCH PATH
@@ -224,7 +224,7 @@ pic serve --check                # ok config: image min, egress offline ...; no 
 - [ ] Start `pic serve`. `curl -sS "$URL/v1/node" | jq .config` prints
       `{"image":"min","egress":"offline","model_url":"http://gateway:8090"}`.
 - [ ] Spawn a scratch session (repo empty) with `Say hi`. It answers from
-      the local model; `~/.fleet/sessions/$sid/stderr-1.log` shows
+      the local model; `~/.pic/fleet/sessions/$sid/stderr-1.log` shows
       `image=pi-min:local pack=min` and `egress=offline`.
 - [ ] Spawn with a repo and no mirror: the turn fails, and
       `stderr-1.log` names the `git clone --mirror` command. Run it, spawn
@@ -253,11 +253,11 @@ cd $T && git pull && cd pi-container && ./build.sh full && ./build.sh fleet
 ```
 
 Then restart `pic serve`. After a Pi version change, `pic check` warns until
-`~/.config/pi-container/settings.json` matches: delete it (if you haven't
+`~/.pic/config/settings.json` matches: delete it (if you haven't
 edited it) and `pic` writes a new one.
 
-To remove: stop `pic serve`, then delete `~/.fleet` (every session) and
-`~/.config/pi-container/env`.
+To remove: stop `pic serve`, then delete `~/.pic/fleet` (every session) and
+`~/.pic/config/env`.
 
 ## Troubleshooting
 
@@ -277,9 +277,9 @@ body say what's wrong.
 | `409` on input | A turn is running; wait for it, or Abort. |
 | `push refused: ...` | The session's last event says why. |
 | `cannot check out fleet/<sid>` or `cannot fetch base` | The token can't read the repo, or the base commit was force-pushed away. |
-| Turn fails before Pi starts | `~/.fleet/sessions/<sid>/stderr-N.log` has `run.sh`'s message. |
+| Turn fails before Pi starts | `~/.pic/fleet/sessions/<sid>/stderr-N.log` has `run.sh`'s message. |
 | Turn exits 3 | Pi's saved session is gone or changed; fork from an earlier turn. |
-| A session shows `Unreadable` | Another `fleetd` version wrote its log. It's skipped and left as is; move `~/.fleet/sessions/<sid>` out to clear it. |
+| A session shows `Unreadable` | Another `fleetd` version wrote its log. It's skipped and left as is; move `~/.pic/fleet/sessions/<sid>` out to clear it. |
 | `fleet-<sid>` in `container ls` after a crash | Start `pic serve` again; it stops the leftover first. |
 | `ghapi` says `Bad credentials` or `Not Found` | The token is wrong, or the repo isn't in its list. |
 | Unreachable from the phone | The Mac is asleep or `pic serve` isn't running. |

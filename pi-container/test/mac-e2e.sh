@@ -11,9 +11,9 @@
 #            shared pi-full:local image and the builder cache, then rebuilds
 #
 # --repo is a private throwaway repo that the token in --env can push to.
-# The profile is PI_CONFIG_DIR, or ~/.config/pi-container-e2e-test when
-# unset (cleanup also makes and deletes ~/.config/pi-container-e2e-test2).
-# --env defaults to the profile's env file, else ~/.config/pi-container/env; a file other
+# The profile is PI_CONFIG_DIR, or ~/.pic/profiles/e2e-test when unset
+# (cleanup also makes and deletes ~/.pic/profiles/e2e-test2). --env defaults
+# to the profile's env file, else ~/.pic/config/env; a file other
 # than the profile's is copied in at mode 600. E2E.md prefers a token for
 # that repo only. The script never prints the key. E2E_ROOT (default
 # ~/.cache/pi-e2e) holds only disposable files: backups, scratch projects,
@@ -52,7 +52,7 @@ case " $phases " in
 esac
 
 root=${E2E_ROOT:-$HOME/.cache/pi-e2e}
-cfg=${PI_CONFIG_DIR:-$(pi_default_config_dir)-e2e-test}
+cfg=${PI_CONFIG_DIR:-$(pi_pic_home)/profiles/e2e-test}
 [ "$cfg" != "$(pi_default_config_dir)" ] || die "PI_CONFIG_DIR must not be the default profile"
 # With an existing profile and no --env, use the profile's own env file.
 if [ -z "$src_env" ]; then
@@ -60,9 +60,8 @@ if [ -z "$src_env" ]; then
 fi
 work=$root/work
 logs=$root/logs/$(date +%Y%m%d-%H%M%S)
-[ ! -e "$root/cfg" ] || die "an old E2E profile is still in $root/cfg; remove it: PI_CONFIG_DIR=$root/cfg $pc/clear.sh nuke profile && rm -rf $root/cfg"
 mkdir -p "$cfg" "$work" "$logs" "$root/backups"
-chmod 700 "$root" "$cfg"
+chmod 700 "$root" "$cfg" "$(pi_pic_home)"
 run=$pc/run.sh
 clear=$pc/clear.sh
 repo_name=${repo#*/}
@@ -321,7 +320,7 @@ phase_auto() {
 
   section "Mount guard"
   local d i=0
-  for d in / "$HOME" "$(dirname "$HOME")" "$HOME/Library" "$(pi_default_config_dir)" "$cfg"; do
+  for d in / "$HOME" "$(dirname "$HOME")" "$HOME/Library" "$(pi_pic_home)" "$(pi_default_config_dir)" "$cfg"; do
     i=$((i + 1))
     step "guard-$i" in_dir "$d" "$run" --manual true
     check "refuses to mount $d" sh -c '[ "$1" -ne 0 ] && grep -q "refusing\|must not overlap" "$2"' sh "$code" "$log"
@@ -333,7 +332,7 @@ phase_auto() {
     fi
   done
   step guard-default-cfg in_dir "$(pi_default_config_dir)" env PI_CONFIG_DIR="$cfg" "$run" --manual true
-  check "custom profile still refuses ~/.config/pi-container" test "$code" -ne 0
+  check "custom profile still refuses ~/.pic/config" test "$code" -ne 0
 
   section "Clone"
   local cvol
@@ -413,7 +412,7 @@ phase_cleanup() {
   default_started=$(started "$(pi_proxy_name "$(pi_default_config_dir)")")
   host_env=$(hash_of "$(pi_default_config_dir)/env")
   host_settings=$(hash_of "$(pi_default_config_dir)/settings.json")
-  cfg2=$(pi_default_config_dir)-e2e-test2
+  cfg2=$(pi_pic_home)/profiles/e2e-test2
   [ ! -e "$cfg2" ] || die "$cfg2 exists; cleanup makes and deletes it, so move it away first"
   mkdir -p "$cfg2"
   (umask 077 && cp "$PI_ENV_FILE" "$cfg2/env")

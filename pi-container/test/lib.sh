@@ -6,6 +6,8 @@
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 root=$(CDPATH= cd -- "$here/.." && pwd -P)
 fixtures="$here/fixtures/container"
+# A developer's PIC_HOME must not leak into a hermetic test.
+unset PIC_HOME
 
 t_pass=0
 t_fail=0

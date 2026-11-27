@@ -5,6 +5,7 @@ set -uo pipefail
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 . "$here/lib.sh"
 . "$root/lib/validate.sh"
+. "$root/lib/paths.sh"
 . "$root/lib/config.sh"
 
 tmp=$(mktemp -d)
@@ -45,3 +46,21 @@ eq "min offline http://gateway:8090 pi-min:local null" \
 eq "env flag default" "$(jq -r '"\(.source.image) \(.source.egress) \(.source.model_url)"' <<<"$json")" "json sources"
 
 finish
+
+o="$tmp/overrides.env"
+load() { # content -> "status|PI_BACKUP_DIR|PI_ENV_FILE|error"
+  printf '%b' "$1" > "$o"; chmod 600 "$o"
+  (unset PI_BACKUP_DIR PI_ENV_FILE; ${2:+export PI_ENV_FILE=$2}
+   pi_overrides_load "$o"; printf '%s|%s|%s|%s' "$?" "${PI_BACKUP_DIR:-}" "${PI_ENV_FILE:-}" "$pi_overrides_error")
+}
+eq "0|/b|/e|" "$(load '# pic overrides v1, written x\n# moved a -> b\n\nPI_BACKUP_DIR=/b\nPI_ENV_FILE=/e\n')" "overrides set path keys"
+eq "0|/b|/mine|" "$(load '# pic overrides v1\nPI_BACKUP_DIR=/b\nPI_ENV_FILE=/e' /mine)" "an env var beats overrides.env"
+eq "0|||" "$(pi_overrides_load "$tmp/absent"; printf '%s|||' "$?")" "no overrides.env is fine"
+for bad in '# pic overrides v2\n' '' 'PI_BACKUP_DIR=/b\n' '# pic overrides v1\nPI_IMAGE=/min\n' \
+           '# pic overrides v1\nPI_BACKUP_DIR=rel\n' '# pic overrides v1\nPI_BACKUP_DIR\n' '# pic overrides v10\n'; do
+  case $(load "$bad") in 1*) pass ;; *) fail "overrides.env accepted [$bad]" ;; esac
+done
+printf '# pic overrides v1\n' > "$o"; chmod 644 "$o"
+pi_overrides_load "$o" && fail "a mode-644 overrides.env was read" || pass
+ln -s "$o" "$tmp/link.env"
+pi_overrides_load "$tmp/link.env" && fail "a symlinked overrides.env was read" || pass

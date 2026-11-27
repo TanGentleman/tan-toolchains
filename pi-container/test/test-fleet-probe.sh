@@ -113,18 +113,18 @@ eq 3 "$?" "HTTPS_PROXY unset: exit"
 iso() { # expected-exit, label, gateway
   local h=$tmp/iso w=$tmp/iso/world bin=$tmp/iso/bin
   rm -rf "$h"
-  mkdir -p "$h/home/.fleet/sessions/s1/state" "$h/home/.config/pi-container/certs" "$h/home/.config/pi-container/private" \
+  mkdir -p "$h/home/.pic/fleet/sessions/s1/state" "$h/home/.pic/config/certs" "$h/home/.pic/config/private" \
     "$w/images" "$w/networks" "$w/containers" "$h/disk" "$bin"
-  : > "$h/home/.config/pi-container/certs/ca.pem"
-  printf 'OPENROUTER_API_KEY=sk-or-v1-real\nGITHUB_TOKEN=t\n' > "$h/home/.config/pi-container/env"
-  chmod 600 "$h/home/.config/pi-container/env"
+  : > "$h/home/.pic/config/certs/ca.pem"
+  printf 'OPENROUTER_API_KEY=sk-or-v1-real\nGITHUB_TOKEN=t\n' > "$h/home/.pic/config/env"
+  chmod 600 "$h/home/.pic/config/env"
   img='[{"id":"sha256:t","configuration":{"descriptor":{"digest":"sha256:t"},"name":"pi-agent:local"},"variants":[{"config":{"config":{"Env":["PI_CONTAINER_PI_VERSION=1.6.0","PI_CONTAINER_CAPABILITIES=pi,netlock"]},"history":[]}}]}]'
   printf '%s' "$img" > "$w/images/pi-full_local.json"
   printf '%s' "$img" > "$w/images/pi-proxy_local.json"
   printf '[{"configuration":{"name":"pi-locked","mode":"hostOnly","ipv4Subnet":"172.30.240.0/24"},"id":"pi-locked","status":{"ipv4Gateway":"%s","ipv4Subnet":"172.30.240.0/24"}}]' "$3" > "$w/networks/pi-locked.json"
   printf 'pi-locked\n' > "$w/networks.list"
   printf '[{"id":"pi-proxy","configuration":{"name":"pi-proxy"},"status":{"state":"running"}}]' > "$w/containers/pi-proxy.json"
-  printf '127.0.0.1\n' > "$h/home/.config/pi-container/private/proxy.addr"
+  printf '127.0.0.1\n' > "$h/home/.pic/config/private/proxy.addr"
   printf '#!/bin/sh\ncase "$*" in "ip -4") echo %s ;; "status --json") echo '"'"'{"Peer":{"a":{"Online":true,"TailscaleIPs":["%s"]}}}'"'"' ;; *) exit 1 ;; esac\n' \
     "$blackhole" "$blackhole" > "$bin/tailscale"
   printf '#!/bin/sh\necho "COMMAND PID USER FD TYPE DEVICE SIZE NODE NAME"\necho "web 1 u 3u IPv4 0 0t0 TCP *:%s (LISTEN)"\necho "fleetd 2 u 3u IPv4 0 0t0 TCP 127.0.0.1:7433 (LISTEN)"\n' "$open" > "$bin/lsof"

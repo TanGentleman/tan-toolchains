@@ -11,7 +11,7 @@ own agent volume (the default profile uses `pi-agent-<name>`), so sessions,
 `auth.json`, and installed extensions do not collide. The settings file, proxy,
 network, port, and OpenRouter key stay shared.
 
-`PI_CONFIG_DIR` selects a profile. The default is `~/.config/pi-container`;
+`PI_CONFIG_DIR` selects a profile. The default is `~/.pic/config`;
 another directory gets its own settings, env file, proxy, host-only network,
 subnet, proxy image, agent volumes, and clone volumes. The active image and
 builder cache stay machine-wide; `PI_IMAGE` picks the image per run.
@@ -41,7 +41,7 @@ instances also share the Neovim paths in [Manual mode](manual.md); use the
 
 ## Manage
 
-`clear.sh` saves sessions to `~/pi-backups/sessions-<time>/` before any reset.
+`clear.sh` saves sessions to `~/.pic/backups/sessions-<time>/` before any reset.
 
 ```bash
 ./clear.sh list                                   # profiles, instances, sessions, clones
@@ -72,7 +72,7 @@ then deletes the active image (`--image`, else `PI_IMAGE`, else
 `pi-full:local`) and the builder cache. It keeps other profiles and other pack
 tags. The active image is machine-wide, so other profiles using it still need
 to rebuild. It does not delete the Neovim host paths under `$PI_CONFIG_DIR`
-(default `~/.config/pi-container/`). The next `./run.sh` fails until you rebuild
+(default `~/.pic/config/`). The next `./run.sh` fails until you rebuild
 the active pack:
 
 ```bash
@@ -101,8 +101,8 @@ Run from `pi-container/`, with every `pic` and `pic serve` stopped.
    ```bash
    ./clear.sh save                              # default instance
    ./clear.sh save --instance work
-   find ~/pi-backups -name '*.jsonl' | wc -l
-   cp -a ~/.fleet ~/pi-backups/fleet-$(date +%Y%m%d)   # fleet sessions, if you run pic serve
+   find ~/.pic/backups -name '*.jsonl' | wc -l
+   cp -a ~/.pic/fleet ~/.pic/backups/fleet-$(date +%Y%m%d)   # fleet sessions, if you run pic serve
    ```
 3. Delete the profile (every instance's agent volume, saved again first, its
    clone volumes, proxy, network and proxy image), the shared agent image and
@@ -116,13 +116,41 @@ Run from `pi-container/`, with every `pic` and `pic serve` stopped.
    version and default model, then rebuild and check:
 
    ```bash
-   rm ~/.config/pi-container/settings.json      # only if you have not edited it; otherwise update lastChangelogVersion
+   rm ~/.pic/config/settings.json      # only if you have not edited it; otherwise update lastChangelogVersion
    ./build.sh full                              # or the pack you use
    ./build.sh fleet                             # if you run pic serve
    ./run.sh check you/your-repo                 # "settings lastChangelogVersion is current"
    ```
 
-`~/.config/pi-container/env`, `~/pi-backups` and `~/.fleet` are never touched.
+`~/.pic/config/env`, `~/.pic/backups` and `~/.pic/fleet` are never touched.
+
+## Moving from v7
+
+v7 kept files in `~/.config/pi-container`, `~/pi-backups` and `~/.fleet`.
+Quit Pi, stop `pic serve` and `pic proxy-stop`, then:
+
+```bash
+pic migrate
+```
+
+It exits early if `~/.pic` exists (`PIC_HOME=/elsewhere pic migrate` targets
+another root; keep `PIC_HOME` set after). It asks for each path, defaulting to
+v7's, and `-` skips one; it shows the plan and asks before it changes
+anything:
+
+- The default profile moves to `~/.pic/config`. Its proxy, network and
+  volumes keep their names, so sessions and clones stay.
+- Backups move to `~/.pic/backups`, or stay where they are, recorded as
+  `PI_BACKUP_DIR` in `~/.pic/overrides.env`.
+- Fleet data moves to `~/.pic/fleet`.
+- Each `~/.config/pi-container-NAME` you accept moves to
+  `~/.pic/profiles/NAME`, after `clear.sh nuke profile` on it: its names hash
+  its path, so its sessions are saved and its volumes, proxy and network are
+  deleted. Unpushed work in its clones is lost.
+
+Moves use `mv` and are refused across filesystems, so keys are never copied.
+`overrides.env` records each move with the time and commit. Then run
+`./clear.sh list` and `pic check`.
 
 ## Retiring a profile
 
@@ -133,8 +161,8 @@ the builder cache, other profiles, and the config directory itself, so the
 other profiles do not need a rebuild.
 
 ```bash
-PI_CONFIG_DIR=~/.config/pi-container-work ./clear.sh nuke profile
-rm -rf ~/.config/pi-container-work        # only when the directory is retired
+PI_CONFIG_DIR=~/.pic/profiles/work ./clear.sh nuke profile
+rm -rf ~/.pic/profiles/work        # only when the directory is retired
 ```
 
 Every name in the stack derives from the config path, so a profile is still

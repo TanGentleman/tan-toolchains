@@ -8,6 +8,9 @@ Three settings decide a run: the image (`min`, `full`, `zig`), the egress profil
 
 ## Setup
 
+Upgrading from v7 (`~/.config/pi-container`)? Run `pic migrate` first:
+see [operations.md](docs/operations.md#moving-from-v7).
+
 The [playbooks](../docs/playbooks.md) cover setup and the common uses; this is the reference.
 
 Install what the [root README's Setup](../README.md#setup) lists for every
@@ -19,8 +22,8 @@ container system start
 git clone https://github.com/TanGentleman/tan-toolchains
 cd tan-toolchains/pi-container
 
-mkdir -p ~/.config/pi-container
-cat > ~/.config/pi-container/env <<'EOF'
+mkdir -p ~/.pic/config
+cat > ~/.pic/config/env <<'EOF'
 OPENROUTER_API_KEY=
 
 # Optional: GitHub and commit identity. The min image and offline egress do not use the token.
@@ -29,8 +32,8 @@ OPENROUTER_API_KEY=
 # GIT_AUTHOR_NAME=
 # GIT_AUTHOR_EMAIL=
 EOF
-chmod 600 ~/.config/pi-container/env
-open -e ~/.config/pi-container/env
+chmod 600 ~/.pic/config/env
+open -e ~/.pic/config/env
 
 ./build.sh full
 ./run.sh check you/your-repo
@@ -144,4 +147,4 @@ The default mode mounts the current folder. Use it only for repos you trust; use
 - Zig 0.17's `std.http.Client` mishandles HTTPS through a CONNECT proxy, so dev-time `zig fetch` inside the container can fail. This is a container limitation, not a reason to add network code to a shipped tool.
 - `run.sh` refuses to mount `~`, `/`, ancestors of `~`, secrets directories, or anything overlapping the current/default config directory or its env/settings files.
 - `--clone` keeps the repo in a volume until you `git push`; uncommitted changes stay outside. Clone volumes are named per profile and instance.
-- `--fleet-state DIR` (used by `pi-ctr`) keeps no volume: the clone and Pi's agent dir go with the VM, and only `DIR`, a real directory below `~/.fleet/sessions`, is mounted.
+- `--fleet-state DIR` (used by `pi-ctr`) keeps no volume: the clone and Pi's agent dir go with the VM, and only `DIR`, a real directory below `~/.pic/fleet/sessions`, is mounted.

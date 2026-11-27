@@ -22,7 +22,7 @@ sid=${1:-}
 case $sid in
   '' | *[!a-z0-9-]*) die "usage: test/fleet-isolation.sh SID (a session id from the phone URL, after #)" ;;
 esac
-state="$HOME/.fleet/sessions/$sid/state"
+state="$HOME/.pic/fleet/sessions/$sid/state"
 [ -d "$state" ] || die "no $state; spawn a session and let one turn finish"
 for c in tailscale jq container lsof; do
   command -v "$c" >/dev/null 2>&1 || die "$c not found"

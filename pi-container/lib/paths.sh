@@ -63,3 +63,23 @@ pi_path_within() { # parent, child
 pi_mirror_ready() { # path
   [ -d "$1" ] && [ ! -L "$1" ] && [ -f "$1/HEAD" ] && [ -d "$1/objects" ] && [ -d "$1/refs" ]
 }
+
+# The v7 locations pic migrate moves into $PIC_HOME. Prints each that still
+# exists, except the backup dir in use (kept by overrides.env or PI_BACKUP_DIR).
+pi_legacy_paths() { # backup dir in use
+  local h=${HOME%/} p
+  for p in "$h/.config/pi-container" "$h/pi-backups" "$h/.fleet"; do
+    [ -e "$p" ] || [ -L "$p" ] || continue
+    [ "$p" = "${1%/}" ] && continue
+    printf '%s\n' "$p"
+  done
+}
+
+# Device number, to refuse a move that would copy across filesystems.
+pi_path_dev() { # path
+  if stat -c %d "$1" >/dev/null 2>&1; then
+    stat -c %d "$1"
+  else
+    stat -f %d "$1"
+  fi
+}

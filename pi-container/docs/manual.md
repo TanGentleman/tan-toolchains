@@ -27,10 +27,10 @@ Neovim paths:
 
 | Host | Container |
 | ---- | --------- |
-| `~/.config/pi-container/nvim` | `/root/.config/nvim` |
-| `~/.config/pi-container/nvim-data` | `/root/.local/share/nvim` |
-| `~/.config/pi-container/nvim-state` | `/root/.local/state/nvim` |
-| `~/.config/pi-container/nvim-cache` | `/root/.cache/nvim` |
+| `~/.pic/config/nvim` | `/root/.config/nvim` |
+| `~/.pic/config/nvim-data` | `/root/.local/share/nvim` |
+| `~/.pic/config/nvim-state` | `/root/.local/state/nvim` |
+| `~/.pic/config/nvim-cache` | `/root/.cache/nvim` |
 
 `run.sh` seeds `init.lua` once from [`nvim/init.lua`](../nvim/init.lua) and never
 overwrites an existing `init.lua` or `init.vim`. The stock config only enables

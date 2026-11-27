@@ -13,6 +13,7 @@ set -uo pipefail
 
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 . "$here/lib.sh"
+. "$root/lib/paths.sh"
 
 run_sh="$root/run.sh"
 clear_sh="$root/clear.sh"
@@ -26,7 +27,7 @@ unset PI_INSTANCE PI_CLONE PI_PROXY_PORT PI_PROXY_NAME PI_NETWORK_NAME \
   PI_PROXY_IMAGE PI_LOCKED_SUBNET PI_AGENT_VOLUME PI_SETTINGS_FILE \
   PI_SKIP_HOST_SETUP PI_SKIP_PROXY_IP PI_BACKUP_DIR PI_CONFIG_DIR PI_ENV_FILE \
   PI_NVIM_CONFIG PI_NVIM_DATA PI_NVIM_STATE PI_NVIM_CACHE \
-  PI_CPUS PI_MEMORY PI_PROXY_WAIT PI_LOCK_WAIT PI_SOURCE_ONLY TZ COLORTERM
+  PI_CPUS PI_MEMORY PI_PROXY_WAIT PI_LOCK_WAIT PI_SOURCE_ONLY TZ COLORTERM PIC_HOME
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -82,7 +83,7 @@ new_case() { # name
   t="$tmp/$1"
   home="$t/home"
   # Use the default profile so names stay pi-locked/pi-proxy/pi-agent-home.
-  cfg="$home/.config/pi-container"
+  cfg="$home/.pic/config"
   world="$t/world"
   logfile="$t/log"
   case_env=""
@@ -134,7 +135,7 @@ proxy_running_json() {
 }
 
 # Run a pi-container script in the isolated world. The default profile is used,
-# so PI_CONFIG_DIR stays unset and cfg resolves to $HOME/.config/pi-container.
+# so PI_CONFIG_DIR stays unset and cfg resolves to $HOME/.pic/config.
 # $case_env is the case's PI_IMAGE/PI_EGRESS/PI_MODEL_URL, e.g. as an alias sets them.
 pi() { # script, args...
   local script=$1
@@ -483,7 +484,7 @@ case_clear_list_legacy_volume() {
   expect_status 0 "clear.sh list tolerates a legacy volume"
   row=$(printf '%s\n' "$(o)" | grep 'pi-agent-home' | head -n 1)
   contains 'pi-agent-home' "$row" "legacy volume listed"
-  contains "$home/.config/pi-container/settings.json" "$row" "legacy volume uses the default profile settings"
+  contains "$home/.pic/config/settings.json" "$row" "legacy volume uses the default profile settings"
   not_contains "$t/other/settings.json" "$row" "legacy volume does not borrow the listing profile"
 }
 
@@ -738,8 +739,8 @@ case_netlock_modes() {
   new_case netlock
   fleet_world
   local st
-  mkdir -p "$home/.fleet/sessions/s1/state"
-  st=$(cd "$home/.fleet/sessions/s1/state" && pwd -P)
+  mkdir -p "$home/.pic/fleet/sessions/s1/state"
+  st=$(cd "$home/.pic/fleet/sessions/s1/state" && pwd -P)
   (cd "$t/project" && pi "$run_sh" pi)
   expect_status 0 "locked normal run"
   expect_locked "normal"
@@ -773,8 +774,8 @@ case_netlock_capability() {
   fleet_world
   image_json 1.4.0 "zig,zigpeek,enforcer,pi,gh" > "$world/images/pi-full_local.json"
   local st cmd
-  mkdir -p "$home/.fleet/sessions/s1/state"
-  st=$(cd "$home/.fleet/sessions/s1/state" && pwd -P)
+  mkdir -p "$home/.pic/fleet/sessions/s1/state"
+  st=$(cd "$home/.pic/fleet/sessions/s1/state" && pwd -P)
   for cmd in "pi" "check owner/repo" "--fleet-state $st pi"; do
     : > "$logfile"
     # shellcheck disable=SC2086
@@ -805,8 +806,8 @@ case_fleet_state() {
   new_case fleet
   fleet_world
   local st
-  mkdir -p "$home/.fleet/sessions/s1/state"
-  st=$(cd "$home/.fleet/sessions/s1/state" && pwd -P)
+  mkdir -p "$home/.pic/fleet/sessions/s1/state"
+  st=$(cd "$home/.pic/fleet/sessions/s1/state" && pwd -P)
   (
     cd "$t/project" || exit 1
     pi "$run_sh" --fleet-state "$st" --clone owner/repo pi --mode json
@@ -844,12 +845,12 @@ case_fleet_state() {
   [ "${del_line:-0}" -gt 0 ] && [ "$del_line" -lt "${run_line:-0}" ] && pass || fail "delete comes before run"
 
   : > "$logfile"
-  mkdir -p "$t/outside" "$home/.fleet/sessions/s2"
-  ln -s "$t/outside" "$home/.fleet/sessions/s2/state"
+  mkdir -p "$t/outside" "$home/.pic/fleet/sessions/s2"
+  ln -s "$t/outside" "$home/.pic/fleet/sessions/s2/state"
   ln -s "$t/outside" "$t/link"
   local bad
-  for bad in "$t/outside" "$home/.fleet/sessions" "$home/.fleet/sessions/s2/state" "$home/.fleet/sessions/../../outside" \
-             "$home/.fleet/sessions/missing" "relative/path"; do
+  for bad in "$t/outside" "$home/.pic/fleet/sessions" "$home/.pic/fleet/sessions/s2/state" "$home/.pic/fleet/sessions/../../outside" \
+             "$home/.pic/fleet/sessions/missing" "relative/path"; do
     (
       cd "$t/project" || exit 1
       pi "$run_sh" --fleet-state "$bad" pi
@@ -1149,8 +1150,8 @@ case_min() {
   fleet_world
   image_json 1.4.0 "netlock,pi" > "$world/images/pi-min_local.json"
   local st cmd
-  mkdir -p "$home/.fleet/sessions/s1/state"
-  st=$(cd "$home/.fleet/sessions/s1/state" && pwd -P)
+  mkdir -p "$home/.pic/fleet/sessions/s1/state"
+  st=$(cd "$home/.pic/fleet/sessions/s1/state" && pwd -P)
   for cmd in "pi" "check owner/repo" "--fleet-state $st --clone owner/repo pi --mode json"; do
     : > "$logfile"
     # shellcheck disable=SC2086
@@ -1397,6 +1398,109 @@ case_offline_check() {
 }
 
 # ------------------------------------------------------------------- drivers
+# ---------------------------------------------------------------- ~/.pic
+case_pic_home() {
+  new_case pichome
+  local old
+  for old in .config/pi-container pi-backups .fleet; do
+    mkdir -p "$home/$old"
+    pi "$run_sh" config
+    expect_status 2 "run.sh refuses a leftover ~/$old"
+    contains "run pic migrate to move $home/$old" "$(e)" "the refusal names ~/$old"
+    pi "$clear_sh" list
+    expect_status 1 "clear.sh refuses a leftover ~/$old"
+    contains "pic migrate" "$(e)" "clear.sh names pic migrate for ~/$old"
+    rmdir "$home/$old"
+  done
+  mkdir -p "$home/pi-backups"
+  printf '# pic overrides v1, written x by pic migrate at y\nPI_BACKUP_DIR=%s\n' "$home/pi-backups" > "$home/.pic/overrides.env"
+  chmod 600 "$home/.pic/overrides.env"
+  pi "$run_sh" config
+  expect_status 0 "backups kept by overrides.env are not refused"
+  chmod 644 "$home/.pic/overrides.env"
+  pi "$run_sh" config
+  expect_status 2 "a group-readable overrides.env is refused"
+  contains "overrides.env must be mode 600" "$(e)" "the refusal names the mode"
+  pi "$clear_sh" list
+  expect_status 2 "clear.sh refuses it too"
+  printf '# pic overrides v2\n' > "$home/.pic/overrides.env"
+  chmod 600 "$home/.pic/overrides.env"
+  pi "$run_sh" config
+  expect_status 2 "another overrides.env version is refused"
+  contains "reads only v1" "$(e)" "the refusal names the version"
+  rm -f "$home/.pic/overrides.env" && rmdir "$home/pi-backups"
+  mkdir -p "$home/.pic/profiles/x/proj"
+  (cd "$home/.pic/profiles/x/proj" && pi "$run_sh" pi)
+  expect_status 1 "refuses to mount a folder in ~/.pic"
+  contains "holds every profile's keys" "$(e)" "the mount refusal names ~/.pic"
+}
+
+# A v7 layout: the default profile, backups, fleet data and profile "dev".
+v7_home() { # name
+  t="$tmp/$1" home="$t/home" world="$t/world" logfile="$t/log"
+  mkdir -p "$home/.config/pi-container/private" "$home/pi-backups/20260101" "$home/.fleet/sessions/s1" \
+    "$home/.config/pi-container-dev" "$world/images" "$world/networks" "$world/containers" "$world/volumes"
+  printf 'OPENROUTER_API_KEY=sk-or-v1-real\n' > "$home/.config/pi-container/env"
+  chmod 600 "$home/.config/pi-container/env"
+  : > "$home/pi-backups/20260101/s.jsonl"
+}
+
+migrate() { # answers
+  printf '%b' "$1" | run_it env HOME="$home" CONTAINER_CLI="$fake" FAKE_CONTAINER_WORLD="$world" \
+    FAKE_CONTAINER_LOG="$logfile" bash "$run_sh" migrate
+}
+
+case_migrate() {
+  v7_home migrate
+  # profile, backups, keep?, fleet, another profile, move dev?, go ahead?
+  migrate '\n\nn\n\n-\ny\ny\n'
+  expect_status 0 "migrate moves a v7 layout"
+  [ -f "$home/.pic/config/env" ] && pass || fail "the env file moved with the default profile"
+  [ -f "$home/.pic/backups/20260101/s.jsonl" ] && pass || fail "backups moved"
+  [ -d "$home/.pic/fleet/sessions/s1" ] && pass || fail "fleet data moved"
+  [ -d "$home/.pic/profiles/dev" ] && pass || fail "profile dev moved"
+  [ ! -e "$home/.config/pi-container" ] && [ ! -e "$home/pi-backups" ] && [ ! -e "$home/.fleet" ] &&
+    [ ! -e "$home/.config/pi-container-dev" ] && pass || fail "a v7 path is left behind"
+  eq 700 "$(pi_file_mode "$home/.pic")" "~/.pic is mode 700"
+  eq 600 "$(pi_file_mode "$home/.pic/overrides.env")" "overrides.env is mode 600"
+  contains "# pic overrides v1, written " "$(head -n 1 "$home/.pic/overrides.env")" "overrides.env has the v1 header"
+  contains "# moved $home/.config/pi-container-dev -> $home/.pic/profiles/dev" "$(cat "$home/.pic/overrides.env")" "overrides.env records the moves"
+  not_contains "PI_BACKUP_DIR" "$(cat "$home/.pic/overrides.env")" "nothing kept, nothing overridden"
+  not_contains "sk-or-v1-real" "$(o)$(e)" "migrate prints no key"
+  run_it env HOME="$home" PI_ENV_FILE="$home/.pic/config/env" bash "$run_sh" config
+  expect_status 0 "run.sh runs after the migration"
+  migrate '\n'
+  expect_status 1 "a second migrate exits early"
+  contains "already exists" "$(e)" "it names the existing ~/.pic"
+
+  v7_home migrate-keep
+  migrate '\n\ny\n\n-\nn\ny\n'
+  expect_status 0 "migrate keeps the backups when asked"
+  [ -f "$home/pi-backups/20260101/s.jsonl" ] && pass || fail "kept backups stay"
+  contains "PI_BACKUP_DIR=$home/pi-backups" "$(cat "$home/.pic/overrides.env")" "overrides.env names the kept backups"
+  [ -d "$home/.config/pi-container-dev" ] && pass || fail "a declined profile stays"
+  run_it env HOME="$home" PI_ENV_FILE="$home/.pic/config/env" bash "$run_sh" config
+  expect_status 0 "kept backups don't block run.sh"
+
+  v7_home migrate-abort
+  migrate '\n\nn\n\n-\nn\nn\n'
+  expect_status 1 "declining the plan aborts"
+  [ ! -e "$home/.pic" ] && [ -d "$home/.config/pi-container" ] && pass || fail "an aborted migrate changed something"
+
+  v7_home migrate-proxy
+  proxy_running_json > "$world/containers/pi-proxy.json"
+  migrate '\n\nn\n\n-\ny\ny\n'
+  expect_status 1 "migrate refuses while pi-proxy runs"
+  contains "pic proxy-stop" "$(e)" "the refusal says how to stop it"
+  [ ! -e "$home/.pic" ] && pass || fail "a refused migrate created ~/.pic"
+
+  v7_home migrate-v2
+  mkdir -p "$home/.pic"
+  migrate '\n'
+  expect_status 1 "migrate exits early when ~/.pic exists"
+  [ -d "$home/.config/pi-container" ] && pass || fail "an early exit moved something"
+}
+
 for c in case_normal_run case_check_enforcer case_tokenless_run case_tokenless_check case_pack_missing_pi \
          case_egress_run case_egress_clone case_egress_refusals case_egress_requires_key \
          case_network_nat_refused case_network_escaped_subnet \
@@ -1408,7 +1512,8 @@ for c in case_normal_run case_check_enforcer case_tokenless_run case_tokenless_c
          case_option_guards case_nuke_all case_mount_guards case_fleet_state case_pi_ctr_stop \
          case_netlock_modes case_netlock_capability case_proxy_running_no_addr case_model_url \
          case_config_command case_images_command \
-         case_min case_enforcer_check_script case_offline_run case_offline_refusals case_offline_check; do
+         case_min case_enforcer_check_script case_offline_run case_offline_refusals case_offline_check \
+         case_pic_home case_migrate; do
   "$c"
 done
 
