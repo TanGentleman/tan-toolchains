@@ -48,7 +48,7 @@ fi
 if json=$("$cli" inspect pi-proxy 2>/dev/null); then
   case $(printf '%s\n' "$json" | pi_proxy_state_from_json) in
     stopped) ;;
-    *) die "pi-proxy is running (or its state is unknown); quit Pi, then: pic proxy-stop" ;;
+    *) die "pi-proxy is running (or its state is unknown); quit Pi, then: ${cli##*/} stop pi-proxy" ;;
   esac
 fi
 

@@ -1491,7 +1491,7 @@ case_migrate() {
   proxy_running_json > "$world/containers/pi-proxy.json"
   migrate '\n\nn\n\n-\ny\ny\n'
   expect_status 1 "migrate refuses while pi-proxy runs"
-  contains "pic proxy-stop" "$(e)" "the refusal says how to stop it"
+  contains "stop pi-proxy" "$(e)" "the refusal says how to stop it"
   [ ! -e "$home/.pic" ] && pass || fail "a refused migrate created ~/.pic"
 
   v7_home migrate-v2

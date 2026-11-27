@@ -127,7 +127,8 @@ Run from `pi-container/`, with every `pic` and `pic serve` stopped.
 ## Moving from v7
 
 v7 kept files in `~/.config/pi-container`, `~/pi-backups` and `~/.fleet`.
-Quit Pi, stop `pic serve` and `pic proxy-stop`, then:
+Quit Pi, stop `pic serve`, and `container stop pi-proxy` (v7 paths make
+`pic proxy-stop` refuse), then:
 
 ```bash
 pic migrate
