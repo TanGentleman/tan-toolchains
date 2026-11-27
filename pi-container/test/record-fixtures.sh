@@ -10,7 +10,11 @@
 #   ./test/record-fixtures.sh
 #
 # Captures are written to a temporary file and moved into place only after they
-# parse as JSON. A failed capture leaves the existing fixture untouched. Files
+# parse as JSON and pass through test/fixture-scrub.jq: $HOME and the user's
+# home path become `$HOME`, the host name becomes `mac`, env values from env
+# files, token-shaped strings, MAC addresses, IPv6 and every IPv4 outside the
+# container networks are replaced. A capture that still contains the home path
+# or a token after that is not written. A failed capture leaves the existing fixture untouched. Files
 # this script does not record are hand-built; see fixtures/container/README.md.
 set -euo pipefail
 
@@ -28,6 +32,10 @@ provenance="$out/provenance.txt"
 vol=""
 tmpdir=$(mktemp -d "${TMPDIR:-/tmp}/pi-fixtures.XXXXXX")
 status=0
+user=$(id -un)
+keep=$(for n in "$network" default; do
+  "$cli" network inspect "$n" 2>/dev/null | jq -r '.[0] | .status.ipv4Subnet // .configuration.ipv4Subnet // empty'
+done | sed -n 's/^\([0-9]*\.[0-9]*\.[0-9]*\)\..*/\1/p' | jq -R . | jq -sc .)
 
 cleanup() {
   if [ -n "$vol" ]; then
@@ -51,18 +59,29 @@ say() { printf '%s\n' "$*" | tee -a "$provenance"; }
 
 say "Captured $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 say "CLI: $("$cli" --version 2>/dev/null | head -n 1 || true)"
-say "Profile: $cfg"
+say "Profile: ${cfg/#"${HOME%/}"/\$HOME}"
 say ""
 
 capture() { # relative-file, command...
   local file=$1
   shift
   local tmp="$tmpdir/${file##*/}.$$" err="$tmpdir/${file##*/}.err" detail
-  if "$@" >"$tmp" 2>"$err" && jq -e . "$tmp" >/dev/null 2>&1; then
-    mv "$tmp" "$out/$file"
+  if "$@" >"$tmp" 2>"$err" && jq -e . "$tmp" >/dev/null 2>&1 &&
+    jq --arg home "${HOME%/}" --arg user "$user" --arg host "$(hostname -s 2>/dev/null)" \
+      --arg fqdn "$(hostname 2>/dev/null)" --argjson keep "${keep:-[]}" \
+      -f "$here/fixture-scrub.jq" "$tmp" >"$tmp.scrubbed"; then
+    if grep -qF -e "${HOME%/}/" -e "/Users/$user/" "$tmp.scrubbed" ||
+      grep -qE 'sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{8,}|github_pat_|tskey-' "$tmp.scrubbed"; then
+      rm -f "$tmp" "$tmp.scrubbed"
+      say "kept $file  (the scrubbed capture still names your home or a token; not written)"
+      status=1
+      return 0
+    fi
+    mv "$tmp.scrubbed" "$out/$file"
+    rm -f "$tmp"
     say "wrote $file  <- $*"
   else
-    rm -f "$tmp"
+    rm -f "$tmp" "$tmp.scrubbed"
     detail=$(sed -n '1p' "$err" 2>/dev/null || true)
     if [ -e "$out/$file" ]; then
       say "kept $file  ($* failed or invalid JSON${detail:+: $detail})"

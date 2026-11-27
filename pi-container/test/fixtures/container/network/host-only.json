@@ -13,7 +13,7 @@
     "status": {
       "ipv4Gateway": "172.30.240.1",
       "ipv4Subnet": "172.30.240.0/24",
-      "ipv6Subnet": "fd06:e6ac:b2a8:275b::/64"
+      "ipv6Subnet": "2001:db8::/64"
     }
   }
 ]

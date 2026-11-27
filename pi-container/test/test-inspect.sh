@@ -142,4 +142,23 @@ eq "" "$(printf '[{"status":{}}]' | pi_network_gateway_from_json)" "absent gatew
 eq "" "$(printf '[{"status":{"ipv4Gateway":7}}]' | pi_network_gateway_from_json)" "non-string gateway is empty"
 eq "" "$(printf 'nope' | pi_network_gateway_from_json)" "bad JSON gives no gateway"
 
+# --- fixture scrub (record-fixtures.sh) --------------------------------------
+scrub() { jq -c --arg home /Users/tan --arg user tan --arg host Tan --arg fqdn Tan.local \
+  --argjson keep '["172.30.240","192.168.64"]' -f "$here/fixture-scrub.jq"; }
+dirty='[{"configuration":{"initProcess":{"environment":["PATH=/usr/bin","OPENROUTER_API_KEY=sk-or-v1-abcdefghijkl","PI_X=1"]},"hostname":"Tan","labels":{"pi.repo":"TanGentleman/tan-toolchains","pi.config":"/Users/tan/.pic/config"},"dns":["192.168.1.1"],"note":"Tan.local ghp_abcdefghijk"},"status":{"networks":[{"ipv4Address":"172.30.240.4/24","ipv6Address":"fd06:e6ac:b2a8:275b::4/64","macAddress":"8a:1b:2c:3d:4e:5f"}],"startedDate":"2026-10-26T00:10:21Z"},"img":{"Env":["PI_CONTAINER_PI_VERSION=1.6.0","GH_TOKEN=x"],"digest":"sha256:2c5bf7cde334"}}]'
+clean=$(printf '%s' "$dirty" | scrub)
+eq '"$HOME/.pic/config"' "$(printf '%s' "$clean" | jq -c '.[0].configuration.labels."pi.config"')" "scrub: home path"
+eq '"TanGentleman/tan-toolchains"' "$(printf '%s' "$clean" | jq -c '.[0].configuration.labels."pi.repo"')" "scrub: names that contain the user stay"
+eq '["PATH=/usr/bin","OPENROUTER_API_KEY=redacted","PI_X=redacted"]' "$(printf '%s' "$clean" | jq -c '.[0].configuration.initProcess.environment')" "scrub: runtime env values"
+eq '["PI_CONTAINER_PI_VERSION=1.6.0","GH_TOKEN=redacted"]' "$(printf '%s' "$clean" | jq -c '.[0].img.Env')" "scrub: image env keeps the version"
+eq '"mac"' "$(printf '%s' "$clean" | jq -c '.[0].configuration.hostname')" "scrub: host name"
+eq '"mac.local redacted"' "$(printf '%s' "$clean" | jq -c '.[0].configuration.note')" "scrub: fqdn and token"
+eq '["203.0.113.1"]' "$(printf '%s' "$clean" | jq -c '.[0].configuration.dns')" "scrub: LAN address"
+eq '{"ipv4Address":"172.30.240.4/24","ipv6Address":"2001:db8::/64","macAddress":"02:00:00:00:00:00"}' "$(printf '%s' "$clean" | jq -c '.[0].status.networks[0]')" "scrub: network addresses"
+eq '"2026-10-26T00:10:21Z"' "$(printf '%s' "$clean" | jq -c '.[0].status.startedDate')" "scrub: dates stay"
+eq '"sha256:2c5bf7cde334"' "$(printf '%s' "$clean" | jq -c '.[0].img.digest')" "scrub: digests stay"
+for f in "$fixtures"/*/*.json; do
+  eq "$(jq -c . "$f")" "$(scrub < "$f")" "scrub leaves committed ${f#"$fixtures"/} unchanged"
+done
+
 finish

@@ -25,7 +25,13 @@ git diff test/fixtures/container   # review what the CLI actually emits
 ```
 
 `record-fixtures.sh` writes each capture to a temporary file and replaces a
-fixture only after the output parses as JSON. A failed capture leaves the old
+fixture only after the output parses as JSON and passes through
+`test/fixture-scrub.jq`, so captures are safe to push: the home path becomes
+`$HOME`, the host name `mac`, container env values `redacted` (names stay),
+token-shaped strings `redacted`, MAC addresses `02:00:00:00:00:00`, IPv6
+`2001:db8::`, and IPv4 outside the profile and `default` networks
+`203.0.113.x`. A capture that still names the home path or a token is not
+written. A failed capture leaves the old
 fixture in place and reports `kept`; it also rewrites `provenance.txt` with the
 date, CLI version, and commands it ran. After capturing, it checks that the
 paths the parsers use are still present and exits non-zero on a changed shape.
