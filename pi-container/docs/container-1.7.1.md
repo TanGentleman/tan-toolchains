@@ -87,11 +87,11 @@ volume's labels and file counts against the export (newest
 Paths print as `$HOME/...`; it reads no env files or volume contents beyond
 file counts.
 
-**Without a nuke**, the in-place upgrade keeps volumes but leaves the old
-kernel and builder:
+**Without a nuke** (what the Mac above did; `migrate-check.sh` passed), the
+in-place upgrade keeps volumes but leaves the old kernel and builder:
 
 ```sh
-container system stop && /usr/local/bin/update-container.sh && container system start
+container system stop && /usr/local/bin/update-container.sh -v 1.7.1 && container system start
 container system kernel set --recommended
 container builder delete --force
 container delete --force pi-proxy               # run.sh recreates it
