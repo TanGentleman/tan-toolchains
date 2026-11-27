@@ -91,7 +91,8 @@ explicitly that `run.sh check` and the E2E checklist were not run.
 
 ## `container` JSON contract
 
-- The observed contract is Apple `container` 1.6.1. Since 1.4.1, JSON output
+- The observed contract is Apple `container` 1.6.1 (the fixtures), rechecked
+  on 1.7.1 with `pi-container/test/migrate-check.sh` and `run.sh check`. Since 1.4.1, JSON output
   uses plain `/`; older captures may use `\/`. Keep `jq`, which decodes both.
 - Capture real shapes on a Mac with `pi-container/test/record-fixtures.sh`. It
   replaces a fixture only after the capture parses as JSON and checks the paths

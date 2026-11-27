@@ -135,6 +135,7 @@ The default mode mounts the current folder. Use it only for repos you trust; use
 - [Egress mode](docs/egress.md): Pi on the default network with the real key, and its limits.
 - [Testing](docs/testing.md): CI suite and fixture recording.
 - [ASSUMPTIONS.md](ASSUMPTIONS.md): Apple `container` JSON contract.
+- [container 1.7.1](docs/container-1.7.1.md): what changed from 1.6.1, upgrading, and a reinstall that keeps sessions.
 - [E2E.md](E2E.md): manual macOS checklist.
 - [UPGRADES.md](UPGRADES.md): open work.
 

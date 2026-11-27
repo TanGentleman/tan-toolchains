@@ -26,8 +26,18 @@ sudo installer -pkg /tmp/container.pkg -target /   # puts container in /usr/loca
 container system start
 ```
 
-Upgrade with `container system stop && /usr/local/bin/update-container.sh &&
-container system start`. Homebrew's `container` formula is the same CLI and
+Upgrade in place (volumes and images stay):
+
+```sh
+pi-container/clear.sh export                  # backup of every pi volume, without auth.json
+container system stop && /usr/local/bin/update-container.sh && container system start
+container system kernel set --recommended    # otherwise VMs keep booting the old kernel
+container builder delete --force && container delete --force pi-proxy
+pi-container/test/migrate-check.sh            # no FAIL lines; compares volumes with the export
+```
+
+[container-1.7.1.md](pi-container/docs/container-1.7.1.md) has what changed
+from 1.6.1 and a full reinstall that keeps sessions and config. Homebrew's `container` formula is the same CLI and
 also works, but use one source, not both. The `.pkg` is preferred because it
 is on every account's `PATH`; `brew` in a second account is not, and only
 the admin who owns `/opt/homebrew` can install with it.

@@ -2,7 +2,9 @@
 
 `run.sh` and `clear.sh` read Apple's `container` CLI. `lib/inspect.sh` parses
 only the paths below with `jq`, observed against `container` 1.6.1 (`macOS 26`,
-2026-10); on 1.7.1, `test/migrate-check.sh` and `run.sh check` pass (2026-11). A different shape yields no value or an `unverified` network verdict.
+2026-10) and rechecked on 1.7.1 with `test/migrate-check.sh` and `run.sh check`
+(2026-11). A different shape yields no value or an `unverified` network
+verdict.
 A change in Apple's output should fail `test/test-inspect.sh` or
 `test/test-integration.sh` before it fails a real run.
 
@@ -36,8 +38,8 @@ as JSON, so a failed capture leaves the old fixture in place. See
 
 The egress lock (`lib/netlock.sh`) depends on these, observed with
 `test/vm-net-diag.sh` on `container` 1.6.1 (2026-11); on 1.7.1 (kernel
-6.18.56) iptables-legacy and ip6tables-legacy load (`test/migrate-check.sh`). `test/test-netlock.sh`
-covers the script; `run.sh check` and `test/fleet-isolation.sh` check the
+6.18.56) `test/migrate-check.sh` shows iptables-legacy and ip6tables-legacy
+still load. `test/test-netlock.sh` covers the script; `run.sh check` and `test/fleet-isolation.sh` check the
 result in a real VM.
 
 | Assumption | Code |

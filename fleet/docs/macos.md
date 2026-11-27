@@ -252,7 +252,8 @@ prints a `warn` line and still passes: scratch chats need no token.
 cd $T && git pull && cd pi-container && ./build.sh full && ./build.sh fleet
 ```
 
-Then restart `pic serve`. After a Pi version change, `pic check` warns until
+Then restart `pic serve`. To upgrade `container` itself, stop `pic serve`
+and follow the [root README](../../README.md#setup). After a Pi version change, `pic check` warns until
 `~/.pic/config/settings.json` matches: delete it (if you haven't
 edited it) and `pic` writes a new one.
 
