@@ -44,7 +44,8 @@ From the repo root, record: `git rev-parse HEAD`, `date`, and
 Run these from `pi-container/` unless noted.
 
 `test/mac-e2e.sh --repo "$owner/tan-toolchains-e2e" ci build auto` runs every
-check that needs no Pi TUI, in the profile that `PI_CONFIG_DIR` names. It
+check that needs no Pi TUI, in the profile that `PI_CONFIG_DIR` names
+(unset: `~/.config/pi-container-e2e-test`). It
 prints one line per check and keeps a log for each. Run
 `cleanup --destroy` last: it deletes and then rebuilds `pi-full:local`. Do
 the remaining checks by hand; the script lists them at the end.

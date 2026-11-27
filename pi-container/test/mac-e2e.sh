@@ -11,9 +11,9 @@
 #            shared pi-full:local image and the builder cache, then rebuilds
 #
 # --repo is a private throwaway repo that the token in --env can push to.
-# The profile is PI_CONFIG_DIR, or ~/.config/pi-container-e2e when unset
-# (cleanup also makes and deletes ~/.config/pi-container-e2e2). --env defaults
-# to the profile's env file, else ~/.config/pi-container/env; a file other
+# The profile is PI_CONFIG_DIR, or ~/.config/pi-container-e2e-test when
+# unset (cleanup also makes and deletes ~/.config/pi-container-e2e-test2).
+# --env defaults to the profile's env file, else ~/.config/pi-container/env; a file other
 # than the profile's is copied in at mode 600. E2E.md prefers a token for
 # that repo only. The script never prints the key. E2E_ROOT (default
 # ~/.cache/pi-e2e) holds only disposable files: backups, scratch projects,
@@ -52,7 +52,7 @@ case " $phases " in
 esac
 
 root=${E2E_ROOT:-$HOME/.cache/pi-e2e}
-cfg=${PI_CONFIG_DIR:-$(pi_default_config_dir)-e2e}
+cfg=${PI_CONFIG_DIR:-$(pi_default_config_dir)-e2e-test}
 [ "$cfg" != "$(pi_default_config_dir)" ] || die "PI_CONFIG_DIR must not be the default profile"
 # With an existing profile and no --env, use the profile's own env file.
 if [ -z "$src_env" ]; then
@@ -413,7 +413,8 @@ phase_cleanup() {
   default_started=$(started "$(pi_proxy_name "$(pi_default_config_dir)")")
   host_env=$(hash_of "$(pi_default_config_dir)/env")
   host_settings=$(hash_of "$(pi_default_config_dir)/settings.json")
-  cfg2=$(pi_default_config_dir)-e2e2
+  cfg2=$(pi_default_config_dir)-e2e-test2
+  [ ! -e "$cfg2" ] || die "$cfg2 exists; cleanup makes and deletes it, so move it away first"
   mkdir -p "$cfg2"
   (umask 077 && cp "$PI_ENV_FILE" "$cfg2/env")
   vol2=$(pi_agent_volume default "$cfg2")
