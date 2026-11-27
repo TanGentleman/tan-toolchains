@@ -7,6 +7,8 @@
 #   clear.sh nuke clones [--instance NAME] [--yes]
 #   clear.sh nuke profile [--yes]
 #   clear.sh nuke all [--image PACK] [--yes]
+#   clear.sh export [DIR]
+#   clear.sh import DIR [--yes]
 #   clear.sh help
 set -euo pipefail
 
@@ -118,6 +120,16 @@ the default is '$pi_default_instance'. list shows every profile and instance.
       nuke profile, then the agent image ($pi_image: --image, else PI_IMAGE,
       else full) and the builder cache. Other profiles and other pack tags
       stay, but the agent image is shared, so other profiles must rebuild it.
+
+  clear.sh export [DIR]
+      Copy every pi-managed volume, in every profile, to DIR (default
+      $backup_root/export-<time>/): NAME.tar with the contents and
+      NAME.labels.json with the labels. auth.json is left out, so log in
+      again after importing. Run before uninstalling container with -d.
+
+  clear.sh import DIR [--yes]
+      Recreate each exported volume with its labels and contents. Refuses
+      if any of them already exists.
 
 Host config stays at $cfg.
 EOF
@@ -453,6 +465,88 @@ nuke_profile() { # profile|all, options...
   fi
 }
 
+# Files left out of every export: credentials, which a login recreates.
+export_excludes=(./auth.json)
+
+managed_volumes() {
+  local vol
+  for vol in $(all_volumes); do
+    [ "$(volume_label "$vol" pi.managed)" = true ] && printf '%s\n' "$vol"
+  done
+  return 0
+}
+
+cmd_export() {
+  local dir=${1:-} vol vols n=0 ex=()
+  [ $# -le 1 ] || die "export takes one directory"
+  require_image
+  vols=$(managed_volumes)
+  [ -n "$vols" ] || { say "no pi-managed volumes"; return; }
+  if [ -z "$dir" ]; then
+    dir="$backup_root/export-$stamp"
+  fi
+  if [ -e "$dir" ] && [ -n "$(ls -A "$dir" 2>/dev/null)" ]; then
+    die "$dir is not empty"
+  fi
+  (umask 077; mkdir -p "$dir") || die "cannot create $dir"
+  for vol in "${export_excludes[@]}"; do ex+=("--exclude=$vol"); done
+  for vol in $vols; do
+    "$cli" volume inspect "$vol" | jq -e '.[0].configuration.labels // {}' \
+      > "$dir/$vol.labels.json" || die "cannot read labels of $vol"
+    # Root reads every file, and numeric owners keep the agent's uid on import.
+    "$cli" run --rm --user 0 -v "$vol:/v:ro" "$pi_image" \
+      tar -C /v --numeric-owner "${ex[@]}" -cf - . > "$dir/$vol.tar" \
+      || die "cannot export $vol"
+    tar -tf "$dir/$vol.tar" >/dev/null 2>&1 || die "export of $vol is not a readable tar"
+    say "exported: $vol ($(du -h "$dir/$vol.tar" | awk '{print $1}'))"
+    n=$((n + 1))
+  done
+  say "left out: ${export_excludes[*]}"
+  say "saved $n volumes: $dir"
+  say "restore with: $here/clear.sh import $dir"
+}
+
+cmd_import() {
+  local dir="" yes=0 f vol vols="" labels
+  while [ $# -gt 0 ]; do
+    case $1 in
+      --yes) yes=1; shift ;;
+      -*) die "unknown import option: $1" ;;
+      *) [ -z "$dir" ] || die "import takes one directory"; dir=$1; shift ;;
+    esac
+  done
+  [ -n "$dir" ] || die "import needs the directory export wrote"
+  [ -d "$dir" ] || die "$dir is not a directory"
+  require_image
+  for f in "$dir"/*.labels.json; do
+    [ -f "$f" ] || continue
+    vol=$(basename "$f" .labels.json)
+    case $vol in
+      pi-*) ;;
+      *) die "$f does not name a pi volume" ;;
+    esac
+    [ -f "$dir/$vol.tar" ] || die "missing $dir/$vol.tar"
+    jq -e 'type == "object"' "$f" >/dev/null 2>&1 || die "$f is not a label object"
+    volume_exists "$vol" && die "volume $vol already exists; nuke it first or import elsewhere"
+    vols="$vols $vol"
+  done
+  [ -n "$vols" ] || die "no exported volumes in $dir"
+  say "volumes to create:"
+  printf '  %s\n' $vols
+  confirm "Create these volumes from $dir?"
+  for vol in $vols; do
+    labels=()
+    while IFS= read -r f; do
+      labels+=(--label "$f")
+    done < <(jq -r 'to_entries[] | "\(.key)=\(.value)"' "$dir/$vol.labels.json")
+    "$cli" volume create ${labels[@]+"${labels[@]}"} "$vol" >/dev/null || die "cannot create $vol"
+    "$cli" run --rm -i --user 0 -v "$vol:/v" "$pi_image" \
+      tar -C /v --numeric-owner -xf - < "$dir/$vol.tar" || die "cannot restore $vol"
+    say "imported: $vol"
+  done
+  say "log in again inside pi: auth.json was not exported"
+}
+
 cmd_nuke() {
   local target=${1:-}
   shift || true
@@ -471,6 +565,8 @@ case $cmd in
   list) require_cli; require_jq; require_runtime; cmd_list "$@" ;;
   save) require_cli; acquire_lock; cmd_save "$@" ;;
   nuke) require_cli; require_jq; acquire_lock; cmd_nuke "$@" ;;
+  export) require_cli; require_jq; require_runtime; acquire_lock; cmd_export "$@" ;;
+  import) require_cli; require_jq; require_runtime; acquire_lock; cmd_import "$@" ;;
   help | -h | --help) usage ;;
   *) usage >&2; die "unknown command: $cmd" ;;
 esac
