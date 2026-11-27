@@ -6,11 +6,18 @@ can see, and how to move a Mac across without losing sessions or config.
 Read from source; nothing here has run on 1.7.1 yet. `test/container-probe.sh`
 fills that gap: run it on 1.6.1, upgrade, run it again, and diff.
 
+**Observed on 1.6.1** (one Mac, macOS 26.7.3, 10 cores): VMs boot 6.18.15,
+the kernel installed months earlier, although 1.6.1's own default is
+6.18.35. iptables-legacy and ip6tables-legacy work, `nf_conntrack` is absent,
+and every parser in `lib/inspect.sh` reads the live output. `stop`, `start`,
+`kill` and `delete` on a missing name already exit 1. Volumes are 311 MB;
+images (13.5 GB) and snapshots (11 GB) are all rebuildable.
+
 ## What can affect us
 
 | Change | Our call sites | Risk |
 |---|---|---|
-| Default kernel: Kata 3.32.0 `vmlinux-6.18.35-197` → Kata 4.3.1 `vmlinux-6.18.56-208`. `system start` only installs a kernel when none is set, so an upgraded Mac keeps booting 6.18.35 until `container system kernel set --recommended`. A fresh install gets 6.18.56. | `lib/netlock.sh` (iptables-legacy, `ip_tables`), every VM | **Medium.** Kata's netfilter fragment is identical between the two tags (`IP_NF_IPTABLES_LEGACY=y`, `IP6_NF_IPTABLES_LEGACY=y`), so the lock should load, but the egress lock is the security boundary: re-run `run.sh check` and `test/vm-net-diag.sh` on the new kernel. |
+| Default kernel: Kata 3.32.0 `vmlinux-6.18.35-197` → Kata 4.3.1 `vmlinux-6.18.56-208`. `system start` only installs a kernel when none is set, so an upgraded Mac keeps booting whatever kernel it first installed until `container system kernel set --recommended`. A fresh install gets 6.18.56. | `lib/netlock.sh` (iptables-legacy, `ip_tables`), every VM | **Medium.** Kata's netfilter fragment is identical between the two tags (`IP_NF_IPTABLES_LEGACY=y`, `IP6_NF_IPTABLES_LEGACY=y`), so the lock should load, but the egress lock is the security boundary: re-run `run.sh check` and `test/vm-net-diag.sh` on the new kernel. |
 | `--cpus` is now rejected above the host's core count; `--memory` gets an overflow check (200 MiB minimum unchanged). | `run.sh` `--cpus "${PI_CPUS:-4}"`, proxy `--cpus 1 --memory 1G` | Low. Defaults fit every Apple silicon Mac; a large `PI_CPUS` now fails at `run` instead of being clamped. |
 | New `[container.dns]` defaults in the system config (`domain`, `nameservers`, `searchDomains`, `options`), applied to every `run` and to the builder unless flags override. | `run` never passes `--dns` | Low, unless someone sets it: VMs on `pi-locked` would get those nameservers in `resolv.conf`. The lock still drops their traffic; `vm-net-diag.sh` shows it. |
 | `start`/`stop`/`kill`/`delete`/`prune`/`list` exclude `cluster` plugin containers as well as `machine`; named lookups go through `findContainers`, which reports a hidden or missing name as not found. | `run.sh` proxy and fleet `stop`/`start`/`delete --force`, `clear.sh` proxy delete | Low. We never create cluster resources, and missing names already fail (we `|| true` them). The probe records the exit codes. |
@@ -49,16 +56,31 @@ regenerate.
 ```sh
 pi-container/clear.sh save                      # per instance: --instance NAME
 container system stop && /usr/local/bin/update-container.sh && container system start
-container system kernel set --recommended       # otherwise VMs stay on 6.18.35
+container system kernel set --recommended       # otherwise VMs keep the old kernel
 container builder delete --force
 container delete --force "$(. pi-container/names.sh; pi_proxy_name "$HOME/.config/pi-container")"
 pi-container/run.sh check && pi-container/test/vm-net-diag.sh
 ```
 
-**Full nuke (keeps sessions, config, non-secret volume data).** Planned,
-not written yet, pending the probe output: `clear.sh export DIR` tars each
-`pi.managed` volume with its labels to `$HOME/pi-backups/`, leaving out
-`auth.json` (re-login is cheap and it holds credentials), then
-`uninstall-container.sh -d`, install the 1.7.1 `.pkg`, `build.sh`, and
-`clear.sh import DIR` recreates each volume from its labels and untars it.
-Clone volumes are exported too, so uncommitted work survives.
+**Full nuke (keeps sessions, config, non-secret volume data).** Quit every
+`pic` and fleet turn (`fleetctl` sessions too), then:
+
+```sh
+cd pi-container
+./clear.sh export                               # every pi volume -> ~/pi-backups/export-<time>/
+/usr/local/bin/uninstall-container.sh -d        # removes the app root: images, volumes, kernel
+V=1.7.1
+curl -fLo /tmp/container.pkg "https://github.com/apple/container/releases/download/$V/container-$V-installer-signed.pkg"
+sudo installer -pkg /tmp/container.pkg -target /
+container system start                          # answer Y: installs the 1.7.1 kernel
+./build.sh                                      # each pack you use
+./clear.sh import ~/pi-backups/export-<time>
+./run.sh check && test/vm-net-diag.sh
+```
+
+`export` writes `NAME.tar` and `NAME.labels.json` for each volume labelled
+`pi.managed=true`, in every profile, and leaves out `auth.json`. `import`
+recreates each volume with the same name and labels, so `run.sh` and
+`clear.sh list` find them as before; it refuses if any already exists. Log in
+again inside pi afterwards. `$HOME/.config/pi-container`, `$HOME/.fleet` and
+`$HOME/pi-backups` are outside the app root and are not touched.

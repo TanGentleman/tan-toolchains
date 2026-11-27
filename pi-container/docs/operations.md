@@ -50,6 +50,8 @@ instances also share the Neovim paths in [Manual mode](manual.md); use the
 ./clear.sh nuke clones --instance work            # delete work's clone volumes in this profile
 ./clear.sh nuke profile                           # delete the whole profile, keeping the shared image
 ./clear.sh nuke all                               # nuke profile, plus the agent image and builder cache
+./clear.sh export                                 # every pi volume, minus auth.json, to ~/pi-backups/export-<time>/
+./clear.sh import ~/pi-backups/export-<time>      # recreate them, e.g. after reinstalling container
 ```
 
 `nuke` requires `agent`, `clones`, `profile`, or `all`. `save`, `nuke agent`

@@ -23,15 +23,14 @@ for c in "$cli" jq; do
   command -v "$c" >/dev/null 2>&1 || { echo "container-probe.sh: $c not found" >&2; exit 2; }
 done
 
-# Names shorter than 3 characters would mangle unrelated output.
-who=$(id -un); host=$(hostname -s 2>/dev/null || true)
+# A name shorter than 3 characters would mangle unrelated output. The host
+# name is left alone: it is often a prefix of the GitHub owner in repo labels.
+who=$(id -un)
 [ ${#who} -ge 3 ] || who='\$USER'
-[ ${#host} -ge 3 ] || host='\$HOST'
 redact() {
   sed -E \
     -e "s|$HOME|\$HOME|g" \
     -e "s|$who|\$USER|g" \
-    -e "s|$host|\$HOST|g" \
     -e 's/(gh[pousr]_|github_pat_|sk-or-v1-|sk-ant-|sk-|hf_|tskey-)[A-Za-z0-9_-]{6,}/\1REDACTED/g' \
     -e 's/([A-Za-z_]*(KEY|TOKEN|SECRET|PASSWORD)[A-Za-z_]*=)[^[:space:]]+/\1REDACTED/g'
 }
@@ -121,7 +120,7 @@ probe() {
   "$cli" run --help 2>&1 | grep -oE -- '--(cap-add|cap-drop|cpus|memory|dns[a-z-]*|init|network|label|rm|volume|env-file)' | sort -u | tr '\n' ' '; echo
   "$cli" network create --help 2>&1 | grep -oE -- '--(internal|subnet[a-z-]*|label)' | sort -u | tr '\n' ' '; echo
   "$cli" volume create --help 2>&1 | grep -oE -- '--(label|opt)' | sort -u | tr '\n' ' '; echo
-  [ -z "$tag" ] || echo "--cpus above host cores: $("$cli" run --rm --cpus 999 "$tag" true 2>&1 | head -n 1)"
+  [ -z "$tag" ] || echo "--cpus above host cores: $("$cli" run --rm --cpus 999 "$tag" true 2>&1 | grep -i -m 1 error || echo accepted)"
 
   section "VM kernel and netfilter (one --rm VM on the default network, no proxy)"
   if [ -n "$tag" ]; then

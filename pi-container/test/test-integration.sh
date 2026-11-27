@@ -526,6 +526,49 @@ case_nuke_agent_without_image() {
   log_lacks 'run --rm' "no backup container runs without the image"
 }
 
+# ------------------------------------------------ clear.sh export + import
+case_export_import() {
+  new_case exportimport
+  image_json 1.4.0 > "$world/images/pi-full_local.json"
+  printf 'pi-agent-home\npi-clone_default_owner-repo-abcdef12\nother\n' > "$world/volumes.list"
+  vol_json pi-agent-home agent default "$cfg" "$cfg/settings.json" \
+    > "$world/volumes/pi-agent-home.json"
+  vol_json pi-clone_default_owner-repo-abcdef12 clone default "$cfg" "$cfg/settings.json" owner/repo \
+    > "$world/volumes/pi-clone_default_owner-repo-abcdef12.json"
+  printf '[{"id":"other","configuration":{"name":"other","labels":{}}}]' > "$world/volumes/other.json"
+  mkdir -p "$t/stream/sessions"
+  printf '{"session":1}\n' > "$t/stream/sessions/a.jsonl"
+  tar -C "$t/stream" -cf "$world/run.stdout" sessions
+  run_it env -u PI_CONFIG_DIR HOME="$home" PI_CONFIG_DIR="$cfg" PI_BACKUP_DIR="$t/backups" \
+    CONTAINER_CLI="$fake" FAKE_CONTAINER_WORLD="$world" FAKE_CONTAINER_LOG="$logfile" \
+    bash "$clear_sh" export "$t/exp"
+  expect_status 0 "export succeeds"
+  log_has "run --rm --user 0 -v pi-agent-home:/v:ro pi-full:local tar -C /v --numeric-owner --exclude=./auth.json -cf - ." "export tars the agent volume as root without auth.json"
+  log_lacks "other:/v" "unmanaged volume is not exported"
+  eq agent "$(jq -r '."pi.kind"' "$t/exp/pi-agent-home.labels.json" 2>/dev/null)" "agent labels saved"
+  eq owner/repo "$(jq -r '."pi.repo"' "$t/exp/pi-clone_default_owner-repo-abcdef12.labels.json" 2>/dev/null)" "clone repo label saved"
+  contains 'sessions/a.jsonl' "$(tar -tf "$t/exp/pi-agent-home.tar" 2>/dev/null)" "volume contents saved"
+  contains 'left out: ./auth.json' "$(o)" "export names what it left out"
+
+  run_it env -u PI_CONFIG_DIR HOME="$home" PI_CONFIG_DIR="$cfg" PI_BACKUP_DIR="$t/backups" \
+    CONTAINER_CLI="$fake" FAKE_CONTAINER_WORLD="$world" FAKE_CONTAINER_LOG="$logfile" \
+    bash "$clear_sh" import "$t/exp" --yes
+  expect_status 1 "import refuses volumes that exist"
+  contains 'already exists' "$(e)" "import names the existing volume"
+  log_lacks "volume create" "refused import creates nothing"
+
+  printf 'other\n' > "$world/volumes.list"
+  run_it env -u PI_CONFIG_DIR HOME="$home" PI_CONFIG_DIR="$cfg" PI_BACKUP_DIR="$t/backups" \
+    CONTAINER_CLI="$fake" FAKE_CONTAINER_WORLD="$world" FAKE_CONTAINER_LOG="$logfile" \
+    bash "$clear_sh" import "$t/exp" --yes
+  expect_status 0 "import succeeds"
+  log_has "--label pi.kind=agent" "agent kind label restored"
+  log_has "--label pi.repo=owner/repo" "clone repo label restored"
+  log_has "--label pi.config=$cfg" "config label restored"
+  log_has "pi-clone_default_owner-repo-abcdef12" "clone volume created"
+  log_has "run --rm -i --user 0 -v pi-agent-home:/v pi-full:local tar -C /v --numeric-owner -xf -" "agent volume restored as root"
+}
+
 # ------------------------------------------------ clear.sh nuke clones scoped
 case_nuke_clones_scoped() {
   new_case nukeclones
@@ -1404,7 +1447,7 @@ for c in case_normal_run case_check_enforcer case_tokenless_run case_tokenless_c
          case_clear_list case_clear_list_runtime_down case_clear_list_legacy_volume \
          case_clear_list_dead_profile \
          case_nuke_agent case_nuke_agent_without_image case_nuke_clones_scoped \
-         case_nuke_profile case_nuke_profile_rejects_instance \
+         case_nuke_profile case_nuke_profile_rejects_instance case_export_import \
          case_option_guards case_nuke_all case_mount_guards case_fleet_state case_pi_ctr_stop \
          case_netlock_modes case_netlock_capability case_proxy_running_no_addr case_model_url \
          case_config_command case_images_command \
