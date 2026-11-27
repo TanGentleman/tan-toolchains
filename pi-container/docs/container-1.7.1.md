@@ -38,49 +38,61 @@ check.
 
 | Data | Location | Kept by `uninstall-container.sh -d`? |
 |---|---|---|
-| Profile config: settings, egress profiles, env file (keys) | `$HOME/.config/pi-container` (`PI_CONFIG_DIR`) | Yes, outside the app root |
-| Session backups from `clear.sh save` | `$HOME/pi-backups` | Yes |
-| Fleet state | `$HOME/.fleet` | Yes |
-| Agent volume: `sessions/`, `auth.json`, extensions, models | app root `volumes/` | **No** |
+| Profile config: settings, egress profiles, mirrors, Neovim state, env file (keys) | `$HOME/.pic/config` (`PI_CONFIG_DIR`) | Yes, outside the app root |
+| Session backups and exports | `$HOME/.pic/backups` | Yes |
+| Fleet state | `$HOME/.pic/fleet` | Yes |
+| Agent volumes: `sessions/`, `auth.json`, extensions, models | app root `volumes/` | **No** |
 | Clone volumes: worktrees, uncommitted work | app root `volumes/` | **No** |
-| Images, proxy, `pi-locked` network, builder cache | app root | No; all rebuilt by `build.sh` and `run.sh` |
+| Images, proxy, `pi-locked` network, builder cache, kernel | app root | No; `build.sh`, `run.sh` and `system start` recreate them |
 
 The app root is `$HOME/Library/Application Support/com.apple.container`.
-Everything outside it survives any nuke; only volumes hold data we can't
-regenerate.
+Only volumes hold data we can't regenerate.
 
 ## Migration
 
-**In place (keeps volumes).** Quit every `pic` and fleet turn, then:
+One pass from v7 on 1.6.1 to v8 on 1.7.1. Quit every Pi and `--manual`
+session, stop `pic serve`, then in `pi-container/` on this branch:
 
 ```sh
-pi-container/clear.sh save                      # per instance: --instance NAME
-container system stop && /usr/local/bin/update-container.sh && container system start
-container system kernel set --recommended       # otherwise VMs keep the old kernel
-container builder delete --force
-container delete --force "$(. pi-container/names.sh; pi_proxy_name "$HOME/.config/pi-container")"
-pi-container/run.sh check && pi-container/test/vm-net-diag.sh
-```
-
-**Full nuke (keeps sessions, config, non-secret volume data).** Quit every
-`pic` and fleet turn (`fleetctl` sessions too), then:
-
-```sh
-cd pi-container
-./clear.sh export                               # every pi volume -> ~/pi-backups/export-<time>/
-/usr/local/bin/uninstall-container.sh -d        # removes the app root: images, volumes, kernel
+container stop pi-proxy
+./run.sh migrate                                # v7 paths -> ~/.pic (operations.md#moving-from-v7)
+./clear.sh list                                 # every volume, no (missing)
+./clear.sh export                               # -> ~/.pic/backups/export-<time>/
+test/migrate-check.sh                           # before: expect FAIL on version and kernel only
+/usr/local/bin/uninstall-container.sh -d        # deletes the app root
 V=1.7.1
 curl -fLo /tmp/container.pkg "https://github.com/apple/container/releases/download/$V/container-$V-installer-signed.pkg"
 sudo installer -pkg /tmp/container.pkg -target /
 container system start                          # answer Y: installs the 1.7.1 kernel
-./build.sh                                      # each pack you use
-./clear.sh import ~/pi-backups/export-<time>
-./run.sh check && test/vm-net-diag.sh
+./build.sh                                      # each pack you use; run.sh builds the proxy
+./clear.sh import ~/.pic/backups/export-<time>
+test/migrate-check.sh                           # paste this
 ```
 
+`pic migrate` runs first because v8's `clear.sh` refuses while v7 paths
+exist. It deletes the volumes of any extra `~/.config/pi-container-NAME`
+profile you move, after saving their sessions, so those are not in the
+export.
+
 `export` writes `NAME.tar` and `NAME.labels.json` for each volume labelled
-`pi.managed=true`, in every profile, and leaves out `auth.json`. `import`
-recreates each volume with the same name and labels, so `run.sh` and
-`clear.sh list` find them as before; it refuses if any already exists. Log in
-again inside pi afterwards. `$HOME/.config/pi-container`, `$HOME/.fleet` and
-`$HOME/pi-backups` are outside the app root and are not touched.
+`pi.managed=true`, in every profile, leaving out `auth.json`; log in again
+inside Pi afterwards. `import` recreates each volume with the same name and
+labels, pointing labels that still name `~/.config/pi-container` at
+`~/.pic/config`, and refuses if any volume already exists.
+
+`test/migrate-check.sh [EXPORT_DIR]` prints one PASS, WARN or FAIL line per
+check: the CLI and kernel versions, the `~/.pic` layout, each exported
+volume's labels and file counts against the export (newest
+`export-*` by default), the egress lock in a fresh VM, and `run.sh check`.
+Paths print as `$HOME/...`; it reads no env files or volume contents beyond
+file counts.
+
+**Without a nuke**, the in-place upgrade keeps volumes but leaves the old
+kernel and builder:
+
+```sh
+container system stop && /usr/local/bin/update-container.sh && container system start
+container system kernel set --recommended
+container builder delete --force
+container delete --force pi-proxy               # run.sh recreates it
+```

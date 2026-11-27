@@ -128,8 +128,9 @@ the default is '$pi_default_instance'. list shows every profile and instance.
       again after importing. Run before uninstalling container with -d.
 
   clear.sh import DIR [--yes]
-      Recreate each exported volume with its labels and contents. Refuses
-      if any of them already exists.
+      Recreate each exported volume with its labels and contents. Labels
+      naming v7's ~/.config/pi-container point at ~/.pic/config instead.
+      Refuses if any of the volumes already exists.
 
 Host config stays at $cfg.
 EOF
@@ -538,7 +539,10 @@ cmd_import() {
     labels=()
     while IFS= read -r f; do
       labels+=(--label "$f")
-    done < <(jq -r 'to_entries[] | "\(.key)=\(.value)"' "$dir/$vol.labels.json")
+    done < <(jq -r --arg old "${HOME%/}/.config/pi-container" --arg new "${HOME%/}/.pic/config" '
+      to_entries[]
+      | .value |= (if . == $old or startswith($old + "/") then $new + .[($old | length):] else . end)
+      | "\(.key)=\(.value)"' "$dir/$vol.labels.json")
     "$cli" volume create ${labels[@]+"${labels[@]}"} "$vol" >/dev/null || die "cannot create $vol"
     "$cli" run --rm -i --user 0 -v "$vol:/v" "$pi_image" \
       tar -C /v --numeric-owner -xf - < "$dir/$vol.tar" || die "cannot restore $vol"

@@ -532,7 +532,7 @@ case_export_import() {
   new_case exportimport
   image_json 1.4.0 > "$world/images/pi-full_local.json"
   printf 'pi-agent-home\npi-clone_default_owner-repo-abcdef12\nother\n' > "$world/volumes.list"
-  vol_json pi-agent-home agent default "$cfg" "$cfg/settings.json" \
+  vol_json pi-agent-home agent default "$home/.config/pi-container" "$home/.config/pi-container/settings.json" \
     > "$world/volumes/pi-agent-home.json"
   vol_json pi-clone_default_owner-repo-abcdef12 clone default "$cfg" "$cfg/settings.json" owner/repo \
     > "$world/volumes/pi-clone_default_owner-repo-abcdef12.json"
@@ -565,6 +565,9 @@ case_export_import() {
   expect_status 0 "import succeeds"
   log_has "--label pi.kind=agent" "agent kind label restored"
   log_has "--label pi.repo=owner/repo" "clone repo label restored"
+  log_has "--label pi.config=$home/.pic/config --label" "v7 config label points at ~/.pic/config"
+  log_has "--label pi.settings=$home/.pic/config/settings.json" "v7 settings label points at ~/.pic/config"
+  log_lacks "pi.config=$home/.config/pi-container" "no v7 path survives the import"
   log_has "--label pi.config=$cfg" "config label restored"
   log_has "pi-clone_default_owner-repo-abcdef12" "clone volume created"
   log_has "run --rm -i --user 0 -v pi-agent-home:/v pi-full:local tar -C /v --numeric-owner -xf -" "agent volume restored as root"
