@@ -1,4 +1,4 @@
 These fixtures use observed Apple container shapes. Run ../../record-fixtures.sh
 on macOS to refresh the recorded captures; it writes each fixture only after the
-output parses as JSON. A recorded run replaces this file with the date, CLI
+output parses as JSON and is scrubbed by test/fixture-scrub.jq. A recorded run replaces this file with the date, CLI
 version, and commands used. See README.md for which files are hand-built.

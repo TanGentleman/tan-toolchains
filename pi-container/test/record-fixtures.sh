@@ -14,8 +14,9 @@
 # home path become `$HOME`, the host name becomes `mac`, env values from env
 # files, token-shaped strings, MAC addresses, IPv6 and every IPv4 outside the
 # container networks are replaced. A capture that still contains the home path
-# or a token after that is not written. A failed capture leaves the existing fixture untouched. Files
-# this script does not record are hand-built; see fixtures/container/README.md.
+# or a token after that is not written. A failed capture leaves the existing
+# fixture untouched. Files this script does not record are hand-built; see
+# fixtures/container/README.md.
 set -euo pipefail
 
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
@@ -55,11 +56,13 @@ command -v jq >/dev/null 2>&1 || {
 }
 
 : > "$provenance"
-say() { printf '%s\n' "$*" | tee -a "$provenance"; }
+h=${HOME%/}
+say() { printf '%s\n' "$*" | jq -Rr --arg h "$h" 'split($h) | join("$HOME")' | tee -a "$provenance"; }
 
 say "Captured $(date -u +%Y-%m-%dT%H:%M:%SZ)"
 say "CLI: $("$cli" --version 2>/dev/null | head -n 1 || true)"
-say "Profile: ${cfg/#"${HOME%/}"/\$HOME}"
+case $cfg in "$h" | "$h"/*) cfg_shown="\$HOME${cfg#"$h"}" ;; *) cfg_shown=$cfg ;; esac
+say "Profile: $cfg_shown"
 say ""
 
 capture() { # relative-file, command...

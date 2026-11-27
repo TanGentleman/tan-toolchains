@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
-# On a Mac: record what the container 1.6.1 -> 1.7.1 upgrade can change for
-# pi-container (docs/container-1.7.1.md). Run it before and after upgrading
-# and paste both outputs. Changes nothing except one throwaway `--rm` VM.
+# On a Mac: record the container install, kernel, networks, volume labels,
+# parser results and VM netfilter that pi-container depends on. Run it before
+# and after a `container` upgrade and diff the outputs (docs/container-1.7.1.md
+# has the 1.6.1 -> 1.7.1 results). Changes nothing except one throwaway `--rm`
+# VM.
 #
 #   test/container-probe.sh > ~/probe-$(container --version | awk '{print $NF}').txt
 #

@@ -1,9 +1,9 @@
 # Assumptions about external output
 
 `run.sh` and `clear.sh` read Apple's `container` CLI. `lib/inspect.sh` parses
-only the paths below with `jq`, observed against `container` 1.6.1 (`macOS 26`,
-2026-10) and rechecked on 1.7.1 with `test/migrate-check.sh` and `run.sh check`
-(2026-11). A different shape yields no value or an `unverified` network
+only the paths below with `jq`, observed against the `container` version in
+`test/fixtures/container/provenance.txt` (first 1.6.1 on `macOS 26`, 2026-10;
+1.7.1 also passes `test/migrate-check.sh` and `run.sh check`, 2026-11). A different shape yields no value or an `unverified` network
 verdict.
 A change in Apple's output should fail `test/test-inspect.sh` or
 `test/test-integration.sh` before it fails a real run.
