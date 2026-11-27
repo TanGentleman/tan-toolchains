@@ -37,8 +37,8 @@ pi-container/test/migrate-check.sh            # no FAIL lines; compares volumes 
 ```
 
 [container-1.7.1.md](pi-container/docs/container-1.7.1.md) has what changed
-from 1.6.1 and a full reinstall that keeps sessions and config. Homebrew's `container` formula is the same CLI and
-also works, but use one source, not both. The `.pkg` is preferred because it
+from 1.6.1 and a full reinstall that keeps sessions and config. Homebrew's
+`container` formula is the same CLI and also works, but use one source, not both. The `.pkg` is preferred because it
 is on every account's `PATH`; `brew` in a second account is not, and only
 the admin who owns `/opt/homebrew` can install with it.
 
