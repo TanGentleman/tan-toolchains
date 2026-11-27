@@ -67,7 +67,8 @@ sudo container system dns delete host.container.internal
 ## Use
 
 ```bash
-alias pic=/path/to/pi-container/run.sh
+T=~/path/to/tan-toolchains     # your checkout
+alias pic=$T/pi-container/run.sh
 cd ~/code/your-repo
 
 pic                      # edits land on your Mac

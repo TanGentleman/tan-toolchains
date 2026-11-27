@@ -279,14 +279,15 @@ A release is an annotated tag `vX.Y.Z` on a commit that passed this
 checklist, fleet step 8, and `mac-e2e.sh` in a new standard account. Every
 step tests the same SHA. `R` is the throwaway repo from Setup
 (`owner/tan-toolchains-e2e`), `FILE` is a mode-600 env file with the
-OpenRouter key and R's token (Setup's `$PI_ENV_FILE`), and `T` is the test
-account's short name.
+OpenRouter key and R's token (Setup's `$PI_ENV_FILE`), `U` is the test
+account's short name, and `T` is the checkout in each account.
 
 ### 1. Main account
 
 Push the commit and wait for CI to pass on it. Then, from a clean checkout:
 
 ```sh
+T=~/path/to/tan-toolchains && cd $T
 git status --short && git rev-parse HEAD       # empty, then the SHA
 cd pi-container
 ./test/mac-e2e.sh --repo R ci build auto      # then the by-hand checks it prints
@@ -301,10 +302,10 @@ Stop `pic serve` (Ctrl-C), then:
 
 ```sh
 container system stop                         # one account runs container at a time
-T=pitest
-sudo sysadminctl -addUser $T -fullName "pi-container release tester" -password -
-sudo createhomedir -c -u $T
-sudo install -o $T -g staff -m 600 FILE /Users/$T/release.env
+U=pitest
+sudo sysadminctl -addUser $U -fullName "pi-container release tester" -password -
+sudo createhomedir -c -u $U
+sudo install -o $U -g staff -m 600 FILE /Users/$U/release.env
 ```
 
 `sysadminctl` prompts for the new account's password. `install` creates the
@@ -312,29 +313,30 @@ file with its final owner and mode, so the key is never readable by others.
 
 ### 3. Test account
 
-Switch to T with Fast User Switching (Control Center, then your name). In
+Switch to U with Fast User Switching (Control Center, then your name). In
 Terminal, follow [README.md](README.md) setup literally. The Command Line Tools and
-`container` are machine-wide, so they are already installed in T; check
+`container` are machine-wide, so they are already installed in U; check
 `git --version` and `container --version` instead of installing. For its env file
 step, use `cp ~/release.env ~/.config/pi-container/env` instead of the
 heredoc. After `git clone`, check out the SHA:
 
 ```sh
-git -C ~/tan-toolchains checkout SHA
-cd ~/tan-toolchains/pi-container
+T=~/tan-toolchains                            # where README setup cloned it
+git -C $T checkout SHA
+cd $T/pi-container
 ./test/run-tests.sh
 ./test/mac-e2e.sh --repo R build auto         # then the TUI checks it prints
 container system stop
 ```
 
-Log out of T (Apple menu, Log Out), not just switch away: an account that is
+Log out of U (Apple menu, Log Out), not just switch away: an account that is
 still logged in cannot be deleted.
 
 ### 4. Main account
 
 ```sh
-T=pitest
-sudo sysadminctl -deleteUser $T               # also deletes its home and release.env
+U=pitest
+sudo sysadminctl -deleteUser $U               # also deletes its home and release.env
 container system start                        # then restart pic serve on a fleet node
 git tag -a vX.Y.Z -m "vX.Y.Z" && git push origin vX.Y.Z
 ```

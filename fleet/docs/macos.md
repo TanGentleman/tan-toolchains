@@ -21,12 +21,12 @@ without it, zsh passes a trailing `# comment` to the command.
 
 | What | Where |
 |---|---|
-| Repo | `~/src/tan-toolchains` |
-| `fleetd` | `~/src/tan-toolchains/fleet/bin/fleetd`, built by `build.sh fleet` |
+| Repo | `$T`, your checkout; set `T` in each new terminal |
+| `fleetd` | `$T/fleet/bin/fleetd`, built by `build.sh fleet` |
 | Agent image | `pi-full:local`, built by `build.sh full`; `PI_IMAGE=min` or `zig` picks another |
 | Node config | `PI_IMAGE`, `PI_EGRESS`, `PI_MODEL_URL` in the shell that runs `pic serve`; `pic config` prints it, `GET /v1/node` serves it |
 | OpenRouter key, GitHub token | `~/.config/pi-container/env`, mode 600; only the proxy and the VM read them |
-| Sessions | `~/.fleet`; each turn's errors in `~/.fleet/sessions/<sid>/stderr-N.log` |
+| Sessions | `~/.fleet` (fixed); each turn's errors in `~/.fleet/sessions/<sid>/stderr-N.log` |
 | Code | branch `fleet/<sid>` in the repo you picked |
 
 ## 1. Command Line Tools and container
@@ -45,10 +45,11 @@ version (macOS 26 ships `/usr/bin/jq`).
 ## 2. Repo
 
 ```sh
-mkdir -p ~/src && git clone https://github.com/TanGentleman/tan-toolchains ~/src/tan-toolchains
-echo "alias pic=$HOME/src/tan-toolchains/pi-container/run.sh" >> ~/.zshrc
-alias pic=$HOME/src/tan-toolchains/pi-container/run.sh
-cd ~/src/tan-toolchains/pi-container
+T=~/src/tan-toolchains          # or wherever you keep it
+git clone https://github.com/TanGentleman/tan-toolchains $T
+echo "alias pic=$T/pi-container/run.sh" >> ~/.zshrc
+alias pic=$T/pi-container/run.sh
+cd $T/pi-container
 ```
 
 Every later step runs from this folder.
@@ -104,7 +105,7 @@ start if it is set.
 
 ```sh
 pic serve --check       # one ok/FAIL line per check, then: pic serve: ready
-caffeinate -i ~/src/tan-toolchains/pi-container/run.sh serve
+caffeinate -i $T/pi-container/run.sh serve
 ```
 
 That runs `pic serve` and keeps the Mac from idle-sleeping (`caffeinate`
@@ -116,7 +117,7 @@ In a **second terminal**, paste these helpers. Later steps use them; paste
 them again in any new terminal.
 
 ```sh
-cd ~/src/tan-toolchains/pi-container
+cd $T/pi-container
 URL=https://$(tailscale status --json | jq -r '.Self.DNSName | rtrimstr(".")')
 sessions() { curl -sS --fail-with-body "$URL/v1/sessions" | jq -r '.[] | .sid + "  " + (.title // "")'; }
 st() { curl -sS --fail-with-body "$URL/v1/sessions/${1:?usage: st SID}" | jq '{repo, branch, base, commit, running}'; }
@@ -248,7 +249,7 @@ prints a `warn` line and still passes: scratch chats need no token.
 ## 9. Upgrade or remove
 
 ```sh
-cd ~/src/tan-toolchains && git pull && cd pi-container && ./build.sh full && ./build.sh fleet
+cd $T && git pull && cd pi-container && ./build.sh full && ./build.sh fleet
 ```
 
 Then restart `pic serve`. After a Pi version change, `pic check` warns until

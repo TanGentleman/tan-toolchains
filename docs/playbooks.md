@@ -11,8 +11,9 @@ The images build every other tool.
 
 ```sh
 container system start
-git clone https://github.com/TanGentleman/tan-toolchains ~/src/tan-toolchains
-echo "alias pic=$HOME/src/tan-toolchains/pi-container/run.sh" >> ~/.zshrc && source ~/.zshrc
+T=~/src/tan-toolchains     # your checkout; later blocks use $T
+git clone https://github.com/TanGentleman/tan-toolchains $T
+echo "alias pic=$T/pi-container/run.sh" >> ~/.zshrc && source ~/.zshrc
 mkdir -p ~/.config/pi-container
 printf 'OPENROUTER_API_KEY=\n# GITHUB_TOKEN=\n# GIT_AUTHOR_NAME=\n# GIT_AUTHOR_EMAIL=\n' > ~/.config/pi-container/env
 chmod 600 ~/.config/pi-container/env && open -e ~/.config/pi-container/env
@@ -37,7 +38,7 @@ alias opic='PI_IMAGE=min PI_EGRESS=offline PI_MODEL_URL=http://gateway:8090 pic 
 ## 1. Pi on a repo on this Mac
 
 ```sh
-cd ~/src/tan-toolchains/pi-container && ./build.sh full
+cd $T/pi-container && ./build.sh full
 pic check you/your-repo         # every line ok
 cd ~/code/your-repo && pic      # or: pic --clone you/your-repo
 ```
@@ -49,7 +50,7 @@ Needs `GITHUB_TOKEN` in the env file for private repos and pushes.
 No GitHub token needed: sessions with an empty repo are scratch chats.
 
 ```sh
-cd ~/src/tan-toolchains/pi-container && ./build.sh min && ./build.sh fleet
+cd $T/pi-container && ./build.sh min && ./build.sh fleet
 export PI_IMAGE=min             # in the shell that runs pic serve
 pic config                      # image min (env), egress standard
 ```
@@ -60,7 +61,7 @@ Certificates at https://login.tailscale.com/admin/dns. Then:
 
 ```sh
 pic serve --check               # one ok line per check, then: ready
-caffeinate -i ~/src/tan-toolchains/pi-container/run.sh serve
+caffeinate -i $T/pi-container/run.sh serve
 ```
 
 Open `https://<this Mac's tailnet name>` on the phone (Tailscale on), leave
@@ -77,7 +78,7 @@ Pi reaches only a model server on this Mac: no GitHub, no openrouter.ai, no
 token in the VM.
 
 ```sh
-S=~/src/tan-toolchains/spikes/local-model
+S=$T/spikes/local-model
 $S/model install                  # once
 $S/model serve --containers       # tab 1: owns the model; Ctrl-C unloads it
 $S/model check && opic check && opic pi -p "say hi"    # tab 2

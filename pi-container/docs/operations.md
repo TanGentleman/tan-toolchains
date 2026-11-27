@@ -17,7 +17,8 @@ subnet, proxy image, agent volumes, and clone volumes. The active image and
 builder cache stay machine-wide; `PI_IMAGE` picks the image per run.
 
 ```bash
-alias pic=/path/to/pi-container/run.sh
+T=~/path/to/tan-toolchains     # your checkout
+alias pic=$T/pi-container/run.sh
 
 # terminal 1
 cd ~/code/repo-a && pic --instance work
