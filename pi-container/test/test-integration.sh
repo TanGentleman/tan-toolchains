@@ -188,6 +188,39 @@ case_normal_run() {
   log_lacks "OPENROUTER_API_KEY=sk-or-v1-real" "real key never appears in argv"
 }
 
+case_scratch() {
+  new_case scratch
+  image_json 1.4.0 > "$world/images/pi-full_local.json"
+  image_json 1.4.0 > "$world/images/pi-proxy_local.json"
+  network_json "172.30.240.0/24" > "$world/networks/pi-locked.json"
+  printf 'pi-locked\n' > "$world/networks.list"
+  proxy_running_json > "$world/containers/pi-proxy.json"
+  printf '172.30.240.2\n' > "$cfg/private/proxy.addr"
+  (
+    cd "$t/project" || exit 1
+    pi "$run_sh" --scratch pi -p hi
+  )
+  expect_status 0 "scratch run succeeds"
+  log_has "run --rm -i --init --network pi-locked" "scratch run uses the locked network"
+  log_has "-v $t/project:$t/project " "current folder still mounted"
+  log_has "/root/.pi/agent/settings.json:ro" "settings mounted read-only"
+  log_lacks "volume create" "no agent volume created"
+  log_lacks ":/root/.pi/agent " "no agent volume mounted"
+  log_has "pi -p hi" "command passed through"
+  local bad
+  for bad in "--scratch --manual bash" "--scratch --allow-egress pi" "--scratch check" "--scratch proxy" \
+             "--scratch config" "--scratch images" "--scratch serve"; do
+    : > "$logfile"
+    (
+      cd "$t/project" || exit 1
+      # shellcheck disable=SC2086
+      pi "$run_sh" $bad
+    )
+    expect_status 2 "refuses $bad"
+    log_lacks "run --" "$bad starts nothing"
+  done
+}
+
 # --------------------------------------------------- check includes enforcer
 case_check_enforcer() {
   new_case checkenforcer
@@ -1608,7 +1641,7 @@ for c in case_normal_run case_check_enforcer case_tokenless_run case_tokenless_c
          case_netlock_modes case_netlock_capability case_proxy_running_no_addr case_model_url \
          case_config_command case_images_command \
          case_min case_enforcer_check_script case_offline_run case_offline_refusals case_offline_check \
-         case_pic_home case_migrate case_extra_tunnel; do
+         case_pic_home case_migrate case_extra_tunnel case_scratch; do
   "$c"
 done
 

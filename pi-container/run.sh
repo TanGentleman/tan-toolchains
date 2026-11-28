@@ -70,6 +70,7 @@ Run options:
   --egress PROFILE    standard (GitHub and the model route) or offline (model route only)
   --model-url URL     openrouter, or http://HOST:PORT; HOST may be gateway (this Mac)
   --clone O/R         default: $PI_CLONE
+  --scratch           no agent volume: Pi's sessions and installs end with the run
 
 PI_EXTRA_TUNNEL=HOST[,HOST...] (or https://HOST), in the shell or the env file,
 adds hosts to the profile's tunnel for runs behind pi-proxy.
@@ -86,6 +87,7 @@ egress=0
 clone="${PI_CLONE:-}"
 fleet_state=""
 fleet_name=""
+scratch=0
 flag_image="" flag_egress="" flag_model_url=""
 flag_value() { # option, remaining argument count
   [ "$2" -ge 2 ] || { echo "run.sh: $1 needs a value" >&2; exit 2; }
@@ -125,6 +127,10 @@ while [ $# -gt 0 ]; do
       manual=1
       shift
       ;;
+    --scratch)
+      scratch=1
+      shift
+      ;;
     --allow-egress)
       egress=1
       shift
@@ -145,7 +151,7 @@ case "${1:-}" in
   --help|-h|help) usage; exit 0 ;;
   -*) echo "run.sh: unknown option '$1' (try --help)" >&2; exit 2 ;;
   serve)
-    if [ "$manual$egress" != 00 ] || [ -n "$clone$fleet_state$flag_image$flag_egress$flag_model_url" ] || [ "$instance" != "${PI_INSTANCE:-$pi_default_instance}" ]; then
+    if [ "$manual$egress$scratch" != 000 ] || [ -n "$clone$fleet_state$flag_image$flag_egress$flag_model_url" ] || [ "$instance" != "${PI_INSTANCE:-$pi_default_instance}" ]; then
       echo "run.sh: serve takes no run options; set PI_IMAGE, PI_EGRESS and PI_MODEL_URL in this shell" >&2
       exit 2
     fi
@@ -234,7 +240,7 @@ config_summary() {
 
 case "${1:-}" in
   config|images)
-    if [ "$manual$egress" != 00 ] || [ -n "$fleet_state" ]; then
+    if [ "$manual$egress$scratch" != 000 ] || [ -n "$fleet_state" ]; then
       echo "run.sh: $1 takes only --image, --egress and --model-url" >&2
       exit 2
     fi
@@ -293,6 +299,18 @@ fi
 if [ -n "$fleet_name" ]; then
   [ -n "$fleet_state" ] || { echo "run.sh: --fleet-name needs --fleet-state" >&2; exit 2; }
   [[ $fleet_name =~ ^fleet-[a-z0-9-]{1,64}$ ]] || { echo "run.sh: invalid --fleet-name '$fleet_name'; use fleet- then lowercase letters, digits, and hyphens" >&2; exit 2; }
+fi
+if [ "$scratch" = 1 ]; then
+  if [ "$manual" = 1 ] || [ "$egress" = 1 ] || [ -n "$fleet_state" ]; then
+    echo "run.sh: --scratch runs in normal mode only (no --manual, --allow-egress or --fleet-state)" >&2
+    exit 2
+  fi
+  case "${1:-}" in
+    check|proxy|proxy-stop)
+      echo "run.sh: --scratch is for running Pi or a command, not $1" >&2
+      exit 2
+      ;;
+  esac
 fi
 if [ -n "$fleet_state" ]; then
   if [ "$manual" = 1 ] || [ "$egress" = 1 ]; then
@@ -996,7 +1014,7 @@ else
   fi
   release_host_lock
   proxy_url="http://${proxy_ip_value}:${port}"
-  if [ "${1:-}" != proxy ] && [ -z "$fleet_state" ]; then ensure_volume "$agent_volume" agent; fi
+  if [ "${1:-}" != proxy ] && [ -z "$fleet_state" ] && [ "$scratch" = 0 ]; then ensure_volume "$agent_volume" agent; fi
   [ -f "$ca_file" ] || { echo "run.sh: missing $ca_file; start the proxy or unset PI_SKIP_HOST_SETUP" >&2; exit 1; }
 fi
 
@@ -1026,9 +1044,9 @@ if [ -n "$fleet_name" ]; then
   "$cli" delete --force "$fleet_name" >/dev/null 2>&1 || true
   args+=(--name "$fleet_name")
 fi
-# A fleet turn's agent dir is the container's own disk, so nothing Pi
-# installs there outlives the turn.
-[ -n "$fleet_state" ] || args+=(-v "$agent_volume:/root/.pi/agent")
+# A fleet turn's or --scratch run's agent dir is the container's own disk, so
+# no session or install outlives the run.
+[ -n "$fleet_state" ] || [ "$scratch" = 1 ] || args+=(-v "$agent_volume:/root/.pi/agent")
 args+=(-v "$settings_file:/root/.pi/agent/settings.json:ro")
 if [ "$egress" != 1 ] && [ -s "$cfg/pi.env" ]; then args+=(--env-file "$cfg/pi.env"); fi
 if [ -n "$clone" ]; then
