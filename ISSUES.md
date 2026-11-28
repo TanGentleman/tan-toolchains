@@ -40,4 +40,5 @@ Not fixed. Options:
 ## CI warning: `mlugg/setup-zig` targets Node 20
 
 GitHub runs it on Node 24 and annotates every run with a deprecation warning.
-Move the pin when a release targets Node 24.
+v2.2.1 is the latest release and its main branch still targets Node 20; move
+the pin when a release targets Node 24.
