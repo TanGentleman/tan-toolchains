@@ -31,29 +31,6 @@ Not fixed. Options:
   `PI_MAX_TOKENS`. Covers every model, but not `--allow-egress`, and the proxy
   starts rewriting bodies.
 
-## CI: fleet `TestRealPi` and `TestRealPiWrongKey` fail
-
-Red on `container-bootstrap-7` and `-8` since the config.json/egress-profile
-commits (2026-11-26); unrelated to the Pi version. `startProxy` in
-`fleet/agent/realpi_test.go` predates two `proxy.py` changes:
-
-1. It sets no `PI_PROXY_EGRESS`, so `proxy.py` exits at startup
-   (`PI_PROXY_EGRESS must name the egress profile, not ''`). Adding
-   `PI_PROXY_EGRESS=standard` and `PI_PROXY_MODEL_RULE=any` gets it running.
-2. The test routes model calls to a local `fakeor` server through
-   `PI_PROXY_MODEL_HOST` and expects that server to receive the real key.
-   `proxy.py` now sends a model_url server `sk-or-v1-placeholder` and the real
-   key only to openrouter.ai, so the fake upstream answers 401.
-
-With both changed locally (fake server keyed on the placeholder),
-`TestRealPi` passes on Pi 1.7.0. `TestRealPiWrongKey` then has nothing to test
-on this route; it needs a real-openrouter-style upstream (TLS to a fake
-`openrouter.ai`) or a rewrite around the placeholder rule.
-
-```sh
-cd fleet && go test -race -count=1 -run TestRealPi ./agent   # needs pi on PATH
-```
-
 ## The recorded image fixture still names Pi 1.6.0
 
 `pi-container/test/fixtures/container/image/inspect.json` was recorded from a
