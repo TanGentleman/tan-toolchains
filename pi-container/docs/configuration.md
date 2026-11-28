@@ -83,8 +83,7 @@ requires it for the OpenRouter key; manual mode does not require it.
   manual clone.
 
 Pi never receives the real OpenRouter key. Pi has no install ping since 1.7.0
-(`PI_TELEMETRY=0` still covers an older `PI_VERSION`), and `gh` telemetry is
-off.
+(an older `PI_VERSION` would send one), and `gh` telemetry is off.
 
 ## Settings file
 

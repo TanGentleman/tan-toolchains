@@ -37,13 +37,6 @@ Not fixed. Options:
 1.6.0 image. Fixtures are recorder-owned; after building a 1.7.0 image, run
 `pi-container/test/record-fixtures.sh` on the Mac and review `git diff`.
 
-## `PI_TELEMETRY=0` is a no-op on Pi 1.7.0
-
-Pi 1.7.0 removed install telemetry and `PI_TELEMETRY`. `run.sh` and
-`fleet/agent/realpi_test.go` still set it (and `enableInstallTelemetry`),
-which only matters for an image built with an older `--build-arg PI_VERSION`.
-Drop them when older pins no longer need support.
-
 ## CI warning: `mlugg/setup-zig` targets Node 20
 
 GitHub runs it on Node 24 and annotates every run with a deprecation warning.
