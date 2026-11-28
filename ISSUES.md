@@ -4,22 +4,6 @@ Known problems, newest first. GitHub issues are off for this repo, so they
 live here. `pi-container/UPGRADES.md` still holds planned work; delete an
 entry here when it is fixed.
 
-## Kranti agent runs get the GitHub token
-
-Kranti's studio runs `run.sh --scratch` on the `standard` egress profile, so
-`pi-proxy` tunnels GitHub and Pi gets `GITHUB_TOKEN`. Kranti agents only need
-the Convex site (`PI_EXTRA_TUNNEL`) and the model route; prod runs should not
-carry the token. For now the token in use has non-destructive access to one
-private repo.
-
-Not fixed. Options:
-
-- A profile at `$PI_CONFIG_DIR/egress/NAME.json` with
-  `{"v":1,"tunnel":[],"model_url":"any","github_token":false}`, and
-  `KRANTI_PIC_ARGS=--egress NAME` in Kranti's `.env.local`.
-- A `run.sh` option that drops the GitHub tunnel and token for one run, which
-  Kranti passes.
-
 ## Gemini 4 Neon fails with 402: Pi asks for ~943k output tokens
 
 Seen with Pi 1.7.0 through `pi-proxy`, OpenRouter model
