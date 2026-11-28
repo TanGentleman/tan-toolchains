@@ -1,28 +1,24 @@
 #!/usr/bin/env bash
 # Unit checks for instance and volume naming. Runs without Apple container.
-set -euo pipefail
+set -uo pipefail
 
 here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
-root=$(CDPATH= cd -- "$here/.." && pwd -P)
+. "$here/lib.sh"
 . "$root/names.sh"
 
-fail() { printf 'test-names.sh: %s\n' "$*" >&2; exit 1; }
-
-expect() { # expected, actual, label
-  [ "$1" = "$2" ] || fail "$3: expected '$1', got '$2'"
-}
+expect() { eq "$@"; }
 
 for name in default work a w1 my-work v2; do
-  pi_instance_valid "$name" || fail "expected instance '$name' to be valid"
+  pi_instance_valid "$name" && pass || fail "expected instance '$name' to be valid"
 done
 
 for name in '' home Home -work work_ work/foo 'work foo'; do
-  if pi_instance_valid "$name"; then fail "expected instance '$name' to be invalid"; fi
+  if pi_instance_valid "$name"; then fail "expected instance '$name' to be invalid"; else pass; fi
 done
 
 long=abcdefghijklmnopqrstuvwx
-pi_instance_valid "$long" || fail "expected 24-character instance to be valid"
-if pi_instance_valid "${long}x"; then fail "expected 25-character instance to be invalid"; fi
+pi_instance_valid "$long" && pass || fail "expected 24-character instance to be valid"
+if pi_instance_valid "${long}x"; then fail "expected 25-character instance to be invalid"; else pass; fi
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -45,10 +41,10 @@ expect "pi-proxy-$profile_id" "$(pi_proxy_name "$custom_cfg")" "custom proxy nam
 expect "pi-proxy-$profile_id:local" "$(pi_proxy_image "$custom_cfg")" "custom proxy image"
 expect "pi-locked-$profile_id" "$(pi_network_name "$custom_cfg")" "custom network name"
 case $(pi_locked_subnet "$custom_cfg") in
-  172.30.*.0/24) ;;
+  172.30.*.0/24) pass ;;
   *) fail "custom profile subnet is malformed" ;;
 esac
-[ "$(pi_locked_subnet "$custom_cfg")" != "172.30.240.0/24" ] ||
+[ "$(pi_locked_subnet "$custom_cfg")" != "172.30.240.0/24" ] && pass ||
   fail "custom profile reused the default subnet"
 
 expect pi-agent-home "$(pi_agent_volume default "$default_cfg")" "default agent volume"
@@ -63,29 +59,29 @@ expect "$HOME/.pic/backups" "$(pi_backup_dir)" "backup dir"
 expect "$HOME/.pic/fleet" "$(pi_fleet_dir)" "fleet dir"
 expect /elsewhere/lock "$(PIC_HOME=/elsewhere/ pi_lock_dir)" "PIC_HOME moves the lock"
 expect /elsewhere/config "$(PIC_HOME=/elsewhere pi_default_config_dir)" "PIC_HOME moves the default profile"
-[ -n "$(pi_profile_id /elsewhere/config)" ] || fail "another PIC_HOME's config must not take the default names"
+[ -n "$(pi_profile_id /elsewhere/config)" ] && pass || fail "another PIC_HOME's config must not take the default names"
 
 work_clone=$(pi_clone_volume work owner/repo "$default_cfg")
 default_clone=$(pi_clone_volume default owner/repo "$default_cfg")
 custom_clone=$(pi_clone_volume work owner/repo "$custom_cfg")
 case $work_clone in
-  pi-clone_work_owner-repo-????????) ;;
+  pi-clone_work_owner-repo-????????) pass ;;
   *) fail "unexpected work clone volume: $work_clone" ;;
 esac
 case $default_clone in
-  pi-clone_default_owner-repo-????????) ;;
+  pi-clone_default_owner-repo-????????) pass ;;
   *) fail "unexpected default clone volume: $default_clone" ;;
 esac
 case $custom_clone in
-  "pi-clone_${profile_id}_work_owner-repo-"????????) ;;
+  "pi-clone_${profile_id}_work_owner-repo-"????????) pass ;;
   *) fail "unexpected custom clone volume: $custom_clone" ;;
 esac
-[ "$work_clone" != "$default_clone" ] || fail "instances must not share a clone volume"
-[ "$work_clone" != "$custom_clone" ] || fail "profiles must not share a clone volume"
+[ "$work_clone" != "$default_clone" ] && pass || fail "instances must not share a clone volume"
+[ "$work_clone" != "$custom_clone" ] && pass || fail "profiles must not share a clone volume"
 
 # Generated clone volumes use one unambiguous namespace.
 case $work_clone in
-  pi-clone_*) ;;
+  pi-clone_*) pass ;;
   *) fail "clone volume lacks the pi-clone_ namespace: $work_clone" ;;
 esac
 
@@ -98,6 +94,8 @@ actual=$(pi_sha256 "$tmp/a" < /dev/null | awk '{print $1}')
 expect "$expected" "$actual" "pi_sha256 hashes a file argument"
 if [ "$(pi_sha256 "$tmp/a" < /dev/null)" = "$(pi_sha256 "$tmp/b" < /dev/null)" ]; then
   fail "pi_sha256 ignored distinct file arguments"
+else
+  pass
 fi
 
-printf 'test-names.sh: ok\n'
+finish

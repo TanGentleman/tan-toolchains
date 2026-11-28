@@ -22,14 +22,33 @@ while IFS= read -r f; do
   jq -e . "$f" >/dev/null 2>&1 || { printf 'FAIL: invalid JSON fixture: %s\n' "$f" >&2; fail=1; }
 done < <(find "$here/fixtures/container" -name '*.json' -type f)
 
+# Each test file ends its stdout with "<name>: N passed, M failed".
+passed=0
+failed=0
+files=0
+uncounted=""
+log=$(mktemp "${TMPDIR:-/tmp}/run-tests.XXXXXX")
+trap 'rm -f "$log"' EXIT
+
 for f in "$here"/test-*.sh; do
   printf '== %s\n' "${f##*/}"
-  if ! bash "$f"; then fail=1; fi
+  bash "$f" | tee "$log"
+  if [ "${PIPESTATUS[0]}" -ne 0 ]; then fail=1; fi
+  files=$((files + 1))
+  counts=$(sed -n 's/^.*: \([0-9][0-9]*\) passed, \([0-9][0-9]*\) failed$/\1 \2/p' "$log" | tail -n 1)
+  if [ -n "$counts" ]; then
+    passed=$((passed + ${counts% *}))
+    failed=$((failed + ${counts#* }))
+  else
+    uncounted="$uncounted ${f##*/}"
+  fi
 done
 
+summary="$passed passed, $failed failed across $files files"
+[ -z "$uncounted" ] || summary="$summary; no count from:$uncounted"
 if [ "$fail" -eq 0 ]; then
-  printf 'run-tests.sh: all tests passed\n'
+  printf 'run-tests.sh: all tests passed (%s)\n' "$summary"
 else
-  printf 'run-tests.sh: failures above\n' >&2
+  printf 'run-tests.sh: failures above (%s)\n' "$summary" >&2
 fi
 exit "$fail"

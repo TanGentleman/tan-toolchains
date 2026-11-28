@@ -103,7 +103,12 @@ capture image/inspect.json "$cli" image inspect "$image"
 say ""
 
 say "## Proxy container"
-capture inspect/proxy-running.json "$cli" inspect "$proxy"
+if "$cli" inspect "$proxy" 2>/dev/null | jq -e '.[0].status.state == "running"' >/dev/null 2>&1; then
+  capture inspect/proxy-running.json "$cli" inspect "$proxy"
+else
+  say "kept inspect/proxy-running.json  ($proxy is not running; start it and re-run)"
+  status=1
+fi
 say ""
 
 expect() { # relative-file, jq filter, description

@@ -57,7 +57,7 @@ Every later step runs from this folder.
 ## 3. Test and build
 
 ```sh
-./test/run-tests.sh       # ends: run-tests.sh: all tests passed
+./test/run-tests.sh       # ends: run-tests.sh: all tests passed (N passed, 0 failed across 12 files)
 ./build.sh full           # pi-full:local; the first build takes a while
 ./build.sh fleet          # fleet's tests (ok per package), then fleet/bin/fleetd
 file ../fleet/bin/fleetd  # Mach-O 64-bit executable arm64
