@@ -1,4 +1,4 @@
-Captured 2026-11-27T18:05:51Z
+Captured 2026-11-28T19:13:51Z
 CLI: container CLI version 1.7.1 (build: release, commit: a15b460)
 Profile: $HOME/.pic/config
 
@@ -12,7 +12,7 @@ wrote image/inspect.json  <- container image inspect pi-full:local
 wrote inspect/proxy-running.json  <- container inspect pi-proxy
 
 ## Volume labels
-wrote volume/labelled.json  <- container volume inspect pi-fixture-85206
+wrote volume/labelled.json  <- container volume inspect pi-fixture-3706
 
 ## Shapes
 shape ok network/host-only.json  (configuration.mode)

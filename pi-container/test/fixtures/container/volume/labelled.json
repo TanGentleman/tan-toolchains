@@ -1,7 +1,7 @@
 [
   {
     "configuration": {
-      "creationDate": "2026-11-27T18:05:51Z",
+      "creationDate": "2026-11-28T19:13:51Z",
       "driver": "local",
       "format": "ext4",
       "labels": {
@@ -12,11 +12,11 @@
         "pi.profile": "default",
         "pi.settings": "$HOME/.pic/config/settings.json"
       },
-      "name": "pi-fixture-85206",
+      "name": "pi-fixture-3706",
       "options": {},
       "sizeInBytes": 549755813888,
-      "source": "$HOME/Library/Application Support/com.apple.container/volumes/pi-fixture-85206/volume.img"
+      "source": "$HOME/Library/Application Support/com.apple.container/volumes/pi-fixture-3706/volume.img"
     },
-    "id": "pi-fixture-85206"
+    "id": "pi-fixture-3706"
   }
 ]

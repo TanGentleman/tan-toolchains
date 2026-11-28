@@ -3,7 +3,7 @@
     "configuration": {
       "capAdd": [],
       "capDrop": [],
-      "creationDate": "2026-11-27T07:39:51Z",
+      "creationDate": "2026-11-28T05:25:56Z",
       "dns": {
         "nameservers": [],
         "options": [],
@@ -30,21 +30,21 @@
           "/usr/local/bin/proxy.py"
         ],
         "environment": [
+          "PI_PROXY_CERT=redacted",
+          "PI_PROXY_ADDR_FILE=redacted",
+          "PI_PROXY_LOCKED_CIDR=redacted",
+          "PI_PROXY_TUNNEL=redacted",
+          "LANG=redacted",
+          "GPG_KEY=redacted",
+          "PATH=/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
           "PI_PROXY_MODEL_RULE=redacted",
+          "PYTHON_SHA256=redacted",
+          "PI_PROXY_KEY=redacted",
+          "PYTHON_VERSION=redacted",
+          "PI_PROXY_PORT=redacted",
           "PI_PROXY_CA=redacted",
           "PI_PROXY_EGRESS=redacted",
-          "PI_PROXY_KEY=redacted",
-          "PYTHON_SHA256=redacted",
-          "PI_PROXY_LOCKED_CIDR=redacted",
-          "PYTHON_VERSION=redacted",
-          "PI_PROXY_CERT=redacted",
-          "PI_PROXY_PORT=redacted",
-          "GPG_KEY=redacted",
-          "PI_PROXY_ADDR_FILE=redacted",
-          "PI_ENV_FILE=redacted",
-          "PATH=/usr/local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-          "PI_PROXY_TUNNEL=redacted",
-          "LANG=redacted"
+          "PI_ENV_FILE=redacted"
         ],
         "executable": "python3",
         "rlimits": [],
@@ -114,30 +114,8 @@
     },
     "id": "pi-proxy",
     "status": {
-      "networks": [
-        {
-          "hostname": "pi-proxy",
-          "ipv4Address": "192.168.64.11/24",
-          "ipv4Gateway": "192.168.64.1",
-          "ipv6Address": "2001:db8::/64",
-          "macAddress": "02:00:00:00:00:00",
-          "mtu": 1280,
-          "network": "default",
-          "variant": "reserved"
-        },
-        {
-          "hostname": "pi-proxy",
-          "ipv4Address": "172.30.240.2/24",
-          "ipv4Gateway": "172.30.240.1",
-          "ipv6Address": "2001:db8::/64",
-          "macAddress": "02:00:00:00:00:00",
-          "mtu": 1280,
-          "network": "pi-locked",
-          "variant": "reserved"
-        }
-      ],
-      "startedDate": "2026-11-27T17:24:44Z",
-      "state": "running"
+      "networks": [],
+      "state": "stopped"
     }
   }
 ]

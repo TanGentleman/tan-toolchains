@@ -1,21 +1,21 @@
 [
   {
     "configuration": {
-      "creationDate": "2026-11-27T17:22:31Z",
+      "creationDate": "2026-11-28T02:30:08Z",
       "descriptor": {
         "annotations": {
           "com.apple.containerization.image.name": "docker.io/library/pi-full:local",
           "io.containerd.image.name": "docker.io/library/pi-full:local",
-          "org.opencontainers.image.created": "2026-11-27T17:22:36Z",
+          "org.opencontainers.image.created": "2026-11-28T19:13:27Z",
           "org.opencontainers.image.ref.name": "local"
         },
-        "digest": "sha256:ba714523004d4ab662b5d89cd7b819137d5787547a93283971b082b43cd35e1d",
+        "digest": "sha256:bdf6abe0a39a428a2f44da22fee268aefc9b126fd99a9f30ba333db703b434fe",
         "mediaType": "application/vnd.oci.image.index.v1+json",
         "size": 375
       },
       "name": "docker.io/library/pi-full:local"
     },
-    "id": "ba714523004d4ab662b5d89cd7b819137d5787547a93283971b082b43cd35e1d",
+    "id": "bdf6abe0a39a428a2f44da22fee268aefc9b126fd99a9f30ba333db703b434fe",
     "variants": [
       {
         "config": {
@@ -35,14 +35,14 @@
               "GH_NO_UPDATE_NOTIFIER=1",
               "GIT_TERMINAL_PROMPT=0",
               "PI_CONTAINER_CAPABILITIES=enforcer,netlock,pi,gh",
-              "PI_CONTAINER_PI_VERSION=1.6.0"
+              "PI_CONTAINER_PI_VERSION=1.7.0"
             ],
             "Labels": {
-              "pi-container.pi-version": "1.6.0"
+              "pi-container.pi-version": "1.7.0"
             },
             "WorkingDir": "/workspace"
           },
-          "created": "2026-11-27T17:22:31.438911008Z",
+          "created": "2026-11-28T02:30:08.978528425Z",
           "history": [
             {
               "comment": "debuerreotype 0.17",
@@ -95,90 +95,90 @@
             },
             {
               "comment": "buildkit.dockerfile.v0",
-              "created": "2026-11-27T07:38:59.335032503Z",
-              "created_by": "ARG PI_VERSION=1.6.0",
+              "created": "2026-11-28T02:28:14.714909889Z",
+              "created_by": "ARG PI_VERSION=1.7.0",
               "empty_layer": true
             },
             {
               "comment": "buildkit.dockerfile.v0",
-              "created": "2026-11-27T07:38:59.335032503Z",
-              "created_by": "LABEL pi-container.pi-version=1.6.0",
+              "created": "2026-11-28T02:28:14.714909889Z",
+              "created_by": "LABEL pi-container.pi-version=1.7.0",
               "empty_layer": true
             },
             {
               "comment": "buildkit.dockerfile.v0",
-              "created": "2026-11-27T07:38:59.335032503Z",
-              "created_by": "RUN |1 PI_VERSION=1.6.0 /bin/sh -c [ \"$(uname -m)\" = aarch64 ] || (echo \"this image currently pins aarch64 only\" >&2; exit 1) # buildkit"
+              "created": "2026-11-28T02:28:14.714909889Z",
+              "created_by": "RUN |1 PI_VERSION=1.7.0 /bin/sh -c [ \"$(uname -m)\" = aarch64 ] || (echo \"this image currently pins aarch64 only\" >&2; exit 1) # buildkit"
             },
             {
               "comment": "buildkit.dockerfile.v0",
-              "created": "2026-11-27T07:39:06.90201034Z",
-              "created_by": "RUN |1 PI_VERSION=1.6.0 /bin/sh -c apt-get update     && apt-get install -y --no-install-recommends bash ca-certificates curl fd-find findutils git iptables jq minisign ripgrep unzip xz-utils     && ln -s /usr/bin/fdfind /usr/local/bin/fd     && rm -rf /var/lib/apt/lists/* # buildkit"
+              "created": "2026-11-28T02:28:23.003302878Z",
+              "created_by": "RUN |1 PI_VERSION=1.7.0 /bin/sh -c apt-get update     && apt-get install -y --no-install-recommends bash ca-certificates curl fd-find findutils git iptables jq minisign ripgrep unzip xz-utils     && ln -s /usr/bin/fdfind /usr/local/bin/fd     && rm -rf /var/lib/apt/lists/* # buildkit"
             },
             {
               "comment": "buildkit.dockerfile.v0",
-              "created": "2026-11-27T07:39:06.90201034Z",
+              "created": "2026-11-28T02:28:23.003302878Z",
               "created_by": "ENV PI_SKIP_VERSION_CHECK=1 GH_NO_UPDATE_NOTIFIER=1 GIT_TERMINAL_PROMPT=0",
               "empty_layer": true
             },
             {
               "comment": "buildkit.dockerfile.v0",
-              "created": "2026-11-27T07:39:06.960287715Z",
+              "created": "2026-11-28T02:28:23.024944753Z",
               "created_by": "WORKDIR /workspace"
             },
             {
               "comment": "buildkit.dockerfile.v0",
-              "created": "2026-11-27T17:22:16.846659043Z",
+              "created": "2026-11-28T02:29:54.547665543Z",
               "created_by": "COPY /usr/local/bin/enforcer /usr/local/bin/enforcer # buildkit"
             },
             {
               "comment": "buildkit.dockerfile.v0",
-              "created": "2026-11-27T17:22:16.846659043Z",
+              "created": "2026-11-28T02:29:54.547665543Z",
               "created_by": "ENV PI_CONTAINER_CAPABILITIES=enforcer,netlock",
               "empty_layer": true
             },
             {
               "comment": "buildkit.dockerfile.v0",
-              "created": "2026-11-27T17:22:16.846659043Z",
-              "created_by": "ARG PI_VERSION=1.6.0",
+              "created": "2026-11-28T02:29:54.547665543Z",
+              "created_by": "ARG PI_VERSION=1.7.0",
               "empty_layer": true
             },
             {
               "comment": "buildkit.dockerfile.v0",
-              "created": "2026-11-27T17:22:26.130182547Z",
-              "created_by": "RUN |1 PI_VERSION=1.6.0 /bin/sh -c npm install -g --ignore-scripts \"@earendil-works/pi-coding-agent@${PI_VERSION}\" # buildkit"
+              "created": "2026-11-28T02:30:03.366673298Z",
+              "created_by": "RUN |1 PI_VERSION=1.7.0 /bin/sh -c npm install -g --ignore-scripts \"@earendil-works/pi-coding-agent@${PI_VERSION}\" # buildkit"
             },
             {
               "comment": "buildkit.dockerfile.v0",
-              "created": "2026-11-27T17:22:26.130182547Z",
-              "created_by": "ENV PI_CONTAINER_PI_VERSION=1.6.0 PI_CONTAINER_CAPABILITIES=enforcer,netlock,pi",
+              "created": "2026-11-28T02:30:03.366673298Z",
+              "created_by": "ENV PI_CONTAINER_PI_VERSION=1.7.0 PI_CONTAINER_CAPABILITIES=enforcer,netlock,pi",
               "empty_layer": true
             },
             {
               "comment": "buildkit.dockerfile.v0",
-              "created": "2026-11-27T17:22:26.130182547Z",
+              "created": "2026-11-28T02:30:03.366673298Z",
               "created_by": "CMD [\"pi\"]",
               "empty_layer": true
             },
             {
               "comment": "buildkit.dockerfile.v0",
-              "created": "2026-11-27T17:22:31.383902217Z",
-              "created_by": "RUN |1 PI_VERSION=1.6.0 /bin/sh -c apt-get update     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli.gpg     && echo \"deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli.gpg] https://cli.github.com/packages stable main\"         > /etc/apt/sources.list.d/github-cli.list     && apt-get update && apt-get install -y --no-install-recommends gh     && rm -rf /var/lib/apt/lists/* # buildkit"
+              "created": "2026-11-28T02:30:08.927896717Z",
+              "created_by": "RUN |1 PI_VERSION=1.7.0 /bin/sh -c apt-get update     && curl -fsSL https://cli.github.com/packages/githubcli-archive-keyring.gpg -o /usr/share/keyrings/githubcli.gpg     && echo \"deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/githubcli.gpg] https://cli.github.com/packages stable main\"         > /etc/apt/sources.list.d/github-cli.list     && apt-get update && apt-get install -y --no-install-recommends gh     && rm -rf /var/lib/apt/lists/* # buildkit"
             },
             {
               "comment": "buildkit.dockerfile.v0",
-              "created": "2026-11-27T17:22:31.438911008Z",
-              "created_by": "RUN |1 PI_VERSION=1.6.0 /bin/sh -c git config --system credential.https://github.com.helper '!gh auth git-credential'     && git config --system url.https://github.com/.insteadOf git@github.com:     && git config --system --add url.https://github.com/.insteadOf ssh://git@github.com/     && git config --system safe.directory '*' # buildkit"
+              "created": "2026-11-28T02:30:08.978528425Z",
+              "created_by": "RUN |1 PI_VERSION=1.7.0 /bin/sh -c git config --system credential.https://github.com.helper '!gh auth git-credential'     && git config --system url.https://github.com/.insteadOf git@github.com:     && git config --system --add url.https://github.com/.insteadOf ssh://git@github.com/     && git config --system safe.directory '*' # buildkit"
             },
             {
               "comment": "buildkit.dockerfile.v0",
-              "created": "2026-11-27T17:22:31.438911008Z",
+              "created": "2026-11-28T02:30:08.978528425Z",
               "created_by": "ENV PI_CONTAINER_CAPABILITIES=enforcer,netlock,pi,gh",
               "empty_layer": true
             },
             {
               "comment": "buildkit.dockerfile.v0",
-              "created": "2026-11-27T17:22:31.438911008Z",
+              "created": "2026-11-28T02:30:08.978528425Z",
               "created_by": "CMD [\"pi\"]",
               "empty_layer": true
             }
@@ -192,22 +192,22 @@
               "sha256:53e133882cd77216221aae5b5cb5716b1aa2d372c29e21155ba54475af3f56bb",
               "sha256:03fdb515789d4e4762b35e9b1614e5b0d90167377bd716d6a4033a4c0ae0e6b3",
               "sha256:5f70bf18a086007016e948b04aed3b82103a36bea41755b6cddfaf10ace3c6ef",
-              "sha256:ece63eaad3211eebc2d77d1c998e79899cfeb1c2afca37fa6960dbdec2541678",
-              "sha256:074b12879e4b65e472b7a3c70f93990b3a3205980cd7f844e133e6eaa8e7cc04",
-              "sha256:5944ecb1d9ab9d53b60d257dc56ccf9d5a2eff1f3c7ca27a8a0f20a68fbf142f",
-              "sha256:684a4496e82d4dc894b8ff16e753b2de50cac4b8004683ac41066e2d1196f975",
-              "sha256:83d9ea2be143ccb76ae6ef8b8a67d9dc55b4189dd3152eea87f228fbb7bb17c9",
-              "sha256:426a20a7b79bc18b5945f9be22ab418560cb42a3fcdf04e4e9217ecc65b62374"
+              "sha256:6fa0d234dfede670e6bbfb5d4d1bcfb9214385648577f2f7dfaccf5d5b9eb6cb",
+              "sha256:d2650f12ae7024356f37813786fd47dd1ee3c9a6730c8a0a2b7b8a08e8fbd144",
+              "sha256:e383b6ab8c2b87461d938c99fe5600c04f05606cee98eddf35b9403d4eef9229",
+              "sha256:241ba8d2456955287dcfda6adb7a7bb60f217e9bca16be742286b4bcf8bb400f",
+              "sha256:0fd4d6bb4edc23a79049038e7c0a4f6dfe96293f3aa250192ad5cb689314a3cf",
+              "sha256:35cfca002f30a5e9516af63f5355f0aeec07554b55db729435af3dde8efabb90"
             ],
             "type": "layers"
           }
         },
-        "digest": "sha256:8cc2359384fc2bc63b1a0bfbf2d4e85a25b21536009d2a7b0cd76d09a68bccf9",
+        "digest": "sha256:73e25b980fb584cb288161997449a132b009de4639796c636accbafdb5b57d08",
         "platform": {
           "architecture": "arm64",
           "os": "linux"
         },
-        "size": 194777379
+        "size": 195314240
       }
     ]
   }
