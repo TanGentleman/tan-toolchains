@@ -102,6 +102,10 @@ Copy a built-in from `pi-container/egress/` to
 reach), `model_url` (`any` or `private`) and `github_token`, then use
 `PI_EGRESS=NAME`. `pic config` prints the hosts; `pic check` tests them.
 
+To add hosts to a built-in profile instead, set `PI_EXTRA_TUNNEL=HOST[,HOST...]`
+(or `https://HOST`) in the shell or the env file
+([extra tunnel hosts](../pi-container/docs/configuration.md#extra-tunnel-hosts)).
+
 ## References
 
 - [Network boundary](../README.md#network-boundary): what Pi can reach, and how.
