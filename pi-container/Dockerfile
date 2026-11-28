@@ -30,10 +30,23 @@ FROM base AS zig
 ARG ZIG_VERSION
 ARG ZIG_PUBKEY
 
-RUN name="zig-$(uname -m)-linux-${ZIG_VERSION}" && cd /tmp \
-    && curl -fsSLO "https://ziglang.org/download/${ZIG_VERSION}/${name}.tar.xz" \
-    && curl -fsSLO "https://ziglang.org/download/${ZIG_VERSION}/${name}.tar.xz.minisig" \
-    && minisign -Vm "${name}.tar.xz" -P "${ZIG_PUBKEY}" \
+# Zig asks automated downloads to use its community mirrors and fall back to
+# ziglang.org. Any source is fine: the tarball must carry the Zig signature,
+# and the signed comment must name this file (no swapping in another release).
+RUN name="zig-$(uname -m)-linux-${ZIG_VERSION}" && file="${name}.tar.xz" && cd /tmp \
+    && fetch() { \
+         rm -f "$file" "$file.minisig"; \
+         curl -fsSL --connect-timeout 10 --max-time 300 -o "$file" "$1/$file?source=tan-toolchains" \
+         && curl -fsSL --connect-timeout 10 --max-time 30 -o "$file.minisig" "$1/$file.minisig?source=tan-toolchains" \
+         && comment=$(minisign -Vm "$file" -P "${ZIG_PUBKEY}" -Q) \
+         && case "$comment" in "timestamp:"[0-9]*[[:space:]]"file:$file"[[:space:]]"hashed") ;; *) false ;; esac; \
+       } \
+    && mirrors=$(curl -fsSL --max-time 30 https://ziglang.org/download/community-mirrors.txt | shuf || true) \
+    && ok=0 && for m in $mirrors "https://ziglang.org/download/${ZIG_VERSION}"; do \
+         if fetch "$m"; then echo "zig: $file from $m"; ok=1; break; fi; \
+         echo "zig: $m failed" >&2; \
+       done \
+    && [ "$ok" = 1 ] \
     && mkdir -p /opt/zig \
     && tar -xJf "${name}.tar.xz" -C /opt/zig --strip-components=1 \
     && rm "${name}".tar.xz* \
