@@ -61,8 +61,6 @@ the remaining checks by hand; the script lists them at the end.
       `./run.sh --image min config --json | jq -c .source`
       prints `{"image":"flag","egress":"default","model_url":"default"}`.
 - [ ] `PI_IMAGE=agent ./run.sh config` exits 2 naming `PI_IMAGE`.
-      `echo '{"v":1,"image":"min"}' > "$PI_CONFIG_DIR/config.json"; ./run.sh config`
-      exits 2 with `no longer read; set PI_IMAGE='min'`. `rm "$PI_CONFIG_DIR/config.json"` after.
 - [ ] `./run.sh --manual --image editor sh -c 'nvim --version | head -n 1; zls --version; command -v enforcer; ! command -v pi; ! command -v gh'`
       reports the editor tools and confirms Pi/gh are absent.
 - [ ] `$PI_ENV_FILE` is mode 600/400; `private/proxy.env` and `pi.env` are
@@ -143,6 +141,8 @@ Needs `./build.sh min`. The refusal and routing checks need nothing on port
 - [ ] `./clear.sh list` shows `e2e` and `other`, separate agent volumes, the
       profile settings path, and session sizes.
 - [ ] Sessions and `auth.json` do not cross between `e2e` and `other`.
+- [ ] `./run.sh --scratch pi -p 'Say hi'` answers; `./clear.sh list` shows no
+      new agent volume and the E2E instance's session size is unchanged.
 - [ ] Both instances read the same `settings.json`.
 - [ ] `settings.json` is read-only: record its hash, change a preference through
       `/settings`, save a model with `Ctrl+S`, save thinking with `Ctrl+S`, and

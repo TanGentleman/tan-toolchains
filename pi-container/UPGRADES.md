@@ -89,8 +89,6 @@ behavior or test value justifies the churn.
   and volume/image existence helpers. Lock acquisition is now shared in
   `lib/lock.sh`; the remaining helpers are cheap enough to leave until they
   change.
-- `lib/*.sh` are tracked executable but are sourced and have no shebang. Set
-  them to mode `100644`.
 - The image version `Env` source is unit-tested, but the image captured for
   this change had no `PI_CONTAINER_PI_VERSION` in `Env`, so the live path used
   the label/history/Dockerfile version instead. Rebuild the image, re-run

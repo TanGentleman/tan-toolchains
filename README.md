@@ -74,7 +74,6 @@ check`, and fleet turns.
   - `offline`: it refuses GitHub and openrouter.ai, sends model calls only to
     `model_url` (on `gateway` or a private IPv4 address, required), and Pi
     gets no GitHub token.
-
   - your own, `$PI_CONFIG_DIR/egress/NAME.json`: the hosts it tunnels,
     whether model calls must stay private, and whether Pi gets the GitHub
     token ([egress profiles](pi-container/docs/configuration.md#egress-profiles)).
