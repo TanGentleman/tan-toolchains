@@ -43,12 +43,14 @@ pi_config_combo_check() { # egress name, its model_url rule, model_url
 }
 
 # run.sh config --json.
-pi_config_json() { # image, image-source, egress, egress-source, model_url, model_url-source, tag, profile file, tunnel csv, model_url rule, github_token
+pi_config_json() { # image, image-source, egress, egress-source, model_url, model_url-source, tag, profile file, tunnel csv, model_url rule, github_token, extra tunnel, extra-source
   jq -cn --arg image "$1" --arg is "$2" --arg egress "$3" --arg es "$4" \
     --arg url "$5" --arg us "$6" --arg tag "$7" --arg pf "$8" --arg tunnel "$9" --arg rule "${10}" --arg token "${11}" \
+    --arg extra "${12:-}" --arg xs "${13:-}" \
     '{v: 1, image: $image, tag: $tag, egress: $egress, model_url: $url,
-      source: {image: $is, egress: $es, model_url: $us},
-      egress_profile: {file: $pf, tunnel: ($tunnel | split(",") | map(select(. != ""))), model_url: $rule, github_token: ($token == "true")}}'
+      source: ({image: $is, egress: $es, model_url: $us} + (if $extra == "" then {} else {extra_tunnel: $xs} end)),
+      egress_profile: {file: $pf, tunnel: ($tunnel | split(",") | map(select(. != ""))), model_url: $rule, github_token: ($token == "true")}}
+      + (if $extra == "" then {} else {extra_tunnel: ($extra | split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(. != "")))} end)'
 }
 
 # $PIC_HOME/overrides.env holds the paths pic migrate left in place. Line 1 is

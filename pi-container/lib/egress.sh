@@ -13,6 +13,11 @@
 
 pi_egress_builtin_names="standard offline"
 
+pi_egress_jq_defs='
+  def bad($m): "error:" + $m;
+  def host: type == "string" and test("^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?$");
+  def openrouter: . == "openrouter.ai" or endswith(".openrouter.ai");'
+
 # Prints the profile's file. Returns 1 when NAME is neither built in nor in
 # the user directory.
 pi_egress_file() { # name, builtin-dir, user-dir
@@ -33,10 +38,8 @@ pi_egress_read() { # file
     return 1
   fi
   if ! out=$(jq -rs '
-      def bad($m): "error:" + $m;
+      '"$pi_egress_jq_defs"'
       def known: ["v", "about", "tunnel", "model_url", "github_token"];
-      def host: type == "string" and test("^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?$");
-      def openrouter: . == "openrouter.ai" or endswith(".openrouter.ai");
       if length != 1 or (.[0] | type) != "object" then bad("must hold one JSON object")
       else .[0]
         | if .v != 1 then bad("needs \"v\": 1, not \(.v | tojson)")
@@ -67,4 +70,27 @@ pi_egress_tunnels() { # tunnel-csv, host
     *",$2,"*) return 0 ;;
   esac
   return 1
+}
+
+# PI_EXTRA_TUNNEL: comma-separated hosts, or https://HOST URLs, added to the
+# profile's tunnel for this run (so PI_EXTRA_TUNNEL=$CONVEX_SITE_URL works).
+# Prints the merged tunnel csv; a host already listed is kept once. On a bad
+# entry prints the reason and returns 1.
+pi_egress_extra() { # tunnel-csv, extra
+  local out
+  out=$(jq -rn --arg base "$1" --arg extra "$2" "$pi_egress_jq_defs"'
+      def csv: split(",") | map(gsub("^\\s+|\\s+$"; "")) | map(select(. != ""));
+      ($extra | csv) as $raw
+      | ($raw | map(if startswith("https://") then .[8:] | sub("/$"; "") else . end)) as $hosts
+      | ([range(0; $raw | length) | select($hosts[.] | host | not)] | first) as $i
+      | if $i != null then bad("entry \($raw[$i] | tojson) is not a lowercase host name or https://HOST")
+        elif $hosts | any(openrouter) then bad("cannot list openrouter.ai; pi-proxy intercepts it to add the key")
+        else (reduce (($base | csv) + $hosts)[] as $h ([]; if index([$h]) then . else . + [$h] end)) as $all
+          | if ($all | length) > 64 then bad("makes the tunnel longer than 64 hosts")
+            else $all | join(",") end
+        end') || { printf 'is not a list of host names\n'; return 1; }
+  case $out in
+    error:*) printf '%s\n' "${out#error:}"; return 1 ;;
+  esac
+  printf '%s\n' "$out"
 }

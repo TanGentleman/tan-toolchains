@@ -71,6 +71,9 @@ Run options:
   --model-url URL     openrouter, or http://HOST:PORT; HOST may be gateway (this Mac)
   --clone O/R         default: $PI_CLONE
 
+PI_EXTRA_TUNNEL=HOST[,HOST...] (or https://HOST), in the shell or the env file,
+adds hosts to the profile's tunnel for runs behind pi-proxy.
+
 Image, egress and model_url: a flag, then PI_IMAGE, PI_EGRESS, PI_MODEL_URL,
 then full, standard, openrouter. Set the env vars in an alias:
   alias opic='PI_IMAGE=min PI_EGRESS=offline PI_MODEL_URL=http://gateway:8090 pic --instance offline'
@@ -197,6 +200,20 @@ if ! egress_raw=$(pi_egress_read "$egress_file"); then
   exit 2
 fi
 IFS=$'\037' read -r egress_tunnel egress_model_rule egress_token <<<"$egress_raw"
+# PI_EXTRA_TUNNEL from the shell, else from the host env file.
+extra_tunnel=${PI_EXTRA_TUNNEL:-} extra_source=env
+if [ -z "$extra_tunnel" ] && [ -f "$env_file" ] && [ -r "$env_file" ]; then
+  extra_tunnel=$(grep '^PI_EXTRA_TUNNEL=' "$env_file" | tail -n 1 | tr -d '\r' || true)
+  extra_tunnel=${extra_tunnel#PI_EXTRA_TUNNEL=} extra_source="env file"
+fi
+[ -n "$extra_tunnel" ] || extra_source=""
+if [ -n "$extra_tunnel" ]; then
+  if ! merged=$(pi_egress_extra "$egress_tunnel" "$extra_tunnel"); then
+    echo "run.sh: PI_EXTRA_TUNNEL ($extra_source) $merged" >&2
+    exit 2
+  fi
+  egress_tunnel=$merged
+fi
 if ! why=$(pi_config_combo_check "$egress_mode" "$egress_model_rule" "$model_url"); then
   echo "run.sh: $why" >&2
   exit 2
@@ -208,6 +225,7 @@ config_summary() {
   printf 'model_url  %-26s %s\n' "$model_url" "$model_url_source"
   printf '  profile  %s\n' "$egress_file"
   printf '  tunnel   %s\n' "${egress_tunnel:-none}"
+  if [ -n "$extra_tunnel" ]; then printf '  extra    %s (PI_EXTRA_TUNNEL, %s)\n' "$extra_tunnel" "$extra_source"; fi
   if [ "$egress_model_rule" = private ]; then printf '  models   model_url only, on gateway or a private IPv4 address\n'
   else printf '  models   openrouter.ai with the key, or model_url\n'; fi
   if [ "$egress_token" = true ]; then printf '  token    GITHUB_TOKEN from the env file\n'
@@ -229,7 +247,8 @@ case "${1:-}" in
           config_summary ;;
       --json) [ $# -eq 2 ] || { echo "run.sh: config takes only --json" >&2; exit 2; }
           pi_config_json "$pack" "$pack_source" "$egress_mode" "$egress_source" \
-            "$model_url" "$model_url_source" "$image" "$egress_file" "$egress_tunnel" "$egress_model_rule" "$egress_token" ;;
+            "$model_url" "$model_url_source" "$image" "$egress_file" "$egress_tunnel" "$egress_model_rule" "$egress_token" \
+            "$extra_tunnel" "$extra_source" ;;
       *) echo "run.sh: config takes only --json" >&2; exit 2 ;;
     esac
     exit 0

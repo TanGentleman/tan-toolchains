@@ -57,4 +57,26 @@ rc 0 "tunnels github.com" pi_egress_tunnels "$gh" github.com
 rc 1 "no partial match" pi_egress_tunnels "$gh" hub.com
 rc 1 "empty tunnel" pi_egress_tunnels "" github.com
 
+extra_ok() { # tunnel, extra, expected, label
+  local out
+  if out=$(pi_egress_extra "$1" "$2"); then eq "$3" "$out" "$4"; else fail "$4: refused: $out"; fi
+}
+extra_bad() { # tunnel, extra, reason needle, label
+  local out
+  if out=$(pi_egress_extra "$1" "$2"); then fail "$4: accepted: $out"; else contains "$3" "$out" "$4"; fi
+}
+extra_ok "" "a.convex.site" "a.convex.site" "extra host on an empty tunnel"
+extra_ok "$gh" "a.convex.site" "$gh,a.convex.site" "extra host appended"
+extra_ok "" "https://a.convex.site/" "a.convex.site" "https URL gives its host"
+extra_ok "" " a.com , b.com,," "a.com,b.com" "spaces and empty entries"
+extra_ok "github.com" "github.com,a.com,a.com" "github.com,a.com" "duplicates kept once"
+for h in 'http://a.com' 'https://a.com/api' 'a.com:443' 'https://a.com:443' '*.a.com' 'A.com' '1.2.3.4' 'localhost'; do
+  extra_bad "" "$h" "\"$h\" is not a lowercase host name" "bad extra [$h]"
+done
+extra_bad "" "openrouter.ai" "cannot list openrouter.ai" "openrouter extra"
+extra_bad "" "https://api.openrouter.ai" "cannot list openrouter.ai" "openrouter subdomain extra"
+many=$(for i in $(seq 1 64); do printf 'h%d.com,' "$i"; done)
+extra_ok "" "$many" "${many%,}" "64 hosts allowed"
+extra_bad "$many" "h65.com" "longer than 64" "65 hosts refused"
+
 finish

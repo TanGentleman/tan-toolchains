@@ -78,6 +78,8 @@ check`, and fleet turns.
   - your own, `$PI_CONFIG_DIR/egress/NAME.json`: the hosts it tunnels,
     whether model calls must stay private, and whether Pi gets the GitHub
     token ([egress profiles](pi-container/docs/configuration.md#egress-profiles)).
+  - any of these plus `PI_EXTRA_TUNNEL` hosts, tunnelled the same way
+    ([extra tunnel hosts](pi-container/docs/configuration.md#extra-tunnel-hosts)).
 
   Pi cannot reach the Mac directly under any profile; the egress lock is the same.
 - **Blocked:** the Mac and its services (for example Continuity's

@@ -70,6 +70,7 @@ requires it for the OpenRouter key; manual mode does not require it.
 | `GITHUB_TOKEN` | Pi, `check` | Optional. Fine-grained, **Only select repositories**, **Contents: Read and write**, nothing else: not Workflows, not Administration (Metadata: Read is added for you). Add **Pull requests: Read and write** only if Pi should open PRs with `gh`; fleet doesn't. Anything in the VM can use it to push any branch of those repos, so protect your default branch with a ruleset. |
 | `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL` | Pi | Optional commit identity. |
 | `GIT_COMMITTER_NAME`, `GIT_COMMITTER_EMAIL` | Pi | Optional; set only when the committer differs from the author. |
+| `PI_EXTRA_TUNNEL` | `pi-proxy` | Optional, not a secret: extra hosts to tunnel. A shell `PI_EXTRA_TUNNEL` wins. See [Extra tunnel hosts](#extra-tunnel-hosts). |
 
 `run.sh` writes filtered copies. Do not edit these; edit the host env file.
 
@@ -215,7 +216,27 @@ to start without one. Any profile but `standard` refuses `--manual` and
 from `$PI_CONFIG_DIR/mirrors/O/R.git` (make it with `git clone --mirror`),
 mounted read-only, and fleet turns keep their commits in the session's
 `repo.bundle` instead of pushing.
-Changing the egress or model_url recreates `pi-proxy` from the same image.
+### Extra tunnel hosts
+
+`PI_EXTRA_TUNNEL` adds hosts to the effective profile's `tunnel` for runs
+behind `pi-proxy`, e.g. an API one agent needs, without a profile of its own.
+It is read from the shell, else from a `PI_EXTRA_TUNNEL=` line in the
+[env file](#host-env-file):
+
+```sh
+PI_EXTRA_TUNNEL=https://NAME.convex.site run.sh --egress offline --model-url http://gateway:8090 pi
+```
+
+- Comma-separated host names, or `https://HOST` URLs with no path or port
+  (so a site URL variable works as is). The same rules as a profile's
+  `tunnel` apply: lowercase host names, never `openrouter.ai`, at most 64
+  hosts in all. A bad entry is refused, and named, before anything starts.
+- `run.sh config` shows the hosts and their source (`env` or `env file`);
+  `config --json` adds `extra_tunnel` and `source.extra_tunnel`, and
+  `egress_profile.tunnel` is the merged list.
+- `--manual` and `--allow-egress` have no proxy, so they ignore it.
+
+Changing the egress, the extra tunnel hosts or model_url recreates `pi-proxy` from the same image.
 `check` asks `pi-proxy` which profile it enforces and fails on a mismatch.
 
 ### `clear.sh`

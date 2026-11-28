@@ -27,7 +27,8 @@ unset PI_INSTANCE PI_CLONE PI_PROXY_PORT PI_PROXY_NAME PI_NETWORK_NAME \
   PI_PROXY_IMAGE PI_LOCKED_SUBNET PI_AGENT_VOLUME PI_SETTINGS_FILE \
   PI_SKIP_HOST_SETUP PI_SKIP_PROXY_IP PI_BACKUP_DIR PI_CONFIG_DIR PI_ENV_FILE \
   PI_NVIM_CONFIG PI_NVIM_DATA PI_NVIM_STATE PI_NVIM_CACHE \
-  PI_CPUS PI_MEMORY PI_PROXY_WAIT PI_LOCK_WAIT PI_SOURCE_ONLY TZ COLORTERM PIC_HOME
+  PI_CPUS PI_MEMORY PI_PROXY_WAIT PI_LOCK_WAIT PI_SOURCE_ONLY TZ COLORTERM PIC_HOME \
+  PI_EXTRA_TUNNEL PI_EGRESS PI_IMAGE PI_MODEL_URL
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
@@ -1554,6 +1555,47 @@ case_migrate() {
   [ -d "$home/.config/pi-container" ] && pass || fail "an early exit moved something"
 }
 
+# PI_EXTRA_TUNNEL adds hosts to the profile's tunnel; a changed set recreates
+# the shared proxy, and a bad entry starts nothing.
+case_extra_tunnel() {
+  new_case extratunnel
+  image_json 1.4.0 > "$world/images/pi-full_local.json"
+  image_json 1.4.0 > "$world/images/pi-proxy_local.json"
+  network_json "172.30.240.0/24" > "$world/networks/pi-locked.json"
+  printf 'pi-locked\n' > "$world/networks.list"
+  proxy_running_json > "$world/containers/pi-proxy.json"
+  printf '172.30.240.2\n' > "$cfg/private/proxy.addr"
+  (cd "$t/project" && pi "$run_sh" pi)
+  expect_status 0 "run without an extra tunnel"
+  : > "$logfile"
+  case_env="PI_EXTRA_TUNNEL=https://a.convex.site"
+  (cd "$t/project" && pi "$run_sh" pi)
+  expect_status 0 "run with PI_EXTRA_TUNNEL"
+  log_has "delete --force pi-proxy" "an extra tunnel recreates the proxy"
+  : > "$logfile"
+  (cd "$t/project" && pi "$run_sh" pi)
+  log_lacks "delete --force pi-proxy" "the same extra tunnel keeps the proxy"
+  (cd "$t/project" && pi "$run_sh" config)
+  contains 'extra    https://a.convex.site (PI_EXTRA_TUNNEL, env)' "$(o)" "config names the extra tunnel"
+  printf 'PI_EXTRA_TUNNEL=b.convex.site\n' >> "$cfg/env"
+  (cd "$t/project" && pi "$run_sh" config --json)
+  eq '["a.convex.site"] env' "$(o | jq -c -r '"\(.egress_profile.tunnel[-1:]) \(.source.extra_tunnel)"')" "the shell beats the env file"
+  case_env=""
+  (cd "$t/project" && pi "$run_sh" --egress offline --model-url http://gateway:8090 config --json)
+  eq '["b.convex.site"] env file ["b.convex.site"]' "$(o | jq -c -r '"\(.egress_profile.tunnel) \(.source.extra_tunnel) \(.extra_tunnel)"')" "the env file adds to any profile"
+  : > "$logfile"
+  case_env="PI_EXTRA_TUNNEL=http://a.convex.site"
+  (cd "$t/project" && pi "$run_sh" pi)
+  expect_status 2 "a bad extra tunnel is refused"
+  contains 'PI_EXTRA_TUNNEL (env) entry "http://a.convex.site" is not' "$(e)" "the bad entry is named"
+  log_lacks "CALL run" "a bad extra tunnel starts nothing"
+  rm -f "$world/containers/pi-proxy.json"
+  : > "$logfile"
+  case_env="PI_EXTRA_TUNNEL=a.convex.site PI_PROXY_WAIT=0"
+  (cd "$t/project" && pi "$run_sh" pi)
+  log_has 'PI_PROXY_TUNNEL=github.com\,api.github.com\,codeload.github.com\,objects.githubusercontent.com\,raw.githubusercontent.com\,uploads.github.com\,a.convex.site -e' "the proxy gets the merged tunnel"
+}
+
 for c in case_normal_run case_check_enforcer case_tokenless_run case_tokenless_check case_pack_missing_pi \
          case_egress_run case_egress_clone case_egress_refusals case_egress_requires_key \
          case_network_nat_refused case_network_escaped_subnet \
@@ -1566,7 +1608,7 @@ for c in case_normal_run case_check_enforcer case_tokenless_run case_tokenless_c
          case_netlock_modes case_netlock_capability case_proxy_running_no_addr case_model_url \
          case_config_command case_images_command \
          case_min case_enforcer_check_script case_offline_run case_offline_refusals case_offline_check \
-         case_pic_home case_migrate; do
+         case_pic_home case_migrate case_extra_tunnel; do
   "$c"
 done
 
