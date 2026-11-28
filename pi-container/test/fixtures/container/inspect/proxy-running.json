@@ -114,8 +114,30 @@
     },
     "id": "pi-proxy",
     "status": {
-      "networks": [],
-      "state": "stopped"
+      "networks": [
+        {
+          "hostname": "pi-proxy",
+          "ipv4Address": "192.168.64.3/24",
+          "ipv4Gateway": "192.168.64.1",
+          "ipv6Address": "2001:db8::/64",
+          "macAddress": "02:00:00:00:00:00",
+          "mtu": 1280,
+          "network": "default",
+          "variant": "reserved"
+        },
+        {
+          "hostname": "pi-proxy",
+          "ipv4Address": "172.30.240.2/24",
+          "ipv4Gateway": "172.30.240.1",
+          "ipv6Address": "2001:db8::/64",
+          "macAddress": "02:00:00:00:00:00",
+          "mtu": 1280,
+          "network": "pi-locked",
+          "variant": "reserved"
+        }
+      ],
+      "startedDate": "2026-11-28T19:14:51Z",
+      "state": "running"
     }
   }
 ]
