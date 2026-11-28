@@ -83,8 +83,8 @@ requires it for the OpenRouter key; manual mode does not require it.
   from the host file removes the generated file on the next normal run or
   manual clone.
 
-Pi never receives the real OpenRouter key. Pi's install ping and `gh` telemetry
-are off.
+Pi never receives the real OpenRouter key. Pi has no install ping since 1.7.0
+(an older `PI_VERSION` would send one), and `gh` telemetry is off.
 
 ## Settings file
 
@@ -142,7 +142,7 @@ cross-compiles `fleetd` for macOS arm64 into `fleet/bin/fleetd`, all in a
 If a check fails, nothing is built. `pic serve` runs that binary.
 
 Pass extra `container build` options after the pack, for example
-`./build.sh min --build-arg PI_VERSION=1.6.0`. Rebuilding replaces the tag
+`./build.sh min --build-arg PI_VERSION=1.7.0`. Rebuilding replaces the tag
 and reuses the layer cache; `--no-cache` forces a clean build.
 
 `run.sh` prints the instance, image, pack, capabilities, egress and model_url
@@ -343,7 +343,7 @@ Pass these to `./build.sh PACK --build-arg ...`; defaults are in `Dockerfile`.
 
 | Argument | Default | Effect |
 | --- | --- | --- |
-| `PI_VERSION` | `1.6.0` | Pi package version and settings stamp. |
+| `PI_VERSION` | `1.7.0` | Pi package version and settings stamp. |
 | `ZIG_VERSION` | `0.17.0` | Zig toolchain; CI checks this pin. |
 | `ZIG_PUBKEY` | Pinned | Zig minisign public key. |
 | `NVIM_VERSION` | `0.12.6` | Neovim release. |

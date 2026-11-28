@@ -19,9 +19,10 @@ import (
 
 // These tests run the real Pi the way pi-container does: the placeholder
 // key, every request through pi-container/proxy.py, which MITMs
-// openrouter.ai with its own CA, adds the real key and refuses every other
-// host. In place of the VM, a wrapper gives Pi a fresh HOME and agent dir
-// with pi-container's settings and telemetry switches. They skip without
+// openrouter.ai with its own CA and refuses every other host. The fake
+// upstream is a model_url server, so proxy.py sends it the placeholder and
+// the real key in its env file must reach no one. In place of the VM, a wrapper gives Pi a fresh HOME and agent dir
+// with pi-container's settings and update-check switches. They skip without
 // pi (FLEET_PI_BIN or PATH), python3 or openssl.
 
 const (
@@ -48,8 +49,8 @@ func (p *proxy) Log() string {
 }
 
 // startProxy runs pi-container/proxy.py unchanged on loopback with key in
-// its env file and its openrouter.ai upstream at upstream (plain HTTP); ""
-// means the real openrouter.ai.
+// its env file, egress standard, and its openrouter.ai upstream at upstream
+// (plain HTTP, as model_url); "" means the real openrouter.ai.
 func startProxy(t *testing.T, upstream, key string) *proxy {
 	t.Helper()
 	script, _ := filepath.Abs("../../pi-container/proxy.py")
@@ -71,6 +72,7 @@ func startProxy(t *testing.T, upstream, key string) *proxy {
 	cmd.Env = append(os.Environ(),
 		"PI_ENV_FILE="+env, "PI_PROXY_PORT="+strconv.Itoa(port),
 		"PI_PROXY_BIND=127.0.0.1", "PI_PROXY_LOCKED_CIDR=127.0.0.0/8",
+		"PI_PROXY_EGRESS=standard", "PI_PROXY_MODEL_RULE=any",
 		"PI_PROXY_CERT="+filepath.Join(d, "private", "openrouter.pem"),
 		"PI_PROXY_KEY="+filepath.Join(d, "private", "openrouter.key"),
 		"PI_PROXY_CA="+p.ca, "PI_PROXY_ADDR_FILE="+filepath.Join(d, "private", "proxy.addr"))
@@ -95,13 +97,13 @@ func startProxy(t *testing.T, upstream, key string) *proxy {
 // containerPi writes a stand-in for pi-ctr that runs the real pi with what
 // pi-container's VM gives it: its own HOME and agent dir, settings with
 // OpenRouter and model as defaults, the placeholder key, the proxy and its
-// CA, and the telemetry switches run.sh and the image set.
+// CA, and the update-check switches run.sh and the image set.
 func containerPi(t *testing.T, pi string, p *proxy, model string) string {
 	t.Helper()
 	d := t.TempDir()
 	agentDir := filepath.Join(d, "agent")
 	os.MkdirAll(agentDir, 0o700)
-	settings := `{"defaultProvider":"openrouter","defaultModel":"` + model + `","enableInstallTelemetry":false}`
+	settings := `{"defaultProvider":"openrouter","defaultModel":"` + model + `"}`
 	if err := os.WriteFile(filepath.Join(agentDir, "settings.json"), []byte(settings), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +114,7 @@ func containerPi(t *testing.T, pi string, p *proxy, model string) string {
 		" PI_CODING_AGENT_DIR=" + strconv.Quote(agentDir) + " OPENROUTER_API_KEY=" + placeholder +
 		" HTTPS_PROXY=" + p.url + " HTTP_PROXY=" + p.url + " NO_PROXY=localhost,127.0.0.1,::1 NODE_USE_ENV_PROXY=1" +
 		" NODE_EXTRA_CA_CERTS=" + strconv.Quote(p.ca) + " SSL_CERT_FILE=" + strconv.Quote(p.ca) +
-		" PI_TELEMETRY=0 PI_SKIP_VERSION_CHECK=1 DO_NOT_TRACK=1 " + strconv.Quote(pi) + " \"$@\"\n"
+		" PI_SKIP_VERSION_CHECK=1 DO_NOT_TRACK=1 " + strconv.Quote(pi) + " \"$@\"\n"
 	if err := os.WriteFile(w, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -150,13 +152,13 @@ func noSecret(t *testing.T, key, dir string, outputs ...string) {
 
 // TestRealPi: turn 1, then turns 2 and 3 from a copy of turn 1's state in
 // a new place (what a checkpoint restore does). The fake upstream accepts
-// only the key the proxy holds and names every TOK word it was sent, so a
-// reply proves the proxy did the auth and the turn carried its history. The
-// proxy log must show model calls only, and the key must stay out of output
+// only the placeholder and names every TOK word it was sent, so a reply
+// proves the turn went through the proxy and carried its history. The proxy
+// log must show model calls only, and the real key must stay out of output
 // and state. Then the session file is deleted: the adapter must refuse.
 func TestRealPi(t *testing.T) {
 	pi := piBin(t)
-	srv := &fakeor.Server{Key: fakeKey}
+	srv := &fakeor.Server{Key: placeholder}
 	up := httptest.NewServer(srv)
 	t.Cleanup(up.Close)
 	p := startProxy(t, up.URL, fakeKey)
@@ -193,7 +195,7 @@ func TestRealPi(t *testing.T) {
 	}
 	for _, r := range srv.Requests() {
 		if !r.Authed {
-			t.Errorf("upstream got a request without the proxy's key: %s", r.Path)
+			t.Errorf("upstream got a request without the placeholder: %s", r.Path)
 		}
 	}
 	noSecret(t, fakeKey, root, strings.Join(a.all, "\n"), strings.Join(b.all, "\n"), a.errb.String(), b.errb.String())
@@ -207,13 +209,13 @@ func TestRealPi(t *testing.T) {
 	}
 }
 
-// TestRealPiWrongKey: the provider answers 401, Pi still exits 0, and the
-// turn must fail.
+// TestRealPiWrongKey: the provider rejects the key with 401, Pi still exits
+// 0, and the turn must fail.
 func TestRealPiWrongKey(t *testing.T) {
 	pi := piBin(t)
-	up := httptest.NewServer(&fakeor.Server{Key: fakeKey})
+	up := httptest.NewServer(&fakeor.Server{Key: "sk-or-v1-other-0123456789"})
 	t.Cleanup(up.Close)
-	p := startProxy(t, up.URL, "sk-or-v1-wrong-0123456789")
+	p := startProxy(t, up.URL, fakeKey)
 	s := start(t, Config{Bin: containerPi(t, pi, p, "fake/model"), State: filepath.Join(t.TempDir(), "s")})
 	_, end := s.turn("hello")
 	if s.err == nil || end == nil || end["code"] != 0.0 || end["error"] == nil {

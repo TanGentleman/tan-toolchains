@@ -1004,7 +1004,7 @@ args=(run --rm -i --init --network "$run_network"
   --cpus "${PI_CPUS:-4}" --memory "${PI_MEMORY:-4G}"
   -e "TERM=${TERM:-xterm-256color}"
   -e LANG=C.UTF-8 -e LC_ALL=C.UTF-8
-  -e PI_TELEMETRY=0 -e GH_TELEMETRY=0
+  -e GH_TELEMETRY=0
   -e PI_CODING_AGENT_DIR=/root/.pi/agent)
 if [ "$egress" = 1 ]; then
   args+=(--env-file "$egress_env")
