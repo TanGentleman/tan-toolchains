@@ -25,7 +25,7 @@ mkdir -p "$home/.pic/fleet" "$cfg/certs" "$cfg/private" "$world/images" "$world/
 : > "$cfg/certs/ca.pem"
 printf 'OPENROUTER_API_KEY=%s\nGITHUB_TOKEN=%s\nGIT_AUTHOR_NAME=Test\nGIT_AUTHOR_EMAIL=test@example.com\n' "$real" "$token" > "$cfg/env"
 chmod 600 "$cfg/env"
-img='[{"id":"sha256:t","configuration":{"descriptor":{"digest":"sha256:t"},"name":"pi-agent:local"},"variants":[{"config":{"config":{"Env":["PI_CONTAINER_PI_VERSION=1.6.0","PI_CONTAINER_CAPABILITIES=pi,netlock"]},"history":[]}}]}]'
+img='[{"id":"sha256:t","configuration":{"descriptor":{"digest":"sha256:t"},"name":"pi-agent:local"},"variants":[{"config":{"config":{"Env":["PI_CONTAINER_PI_VERSION=1.7.0","PI_CONTAINER_CAPABILITIES=pi,netlock"]},"history":[]}}]}]'
 printf '%s' "$img" > "$world/images/pi-full_local.json"
 printf '%s' "$img" > "$world/images/pi-proxy_local.json"
 printf '[{"configuration":{"name":"pi-locked","mode":"hostOnly","ipv4Subnet":"172.30.240.0/24"},"id":"pi-locked","status":{"ipv4Gateway":"172.30.240.1","ipv4Subnet":"172.30.240.0/24"}}]' > "$world/networks/pi-locked.json"
