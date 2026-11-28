@@ -4,7 +4,7 @@
 configuration. It uses the container's default network with no egress lock and no
 `pi-proxy`, so it reaches any host and protocol, including your Mac's services
 and Tailscale's resolver at `100.100.100.100`
-([network boundary](../../README.md#network-boundary)). Use it only with trusted
+([network boundary](../../docs/network-boundary.md)). Use it only with trusted
 projects. `pi` is still
 installed, but manual mode configures no provider, so use normal `pic` for the
 agent.

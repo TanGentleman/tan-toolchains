@@ -5,9 +5,32 @@ linked at the end.
 
 ## Set up once
 
-An Apple silicon Mac on macOS 26 with the Command Line Tools and Apple
-`container` installed ([Setup](../README.md#setup)), and an OpenRouter key.
-The images build every other tool.
+You need an Apple silicon Mac on macOS 26 and an OpenRouter key. This table is
+everything the Mac itself needs; the images build every other tool, so there
+is no Homebrew, Node, Zig or Go to install for normal use.
+
+| What | Needed for | Install |
+|---|---|---|
+| Command Line Tools (`git`, `python3`) | cloning, `run-tests.sh` | `xcode-select --install` |
+| Apple [`container`](https://github.com/apple/container/releases) | every VM | the signed `.pkg` below, once per Mac (admin); `container system start` in each account |
+| `jq` | `run.sh`, `clear.sh`, tests | nothing: macOS 26 has `/usr/bin/jq` |
+| [Tailscale](https://tailscale.com/download/macos) | fleet only | the app ([fleet step 5](../fleet/docs/macos.md#5-tailscale)) |
+| [uv](https://docs.astral.sh/uv/) | `spikes/local-model` only | `curl -LsSf https://astral.sh/uv/install.sh \| sh` (per account, no admin) |
+| Zig at the `ZIG_VERSION` pin (0.17.0); Go optional | `mac-e2e.sh ci` only, when changing the repo | [ziglang.org/download](https://ziglang.org/download/), [go.dev/dl](https://go.dev/dl/) |
+
+```sh
+xcode-select --install                      # skip if `git --version` works
+V=1.7.1                                     # or the newest at github.com/apple/container/releases
+curl -fLo /tmp/container.pkg "https://github.com/apple/container/releases/download/$V/container-$V-installer-signed.pkg"
+sudo installer -pkg /tmp/container.pkg -target /   # puts container in /usr/local/bin for every account
+```
+
+Homebrew's `container` formula is the same CLI and also works, but use one
+source, not both. The `.pkg` is preferred because it is on every account's
+`PATH`; `brew` in a second account is not, and only the admin who owns
+`/opt/homebrew` can install with it.
+
+Then, in each account:
 
 ```sh
 container system start
@@ -106,9 +129,25 @@ To add hosts to a built-in profile instead, set `PI_EXTRA_TUNNEL=HOST[,HOST...]`
 (or `https://HOST`) in the shell or the env file
 ([extra tunnel hosts](../pi-container/docs/configuration.md#extra-tunnel-hosts)).
 
+## Upgrade `container`
+
+In place; volumes and images stay:
+
+```sh
+cd $T/pi-container
+./clear.sh export                             # backup of every pi volume, without auth.json
+container system stop && /usr/local/bin/update-container.sh && container system start
+container system kernel set --recommended    # otherwise VMs keep booting the old kernel
+container builder delete --force && container delete --force pi-proxy
+test/migrate-check.sh                         # no FAIL lines; compares volumes with the export
+```
+
+[container-1.7.1.md](../pi-container/docs/container-1.7.1.md) has what changed
+from 1.6.1 and a full reinstall that keeps sessions and config.
+
 ## References
 
-- [Network boundary](../README.md#network-boundary): what Pi can reach, and how.
+- [Network boundary](network-boundary.md): what Pi can reach, and how.
 - [Configuration](../pi-container/docs/configuration.md): every file, flag and variable.
 - [fleet README](../fleet/README.md): sessions, API, event log.
 - [fleet on macOS](../fleet/docs/macos.md): the step-by-step fleet setup and its verification.

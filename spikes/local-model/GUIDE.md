@@ -12,7 +12,7 @@ resolves it. Run everything from the repo root, with `S=spikes/local-model`.
 ## 0. Once
 
 - [uv](https://docs.astral.sh/uv/) (`curl -LsSf https://astral.sh/uv/install.sh | sh`) and Apple
-  `container` (`container system start`); see the [root README's Setup](../../README.md#setup).
+  `container` (`container system start`); see the [Setup table](../../docs/playbooks.md#set-up-once).
 - `pi-container/run.sh check` passes. The eval uses the `min` image:
   `pi-container/build.sh min` builds it if missing.
 

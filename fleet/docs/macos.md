@@ -4,7 +4,7 @@ From a clean Mac to spawning Pi sessions from your phone. Each turn runs Pi
 in pi-container's VM on a fresh clone of the repo you pick and pushes to a
 `fleet/<session>` branch. The Mac needs the Command Line Tools, Apple
 `container` and Tailscale; no Homebrew, Go, Node or agent CLIs (the full list
-is the [root README's Setup](../../README.md#setup)). What a session and a turn are, and the
+is the [Setup table](../../docs/playbooks.md#set-up-once)). What a session and a turn are, and the
 security model: [the fleet README](../README.md).
 
 Run each block in Terminal (zsh), in order, and don't go on until its check
@@ -253,7 +253,7 @@ cd $T && git pull && cd pi-container && ./build.sh full && ./build.sh fleet
 ```
 
 Then restart `pic serve`. To upgrade `container` itself, stop `pic serve`
-and follow the [root README](../../README.md#setup). After a Pi version change, `pic check` warns until
+and follow the [playbooks](../../docs/playbooks.md#upgrade-container). After a Pi version change, `pic check` warns until
 `~/.pic/config/settings.json` matches: delete it (if you haven't
 edited it) and `pic` writes a new one.
 

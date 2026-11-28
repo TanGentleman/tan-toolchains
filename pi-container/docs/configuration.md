@@ -51,7 +51,7 @@ alias opic='PI_IMAGE=min PI_EGRESS=offline PI_MODEL_URL=http://gateway:8090 pic 
 | Egress | `standard` | `offline` is for local models with no internet route. |
 | `--allow-egress` | Off | Runs Pi on the default network when the allowlist is too narrow; the real key enters the VM. |
 | Pack capability check | Refuse missing `pi` in normal mode | A clear error beats a container that cannot start its command. |
-| Egress lock | On in normal mode, `check`, and `--fleet-state` | `pi-locked` alone reaches the Mac and Tailscale's resolver. See the [network boundary](../../README.md#network-boundary). |
+| Egress lock | On in normal mode, `check`, and `--fleet-state` | `pi-locked` alone reaches the Mac and Tailscale's resolver. See the [network boundary](../../docs/network-boundary.md). |
 | `nuke all` image scope | The effective image only | Other pack tags are not deleted implicitly. |
 | Build context | Repo root | Every pack but `min` compiles `../enforcer`; the Zig packs also `../zigpeek`. |
 

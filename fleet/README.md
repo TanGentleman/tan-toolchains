@@ -61,7 +61,7 @@ The UI fills in a title from the prompt and a fresh retry key.
   proxy's CA. Not `~/.pic/fleet`, not other sessions, not your home.
 - **A turn can reach only `pi-proxy`:** the egress lock blocks the Mac,
   Tailscale's resolver, the tailnet and the internet
-  ([network boundary](../README.md#network-boundary)).
+  ([network boundary](../docs/network-boundary.md)).
   `pi-container/test/fleet-isolation.sh` checks this from a turn's VM.
 - **The GitHub token is in the VM,** so anything a turn runs can use it. Use
   a fine-grained token with the scope in

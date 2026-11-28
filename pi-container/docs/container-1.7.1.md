@@ -30,7 +30,7 @@ and `run.sh check`.
 | Builder: gRPC `:authority` now sent to the builder shim (newer gRPC-Go rejects requests without it), DNS defaults passed to the builder, a build-context sync fix. | `build.sh`, `clear.sh nuke all` (`builder delete --force`) | Low. Recreate the builder after upgrading so it runs the new shim. |
 | Containerization 0.54.0: vminitd gRPC `:authority`, `LinuxPod` subpath mounts. | every VM | Low. Containers created on 1.6.1 (the proxy) should be recreated, not restarted. |
 | `containers/` and `snapshots/` under the app root are excluded from Time Machine when 1.7.1 creates them. The diff does not touch `volumes/`. | none | None for us; listed because it changes what a Time Machine restore brings back. |
-| Installer: binaries stripped, new cluster plugins in `libexec`. | README install block | None. Same `/usr/local/bin` paths and `update-container.sh`/`uninstall-container.sh`. |
+| Installer: binaries stripped, new cluster plugins in `libexec`. | playbooks install block | None. Same `/usr/local/bin` paths and `update-container.sh`/`uninstall-container.sh`. |
 | `stats` CPU output, cluster commands, `machine` changes. | none | None. |
 
 Unchanged in the diff: the JSON paths in [ASSUMPTIONS.md](../ASSUMPTIONS.md)
@@ -93,11 +93,7 @@ volume's labels and file counts against the export (newest
 Paths print as `$HOME/...`; it reads no env files or volume contents beyond
 file counts.
 
-**Without a nuke**, the in-place upgrade keeps volumes but leaves the old kernel and builder:
-
-```sh
-container system stop && /usr/local/bin/update-container.sh -v 1.7.1 && container system start
-container system kernel set --recommended
-container builder delete --force
-container delete --force pi-proxy               # run.sh recreates it
-```
+**Without a nuke**, the [in-place upgrade](../../docs/playbooks.md#upgrade-container)
+keeps volumes; pass `-v 1.7.1` to `update-container.sh` to pin this version.
+It sets the recommended kernel and recreates the builder and `pi-proxy`,
+which would otherwise keep the old kernel and shim.

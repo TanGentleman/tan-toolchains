@@ -5,7 +5,7 @@ network instead of the host-only `pi-locked` network. It is the only mode where
 the agent VM has unrestricted egress: no egress lock, no proxy, no allowed-host
 list, no CA, any host and any protocol. That includes your Mac's services and
 Tailscale's resolver at `100.100.100.100`, which answers your tailnet names and
-forwards other names to the internet ([network boundary](../../README.md#network-boundary)). Use it when the proxy's allowlist is too narrow, such as
+forwards other names to the internet ([network boundary](../../docs/network-boundary.md)). Use it when the proxy's allowlist is too narrow, such as
 for package-manager downloads, release assets, or a model endpoint the proxy
 does not MITM.
 

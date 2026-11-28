@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Read `README.md`, `pi-container/README.md` and the docs under
+Read `README.md`, `docs/`, `pi-container/README.md` and the docs under
 `pi-container/docs/`, plus `pi-container/ASSUMPTIONS.md`,
 `pi-container/UPGRADES.md`, and `pi-container/E2E.md` before changing behavior.
 
@@ -63,7 +63,8 @@ explicitly that `run.sh check` and the E2E checklist were not run.
 
 ## Hard boundaries
 
-- The root README's Setup table is the complete list of what the Mac needs.
+- The Setup table in `docs/playbooks.md` ("Set up once") is the complete list
+  of what the Mac needs.
   A new host tool goes in that table first, with what needs it; no
   Homebrew-only install steps, since the `.pkg` and macOS's own tools work in
   every account.
@@ -197,8 +198,9 @@ Move these together:
   parsing in `main.zig`, rules in `policy.zig`, writes in `settings.zig`, and
   agent knowledge in `adapters.zig`/`pi.zig`. Run `zig fmt`.
 - Docs must be concise and literal: no slogans, stale metrics, or repeated
-  claims. Root `README.md` owns the network boundary; `UPGRADES.md` holds open
-  work only.
+  claims. `docs/network-boundary.md` owns the network boundary; the root
+  `README.md` keeps only its diagram, a quickstart and links, and links every
+  security caveat. `UPGRADES.md` holds open work only.
 - `pi-container/docs/configuration.md` is the source of truth for user-facing
   flags, environment variables, generated config files, and build arguments.
   Image, egress and model_url are set only by the `--image`/`--egress`/
