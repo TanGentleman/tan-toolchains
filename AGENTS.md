@@ -170,6 +170,11 @@ Move these together:
   commands fail so coverage cannot silently disappear.
 - Test refusals, missing dependencies, malformed state, and option guards.
 - Keep tests runnable with macOS `/bin/bash` 3.2 and Linux CI bash.
+  Check 3.2 without a Mac: `docker run --rm -v "$PWD":/w -w /w/pi-container
+  bash:3.2 sh -c 'apk add -q jq git python3; ln -sf /usr/local/bin/bash
+  /bin/bash; bash test/run-tests.sh'`.
+- `sed` and `awk` must work as BSD (macOS) and GNU (CI): GNU `sed` reads
+  `-l` as a line length, and `gawk` reserves `or` and `and`.
 
 ## Style
 
