@@ -4,6 +4,20 @@ Known problems, newest first. GitHub issues are off for this repo, so they
 live here. `pi-container/UPGRADES.md` still holds planned work; delete an
 entry here when it is fixed.
 
+## `pic --scratch` still mounts the current folder
+
+`--scratch` drops only the agent volume. Like plain `pic`, it mounts the
+current folder read-write (or the `--clone` volume), so it is not an empty
+container. Kranti relies on this: its studio runs `run.sh --scratch` in the
+task folder, and the agent writes `ops.json` and `questions.json` there.
+
+There is no mode with neither the agent volume nor a mount. Options:
+
+- A `--no-mount` flag that pairs with `--scratch` and works in `/work` on the
+  container's disk.
+- Have `--scratch` mount nothing, and give Kranti a separate flag for the task
+  folder.
+
 ## Gemini 4 Neon fails with 402: Pi asks for ~943k output tokens
 
 Seen with Pi 1.7.0 through `pi-proxy`, OpenRouter model

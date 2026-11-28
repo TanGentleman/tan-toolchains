@@ -165,7 +165,7 @@ image has it, and always with its own GitHub token patterns.
 | --- | --- |
 | `--image PACK`, `--egress PROFILE`, `--model-url URL` | Override `PI_IMAGE`, `PI_EGRESS`, `PI_MODEL_URL` for this run. See [Run settings](#run-settings). |
 | `--instance NAME` | Isolate sessions and the agent volume. Defaults to `PI_INSTANCE` or `default`. |
-| `--scratch` | Mount no agent volume: Pi's agent dir is the container's own disk, so sessions and installs end with the run, as in a fleet turn. Normal mode only. |
+| `--scratch` | Mount no agent volume: Pi's agent dir is the container's own disk, so sessions and installs end with the run, as in a fleet turn. The current folder (or `--clone` volume) is still mounted. Normal mode only. |
 | `--clone O/R` | Use a clone kept in a volume instead of the current folder. Defaults to `PI_CLONE`. Refused offline. |
 | `--manual [CMD]` | Open a shell without Pi or the proxy. See [Manual mode](manual.md). |
 | `--allow-egress` | Run Pi or `COMMAND` on the default network with the real OpenRouter key. Needs model_url `openrouter` and egress `standard`. See [Egress mode](egress.md). |

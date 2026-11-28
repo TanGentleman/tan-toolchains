@@ -69,7 +69,8 @@ Run options:
   --egress PROFILE    standard (GitHub and the model route) or offline (model route only)
   --model-url URL     openrouter, or http://HOST:PORT; HOST may be gateway (this Mac)
   --clone O/R         default: $PI_CLONE
-  --scratch           no agent volume: Pi's sessions and installs end with the run
+  --scratch           no agent volume: Pi's sessions and installs end with the run;
+                      the current folder is still mounted
 
 PI_EXTRA_TUNNEL=HOST[,HOST...] (or https://HOST), in the shell or the env file,
 adds hosts to the profile's tunnel for runs behind pi-proxy.

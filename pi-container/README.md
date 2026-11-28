@@ -148,5 +148,5 @@ The default mode mounts the current folder. Use it only for repos you trust; use
 - Zig 0.17's `std.http.Client` mishandles HTTPS through a CONNECT proxy, so dev-time `zig fetch` inside the container can fail. This is a container limitation, not a reason to add network code to a shipped tool.
 - `run.sh` refuses to mount `~`, `/`, ancestors of `~`, secrets directories, or anything overlapping the current/default config directory or its env/settings files.
 - `--clone` keeps the repo in a volume until you `git push`; uncommitted changes stay outside. Clone volumes are named per profile and instance.
-- `--scratch` is normal mode with no agent volume: Pi's sessions and installs go with the VM. It refuses `--manual`, `--allow-egress` and `--fleet-state`.
+- `--scratch` is normal mode with no agent volume: Pi's sessions and installs go with the VM. It still mounts the current folder read-write. It refuses `--manual`, `--allow-egress` and `--fleet-state`.
 - `--fleet-state DIR` (used by `pi-ctr`) keeps no volume: the clone and Pi's agent dir go with the VM, and only `DIR`, a real directory below `~/.pic/fleet/sessions`, is mounted.
