@@ -58,6 +58,8 @@ binaries run on macOS and do not use its network.
 
 ## Quality
 
+- Port the host CLI to one Zig binary, `pic`: phases and acceptance are in
+  [docs/zig-port.md](../docs/zig-port.md).
 - Image packs are built manually with `./build.sh PACK`; CI does not build
   Dockerfile targets. The `min`, `tools` and `editor` packs deliberately omit `gh`, so
   a `check` with `GITHUB_TOKEN` set fails on those images instead of silently
