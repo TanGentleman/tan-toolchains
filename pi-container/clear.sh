@@ -77,9 +77,6 @@ if [ -n "${PI_IMAGE:-}" ] && ! pi_pi_pack_valid "$PI_IMAGE"; then
   die "PI_IMAGE must be min, full or zig"
 fi
 read -r pi_pack _ <<<"$(pi_config_pick "$flag_image" "${PI_IMAGE:-}" "$pi_config_default_image")"
-if [ -e "$cfg/config.json" ] || [ -L "$cfg/config.json" ]; then
-  die "$cfg/config.json is no longer read; set PI_IMAGE in your alias or shell instead, then delete the file"
-fi
 legacy=$(pi_legacy_message "$backup_root")
 [ -z "$legacy" ] || die "$legacy"
 pi_image=$(pi_pack_tag "$pi_pack")
@@ -348,10 +345,8 @@ cmd_list() {
       if [ -n "$config" ]; then
         settings=$(pi_settings_file "$config")
       else
-        # Profiles and the pi.config label arrived together, so a volume without
-        # that label predates profiles and belongs to the default profile -- not
-        # to whichever profile happens to be listing.
-        settings=$(pi_settings_file "$(pi_default_config_dir)")
+        # Not the listing profile's, whatever its other labels say.
+        settings=-
       fi
     fi
     # A profile whose config directory is gone still holds a running proxy, a

@@ -32,7 +32,6 @@ network_name="${PI_NETWORK_NAME:-$(pi_network_name "$cfg")}"
 locked_subnet="${PI_LOCKED_SUBNET:-$(pi_locked_subnet "$cfg")}"
 proxy_image="${PI_PROXY_IMAGE:-$(pi_proxy_image "$cfg")}"
 lock_dir="$(pi_lock_dir)"
-legacy_config="$cfg/config.json"
 # pi-proxy's model route and egress profile; set_model_upstream fills it.
 upstream_env=()
 
@@ -174,11 +173,6 @@ if [ -n "$flag_model_url" ] && ! pi_model_url_split "$flag_model_url" >/dev/null
   exit 2
 fi
 command -v jq >/dev/null 2>&1 || { echo "run.sh: jq not found; macOS 26 ships /usr/bin/jq, so check PATH (Linux: apt-get install jq)" >&2; exit 1; }
-if [ -e "$legacy_config" ] || [ -L "$legacy_config" ]; then
-  legacy=$(pi_config_legacy "$legacy_config")
-  echo "run.sh: $legacy_config is no longer read; set ${legacy:-PI_IMAGE, PI_EGRESS or PI_MODEL_URL} in your alias or shell instead, then delete the file" >&2
-  exit 2
-fi
 legacy=$(pi_legacy_message "${PI_BACKUP_DIR:-}")
 if [ -n "$legacy" ]; then
   echo "run.sh: $legacy" >&2
@@ -428,11 +422,11 @@ EOF
 }
 
 # check's enforcer probe. Only packs that list enforcer carry it (min does
-# not); an image without capabilities is legacy and had it.
+# not).
 enforcer_check_script() {
   cat <<'EOF'
 echo "== enforcer"
-case ",${PI_CONTAINER_CAPABILITIES-enforcer}," in
+case ",${PI_CONTAINER_CAPABILITIES:-}," in
   *,enforcer,*)
     if ! command -v enforcer >/dev/null 2>&1; then
       echo "FAIL: enforcer is missing from the image"; s=1
@@ -632,7 +626,6 @@ image_pi_version() {
 }
 
 # Capabilities let a pack fail clearly when it lacks the command a mode needs.
-# Legacy images have no metadata; treat them as full so they keep working.
 image_capabilities() {
   local json
   json=$("$cli" image inspect "$image" 2>/dev/null) || return 1
@@ -641,7 +634,10 @@ image_capabilities() {
 
 require_image_capability() { # capabilities, name
   local caps=$1 name=$2
-  [ -n "$caps" ] || return 0
+  if [ -z "$caps" ]; then
+    echo "run.sh: image $image has no capability metadata, so it predates the egress lock; run: $here/build.sh $pack" >&2
+    exit 1
+  fi
   case ",$caps," in
     *",$name,"*) return 0 ;;
   esac
@@ -1129,9 +1125,8 @@ if ! git var GIT_AUTHOR_IDENT >/dev/null 2>&1; then
   echo "WARN: git author identity is unset; add GIT_AUTHOR_NAME and GIT_AUTHOR_EMAIL to the env file"
 fi
 echo "== Zig toolchain"
-# Only packs that list zig carry it; an image without capabilities is legacy
-# and had it.
-case ",${PI_CONTAINER_CAPABILITIES-zig,zigpeek}," in
+# Only packs that list zig carry it.
+case ",${PI_CONTAINER_CAPABILITIES:-}," in
   *,zig,*)
     command -v zig >/dev/null 2>&1 || { echo "FAIL: zig is missing from the image"; s=1; }
     echo "zig $(zig version 2>/dev/null || echo missing); $(zigpeek --version 2>/dev/null || echo 'zigpeek missing')"

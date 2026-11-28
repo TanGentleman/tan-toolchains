@@ -115,10 +115,10 @@ vol_json() { # name kind instance config settings [repo] [profile] [managed]
 # Emit image/network/proxy inspect payloads inline. Integration tests must not
 # depend on a recorded fixture's version or subnet: re-recording fixtures must
 # not rewrite expectations.
-image_json() { # version [capabilities]
-  local env
-  if [ -n "${2:-}" ]; then
-    env="[\"PI_CONTAINER_PI_VERSION=$1\",\"PI_CONTAINER_CAPABILITIES=$2\"]"
+image_json() { # version [capabilities, default full's; "" records none]
+  local env caps=${2-enforcer,netlock,pi,gh}
+  if [ -n "$caps" ]; then
+    env="[\"PI_CONTAINER_PI_VERSION=$1\",\"PI_CONTAINER_CAPABILITIES=$caps\"]"
   else
     env="[\"PI_CONTAINER_PI_VERSION=$1\"]"
   fi
@@ -186,6 +186,18 @@ case_normal_run() {
   log_has "pi.kind=agent" "agent volume carries the kind label"
   log_has "pi.instance=default" "agent volume carries the instance label"
   log_lacks "OPENROUTER_API_KEY=sk-or-v1-real" "real key never appears in argv"
+}
+
+case_no_capabilities() {
+  new_case nocaps
+  image_json 1.4.0 "" > "$world/images/pi-full_local.json"
+  (
+    cd "$t/project" || exit 1
+    pi "$run_sh" pi
+  )
+  expect_status 1 "an image without capability metadata is refused"
+  contains "has no capability metadata, so it predates the egress lock" "$(e)" "the refusal says to rebuild"
+  log_lacks "run --" "nothing starts"
 }
 
 case_scratch() {
@@ -431,7 +443,7 @@ case_manual_clone() {
     pi "$run_sh" --manual --clone owner/repo true
   )
   expect_status 0 "manual clone succeeds"
-  contains 'image=pi-full:local pack=full capabilities=-' "$(e)" "manual run announces a legacy image without capabilities"
+  contains 'image=pi-full:local pack=full capabilities=enforcer,netlock,pi,gh' "$(e)" "manual run announces the capabilities"
   log_has "pi-clone_default_owner-repo-" "clone volume named"
   log_has "PI_CLONE=owner/repo" "clone target passed"
   log_has "-w /work" "clone workdir set"
@@ -503,23 +515,21 @@ case_clear_list_runtime_down() {
   not_contains 'current profile' "$(o)" "no headers for an unanswered runtime"
 }
 
-# A volume created before profiles existed has no pi.config label. Listing it
+# An agent volume with no pi.profile/pi.config/pi.settings labels. Listing it
 # from another profile must not claim that profile's settings file.
-case_clear_list_legacy_volume() {
-  new_case legacylist
+case_clear_list_unlabelled_profile() {
+  new_case unlabelledlist
   printf 'pi-agent-home\n' > "$world/volumes.list"
-  # Kind labels predate profiles, so this volume is recognisably an agent volume
-  # but has no pi.profile/pi.config/pi.settings.
   printf '[{"id":"pi-agent-home","configuration":{"name":"pi-agent-home","labels":{"pi.managed":"true","pi.instance":"default","pi.kind":"agent"}}}]' \
     > "$world/volumes/pi-agent-home.json"
   run_it env -u PI_CONFIG_DIR HOME="$home" PI_CONFIG_DIR="$t/other" \
     CONTAINER_CLI="$fake" FAKE_CONTAINER_WORLD="$world" FAKE_CONTAINER_LOG="$logfile" \
     bash "$clear_sh" list
-  expect_status 0 "clear.sh list tolerates a legacy volume"
+  expect_status 0 "clear.sh list tolerates a volume without profile labels"
   row=$(printf '%s\n' "$(o)" | grep 'pi-agent-home' | head -n 1)
-  contains 'pi-agent-home' "$row" "legacy volume listed"
-  contains "$home/.pic/config/settings.json" "$row" "legacy volume uses the default profile settings"
-  not_contains "$t/other/settings.json" "$row" "legacy volume does not borrow the listing profile"
+  contains 'pi-agent-home' "$row" "volume without profile labels listed"
+  eq "-" "$(printf '%s\n' "$row" | awk '{print $NF}')" "volume without profile labels shows no settings file"
+  not_contains "$t/other/settings.json" "$row" "volume does not borrow the listing profile"
 }
 
 # ---------------------------------------------------- clear.sh save + nuke agent
@@ -1176,20 +1186,6 @@ case_config_command() {
     log_lacks "CALL" "a bad config [$bad] touches no container"
   done
   contains "openrouter is refused offline" "$(e)" "offline with the default model_url names why"
-  # A config.json from before the env vars is refused, so an offline one
-  # cannot silently turn into a standard-egress run.
-  printf '{"v":1,"egress":"offline","model_url":"http://gateway:8090"}\n' > "$cfg/config.json"
-  : > "$logfile"
-  (cd "$t/project" && pi "$run_sh" pi)
-  expect_status 2 "a run refuses a leftover config.json"
-  contains "$cfg/config.json is no longer read; set PI_EGRESS='offline' PI_MODEL_URL='http://gateway:8090'" "$(e)" "the refusal names the env vars"
-  log_lacks "CALL" "a leftover config.json touches no container"
-  run_it env HOME="$home" bash "$run_sh" config --json
-  expect_status 2 "config refuses a leftover config.json"
-  run_it env HOME="$home" bash "$clear_sh" list
-  expect_status 1 "clear.sh refuses a leftover config.json"
-  contains "no longer read" "$(e)" "clear.sh names the leftover config.json"
-  rm -f "$cfg/config.json"
   for bad in "--image agent" "--image agent-min" "--egress normal" "--model-url https://gateway:8090" "--model-url http://gateway"; do
     # shellcheck disable=SC2086
     run_it env HOME="$home" bash "$run_sh" $bad config
@@ -1244,8 +1240,7 @@ case_min() {
   done
 }
 
-# check's enforcer probe, run here: it trusts the image's capabilities, and an
-# image without them is legacy and must have enforcer.
+# check's enforcer probe, run here: it trusts the image's capabilities.
 case_enforcer_check_script() {
   new_case enforcercheck
   local script bin code out
@@ -1277,9 +1272,7 @@ exit \$s" 2>&1) || code=$?
   eq 1 "$code" "enforcer listed but missing fails"
   contains "FAIL: enforcer is missing" "$out" "listed but missing is named"
   probe "/usr/bin:/bin"
-  eq 1 "$code" "legacy image without enforcer fails"
-  probe "$bin:/usr/bin:/bin"
-  eq 0 "$code" "legacy image with enforcer passes"
+  eq 0 "$code" "no capabilities: enforcer not probed"
 }
 
 # ----------------------------------------------------------- offline egress
@@ -1633,7 +1626,7 @@ for c in case_normal_run case_check_enforcer case_tokenless_run case_tokenless_c
          case_egress_run case_egress_clone case_egress_refusals case_egress_requires_key \
          case_network_nat_refused case_network_escaped_subnet \
          case_proxy_unknown_state case_manual_clone case_manual_clone_env case_manual_clone_env_mode \
-         case_clear_list case_clear_list_runtime_down case_clear_list_legacy_volume \
+         case_clear_list case_clear_list_runtime_down case_clear_list_unlabelled_profile \
          case_clear_list_dead_profile \
          case_nuke_agent case_nuke_agent_without_image case_nuke_clones_scoped \
          case_nuke_profile case_nuke_profile_rejects_instance case_export_import \
@@ -1641,7 +1634,7 @@ for c in case_normal_run case_check_enforcer case_tokenless_run case_tokenless_c
          case_netlock_modes case_netlock_capability case_proxy_running_no_addr case_model_url \
          case_config_command case_images_command \
          case_min case_enforcer_check_script case_offline_run case_offline_refusals case_offline_check \
-         case_pic_home case_migrate case_extra_tunnel case_scratch; do
+         case_pic_home case_migrate case_extra_tunnel case_scratch case_no_capabilities; do
   "$c"
 done
 

@@ -36,9 +36,6 @@ alias opic='PI_IMAGE=min PI_EGRESS=offline PI_MODEL_URL=http://gateway:8090 pic 
 - A fleet node is the env `pic serve` was started with: fleetd passes these
   vars to every `pi-ctr` turn, `GET /v1/node` reports them, and each turn
   records what it ran with. Restart `pic serve` to change them.
-- `$PI_CONFIG_DIR/config.json` set these before the env vars did. Every
-  command refuses while it exists and prints the env vars that replace it;
-  ignoring an offline one would widen egress.
 
 ## Design decisions
 
@@ -156,8 +153,8 @@ mode refuses an image that lacks what it needs:
 | `pic serve --check` | `pi`, `netlock`, and capability metadata |
 
 `check` tests Zig and zigpeek only in an image that lists `zig`, and enforcer
-only in one that lists `enforcer`. An image with no metadata predates the
-egress lock; rebuild it. `pi-ctr` scans staged changes with enforcer when the
+only in one that lists `enforcer`. `run.sh` and `pic serve --check` refuse an
+image with no metadata: it predates the egress lock, so rebuild it. `pi-ctr` scans staged changes with enforcer when the
 image has it, and always with its own GitHub token patterns.
 
 ## Flags

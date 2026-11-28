@@ -46,7 +46,7 @@ var passEnv = []string{"PATH", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "TZ", "USER
 
 // native is agent.json: Pi's session id and running totals.
 type native struct {
-	Kind    string `json:"kind"` // always "pi"; older fleets also wrote claude or codex
+	Kind    string `json:"kind"` // always "pi"
 	Session string `json:"session"`
 	Turns   int    `json:"turns"`
 	Total   Usage  `json:"total"` // tokens over all turns

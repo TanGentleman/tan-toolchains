@@ -33,7 +33,6 @@ run_pi() { # prompt, stdout, stderr
       HOME="$tmp/home" \
       PATH="$PATH" \
       PI_CODING_AGENT_DIR="$tmp/agent" \
-      PI_TELEMETRY=0 \
       TERM=xterm \
       pi -p --no-session --offline --no-skills --no-prompt-templates \
       --no-themes --no-context-files --provider openrouter --model anthropic/claude-haiku-4.5 \

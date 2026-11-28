@@ -60,8 +60,8 @@ pi_image_version_from_json() {
   ' 2>/dev/null
 }
 
-# Comma-separated capability list recorded in the image environment. Empty for
-# legacy images that predate the metadata.
+# Comma-separated capability list recorded in the image environment. Empty
+# when the image records none; run.sh and serve.sh refuse such an image.
 pi_image_capabilities_from_json() {
   jq -r '
     def variant: .[0]?.variants[0]?;

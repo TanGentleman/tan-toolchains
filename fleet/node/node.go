@@ -82,7 +82,7 @@ func New(cfg Config) (*Node, error) {
 	if err := os.MkdirAll(filepath.Join(cfg.Data, "sessions"), 0o700); err != nil {
 		return nil, err
 	}
-	// Older versions made it 0755; closing the top closes everything below.
+	// MkdirAll keeps an existing folder's mode; closing the top closes everything below.
 	if err := os.Chmod(cfg.Data, 0o700); err != nil {
 		return nil, err
 	}

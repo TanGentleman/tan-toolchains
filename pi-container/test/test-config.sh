@@ -10,16 +10,6 @@ here=$(CDPATH= cd -- "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
-f="$tmp/config.json"
-
-legacy() { printf '%s' "$1" > "$f"; pi_config_legacy "$f"; }
-eq "PI_IMAGE='min'" "$(legacy '{"v":1,"image":"min"}')" "legacy image"
-eq "PI_EGRESS='offline' PI_MODEL_URL='http://gateway:8090'" "$(legacy '{"v":1,"egress":"offline","model_url":"http://gateway:8090"}')" "legacy egress and model_url"
-eq "" "$(legacy '{"v":1}')" "legacy file with no settings"
-eq "" "$(legacy 'not json')" "legacy file that is not JSON"
-eq "" "$(legacy '[1]')" "legacy file that is not an object"
-eq "" "$(pi_config_legacy "$tmp/absent.json")" "legacy absent file"
-
 eq "min flag" "$(pi_config_pick min zig full)" "flag beats env"
 eq "min env" "$(pi_config_pick '' min full)" "env beats default"
 eq "full default" "$(pi_config_pick '' '' full)" "default last"

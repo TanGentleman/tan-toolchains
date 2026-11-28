@@ -41,7 +41,7 @@ reset() {
   chmod 600 "$cfg/env"
   cp "$here/fixtures/tailscale/status.json" "$tmp/status.json"
   rm -rf "$world/fail"
-  rm -f "$cfg/config.json" "$world/images/pi-min_local.json"
+  rm -f "$world/images/pi-min_local.json"
   image zig,zigpeek,enforcer,netlock,pi
   : > "$tmp/calls"
 }
@@ -103,8 +103,6 @@ eq 0 "$(st)" "PI_IMAGE picks the min image: $(out)"
 contains "image pi-min:local is built" "$(out)" "the config's image is checked"
 reset; extra="PI_IMAGE=agent"; serve --check; extra=""
 refuses "bad PI_IMAGE" 'config: PI_IMAGE must be min, full or zig'
-reset; printf '{"v":1,"image":"min"}' > "$cfg/config.json"; serve --check
-refuses "a leftover config.json" "config.json is no longer read; set PI_IMAGE='min'"
 reset; printf 'OPENROUTER_API_KEY=sk-or-v1-real\n' > "$cfg/env"
 extra="PI_EGRESS=offline PI_MODEL_URL=http://gateway:8090"; serve --check; extra=""
 eq 0 "$(st)" "offline needs no GitHub token: $(out)"

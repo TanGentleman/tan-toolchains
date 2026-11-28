@@ -7,14 +7,6 @@ pi_config_default_image=full
 pi_config_default_egress=standard
 pi_config_default_model_url=openrouter
 
-# $PI_CONFIG_DIR/config.json set these until env vars replaced it. A file left
-# behind is refused, not ignored: ignoring an offline one would widen egress.
-# Prints the env assignments that replace it ("" when it holds none).
-pi_config_legacy() { # file
-  jq -r 'if type == "object" then [to_entries[] | select(.key == "image" or .key == "egress" or .key == "model_url")
-      | "PI_\(.key | ascii_upcase)=\(.value | tostring | @sh)"] | join(" ") else "" end' "$1" 2>/dev/null || true
-}
-
 # The effective value and where it came from. Prints "VALUE SOURCE".
 pi_config_pick() { # flag-value, env-value, default
   if [ -n "${1:-}" ]; then printf '%s flag\n' "$1"

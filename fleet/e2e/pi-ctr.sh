@@ -94,9 +94,6 @@ node=$(api GET /v1/node)
 restart_fleetd PI_IMAGE=agent
 api GET /v1/node | jq -e '.config_error | contains("PI_IMAGE must be")' >/dev/null || fail "GET /v1/node hides a bad PI_IMAGE"
 restart_fleetd
-printf '{"v":1,"image":"min"}\n' > "$home/.pic/config/config.json"
-api GET /v1/node | jq -e '.config_error | contains("no longer read")' >/dev/null || fail "GET /v1/node hides a leftover config.json"
-rm "$home/.pic/config/config.json"
 
 # Turn 1: clone o/r, start from dev, push to fleet/<sid>, report dev as base.
 sid=$(api POST /v1/sessions '{"harness":"pi-ctr","repo":"o/r","branch":"dev","key":"k1","prompt":"write one"}' | jq -r .sid)
