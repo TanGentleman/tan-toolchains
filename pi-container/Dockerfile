@@ -3,7 +3,7 @@
 # `min` is Pi without enforcer or gh, so it skips the Zig build. `agent` and
 # `agent-gh` are intermediate stages, not packs. images.sh maps pack names to
 # targets and tags. Keep the common pins here.
-ARG PI_VERSION=1.6.0
+ARG PI_VERSION=1.7.0
 ARG ZIG_VERSION=0.17.0
 ARG ZIG_PUBKEY=RWSGOq2NVecA2UPNdBUZykf1CCb147pkmdtYxgb3Ti+JO/wCYvhbAb/U
 ARG NVIM_VERSION=0.12.6
