@@ -4,19 +4,21 @@ Known problems, newest first. GitHub issues are off for this repo, so they
 live here. `pi-container/UPGRADES.md` still holds planned work; delete an
 entry here when it is fixed.
 
-## `pic --scratch` still mounts the current folder
+## Kranti agent runs get the GitHub token
 
-`--scratch` drops only the agent volume. Like plain `pic`, it mounts the
-current folder read-write (or the `--clone` volume), so it is not an empty
-container. Kranti relies on this: its studio runs `run.sh --scratch` in the
-task folder, and the agent writes `ops.json` and `questions.json` there.
+Kranti's studio runs `run.sh --scratch` on the `standard` egress profile, so
+`pi-proxy` tunnels GitHub and Pi gets `GITHUB_TOKEN`. Kranti agents only need
+the Convex site (`PI_EXTRA_TUNNEL`) and the model route; prod runs should not
+carry the token. For now the token in use has non-destructive access to one
+private repo.
 
-There is no mode with neither the agent volume nor a mount. Options:
+Not fixed. Options:
 
-- A `--no-mount` flag that pairs with `--scratch` and works in `/work` on the
-  container's disk.
-- Have `--scratch` mount nothing, and give Kranti a separate flag for the task
-  folder.
+- A profile at `$PI_CONFIG_DIR/egress/NAME.json` with
+  `{"v":1,"tunnel":[],"model_url":"any","github_token":false}`, and
+  `KRANTI_PIC_ARGS=--egress NAME` in Kranti's `.env.local`.
+- A `run.sh` option that drops the GitHub tunnel and token for one run, which
+  Kranti passes.
 
 ## Gemini 4 Neon fails with 402: Pi asks for ~943k output tokens
 
